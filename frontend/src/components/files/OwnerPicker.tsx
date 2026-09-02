@@ -23,8 +23,8 @@ export function OwnerPicker({
   showTransfer?: boolean;
   disabled?: boolean;
 }) {
-  const { data, isPending } = useQuery({ queryKey: ['active-users'], queryFn: usersApi.list });
-  const activeUsers = (data?.data ?? []).filter((item) => item.status === 'ACTIVE');
+  const { data, isPending } = useQuery({ queryKey: ['active-users'], queryFn: () => usersApi.list({ limit: 100 }) });
+  const activeUsers = (data?.data.items ?? []).filter((item) => item.status === 'ACTIVE');
   const selected = activeUsers.find((item) => item.id === value);
 
   if (disabled) {

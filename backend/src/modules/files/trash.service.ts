@@ -2,18 +2,17 @@ import { prisma } from '../../core/prisma.js';
 import { AppError, forbidden, notFound } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
 import { deleteStoredFile, removeResourceDirectory } from '../../core/file-storage.js';
-import { capabilities, toResourceDto, validateResourceName } from '../resources/resource.service.js';
+import {
+  assertNotLocked,
+  capabilities,
+  resourceInclude,
+  toResourceDto,
+  validateResourceName,
+} from '../resources/resource.service.js';
 import type { AuthUser } from '../auth/auth.service.js';
 import type { AuditContext } from './file.service.js';
 
 const ownerSelect = { id: true, displayName: true, email: true } as const;
-const resourceInclude = {
-  owner: { select: ownerSelect },
-  createdBy: { select: ownerSelect },
-  access: { select: { userId: true, accessLevel: true, allowDownload: true } },
-  _count: { select: { children: { where: { deletedAt: null } } } },
-} as const;
-
 function siblingKey(parentId: string | null, normalizedName: string): string {
   return `${parentId ?? 'ROOT'}:${normalizedName}`;
 }
@@ -55,6 +54,7 @@ async function collectSubtreeIds(rootId: string, includeDeleted: boolean): Promi
 export async function trashResource(id: string, user: AuthUser, audit: AuditContext) {
   const resource = await loadResource(id);
   if (resource.deletedAt) throw notFound('RESOURCE_NOT_FOUND', 'ทรัพยากรนี้อยู่ในถังขยะแล้ว');
+  assertNotLocked(resource);
   if (!capabilities(resource, user).canDelete) {
     throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์ลบทรัพยากรนี้', 403);
   }
@@ -153,6 +153,7 @@ export async function restoreResource(
 ) {
   const resource = await loadResource(id);
   if (!resource.deletedAt) throw new AppError('RESOURCE_NOT_TRASHED', 'ทรัพยากรนี้ไม่ได้อยู่ในถังขยะ', 400);
+  assertNotLocked(resource);
   if (!capabilities(resource, user).canDelete) {
     throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์กู้คืนทรัพยากรนี้', 403);
   }
@@ -244,6 +245,7 @@ export async function restoreResource(
 export async function describePermanentDelete(id: string, user: AuthUser) {
   const resource = await loadResource(id);
   if (!resource.deletedAt) throw new AppError('RESOURCE_NOT_TRASHED', 'ต้องย้ายไปถังขยะก่อน', 400);
+  assertNotLocked(resource);
   if (!capabilities(resource, user).canDelete) throw forbidden('ไม่มีสิทธิ์ลบทรัพยากรนี้');
 
   const ids = resource.type === 'FOLDER' ? await collectSubtreeIds(id, true) : [id];
@@ -264,6 +266,7 @@ export async function describePermanentDelete(id: string, user: AuthUser) {
 export async function permanentlyDelete(id: string, user: AuthUser, audit: AuditContext) {
   const resource = await loadResource(id);
   if (!resource.deletedAt) throw new AppError('RESOURCE_NOT_TRASHED', 'ต้องย้ายไปถังขยะก่อนลบถาวร', 400);
+  assertNotLocked(resource);
   if (!capabilities(resource, user).canDelete) {
     throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์ลบทรัพยากรนี้', 403);
   }

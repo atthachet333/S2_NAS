@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, FileArchive, Plus, Trash2, Upload, X } from 'lucide-react';
 import { Breadcrumb } from '@/components/files/Breadcrumb';
@@ -11,7 +11,10 @@ import { WorkspaceOnboarding } from '@/components/files/WorkspaceOnboarding';
 import { fileApi, resourceApi } from '@/lib/api';
 import { useDriveUi } from '@/hooks/useDriveUi';
 import { useToast } from '@/hooks/useToast';
-import { listDrive, toDriveEntry, type DriveEntry } from '@/lib/drive';
+import { applyMarks, listDrive, toDriveEntry, type DriveEntry } from '@/lib/drive';
+import { useWorkspaceMarks } from '@/hooks/useWorkspaceMarks';
+import { useWorkspaceActions } from '@/hooks/useWorkspaceActions';
+import { PinnedStrip } from '@/components/files/PinnedStrip';
 import { PreviewModal } from '@/components/files/PreviewModal';
 import { useUploadQueue } from '@/hooks/useUploadQueue';
 import { downloadResource, downloadZip } from '@/lib/download';
@@ -33,6 +36,8 @@ export default function FilesPage() {
   const { notify } = useToast();
   const { select, openDetails } = useDriveUi();
   const { enqueue, enqueueVersion } = useUploadQueue();
+  const { favoriteIds, pinnedIds, pinnedResources } = useWorkspaceMarks();
+  const { handleWorkspaceAction, workspaceDialogs } = useWorkspaceActions();
   const [preview, setPreview] = useState<DriveEntry | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [zipPending, setZipPending] = useState(false);
@@ -43,6 +48,7 @@ export default function FilesPage() {
   const versionPickerRef = useRef<HTMLInputElement>(null);
   const versionTargetRef = useRef<DriveEntry | null>(null);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const apiSort = SORT_API[sort];
 
@@ -72,6 +78,8 @@ export default function FilesPage() {
   }, [parentId, currentFolder?.data.name]);
 
   const action = (name: string, entry: DriveEntry | null) => {
+    // รายการโปรด ปักหมุด แท็ก หมายเหตุ สิทธิ์ ล็อก และประวัติ ใช้ตัวจัดการกลางร่วมกับหน้าอื่น
+    if (handleWorkspaceAction(name, entry)) return;
     if (name === 'open' && entry?.kind === 'folder') {
       navigate(`/files/${entry.id}`);
       return;
@@ -137,10 +145,23 @@ export default function FilesPage() {
 
   const folder = currentFolder?.data;
   const folderEntry = folder ? toDriveEntry(folder) : null;
-  const entries = data?.entries ?? [];
+  const entries = applyMarks(data?.entries ?? [], favoriteIds, pinnedIds);
   const selectedEntries = entries.filter((entry) => selectedIds.has(entry.id));
   const selectedDownloadMode = selectionDownloadMode(selectedEntries);
   const canCreateHere = folder ? folder.capabilities.canEdit : true;
+
+  const focusId = searchParams.get('focus');
+  useEffect(() => {
+    if (!focusId || entries.length === 0) return;
+    const match = entries.find((entry) => entry.id === focusId);
+    if (!match) return;
+    select(match);
+    openDetails('details');
+    // ล้างพารามิเตอร์ทิ้ง เพื่อไม่ให้รีเฟรชหน้าแล้วเด้งกลับมาเลือกซ้ำอีก
+    const next = new URLSearchParams(searchParams);
+    next.delete('focus');
+    setSearchParams(next, { replace: true });
+  }, [focusId, entries, select, openDetails, searchParams, setSearchParams]);
 
   useEffect(() => {
     const previewSelected = (event: Event) => {
@@ -198,6 +219,17 @@ export default function FilesPage() {
           </div>
         </header>
       )}
+
+      {/* แถบปักหมุดอยู่ที่รากเท่านั้น เพราะเป็นทางลัดข้ามโฟลเดอร์ ไม่ใช่เนื้อหาของที่นี่ */}
+      {parentId === null ? (
+        <PinnedStrip
+          resources={pinnedResources}
+          favoriteIds={favoriteIds}
+          pinnedIds={pinnedIds}
+          onOpen={(entry) => action('open', entry)}
+          onAction={action}
+        />
+      ) : null}
 
       {/* ---------- โซนเนื้อหา: ไม่มีกล่องใหญ่ครอบ การ์ดวางบนพื้นหน้าโดยตรง ---------- */}
       <section>
@@ -317,6 +349,8 @@ export default function FilesPage() {
           }}
         />
       ) : null}
+
+      {workspaceDialogs}
 
       {dialog ? (
         <ResourceDialog

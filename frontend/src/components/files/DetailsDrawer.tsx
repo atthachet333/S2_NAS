@@ -1,5 +1,10 @@
-import { useState, type ReactNode } from 'react';
-import { Download, Eye, Info, Lock, ShieldCheck, X } from 'lucide-react';
+import { type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Download, Eye, Info, Lock, MessageSquareText, Share2, ShieldCheck, Star, Tag, X } from 'lucide-react';
+import { workspaceApi } from '@/lib/api';
+import { ActivityTimeline } from './ActivityTimeline';
+import { useWorkspaceMarks } from '@/hooks/useWorkspaceMarks';
+import { useWorkspaceActions } from '@/hooks/useWorkspaceActions';
 import { useDriveUi } from '@/hooks/useDriveUi';
 import { getFileTypeStyle } from '@/lib/file-types';
 import { cn, formatBytes, formatDateTime, formatRelativeTime } from '@/lib/utils';
@@ -12,25 +17,34 @@ import { downloadResource } from '@/lib/download';
 import { isPreviewable } from '@/lib/file-types';
 import { useToast } from '@/hooks/useToast';
 
-type DetailsTab = 'details' | 'versions' | 'access' | 'activity';
-
 /**
- * แผงรายละเอียด V3
+ * แผงรายละเอียด V5
  *
- * แสดงเฉพาะข้อมูลจริงจาก Resource API เท่านั้น
- * แท็บเวอร์ชันถูกตัดออกจนกว่าระบบเวอร์ชันจะรองรับจริง
+ * แสดงเฉพาะข้อมูลจริงจาก API เท่านั้น ไม่มีข้อความสมมติ
+ * แท็บการเข้าถึงอ่านรายชื่อผู้มีสิทธิ์จริง และแท็บกิจกรรมอ่านบันทึกจริงของทรัพยากรนี้
  */
 export function DetailsDrawer() {
-  const { detailsOpen, closeDetails, selected } = useDriveUi();
+  const { detailsOpen, closeDetails, selected, detailsTab, setDetailsTab } = useDriveUi();
   const { notify } = useToast();
-  const [tab, setTab] = useState<DetailsTab>('details');
+  const { favoriteIds, toggleFavorite } = useWorkspaceMarks();
+  const { handleWorkspaceAction, workspaceDialogs } = useWorkspaceActions();
+  const tab = detailsTab;
+  const setTab = setDetailsTab;
+
+  // อ่านรายชื่อผู้เข้าถึงเมื่อเปิดแท็บนั้นจริง ๆ เท่านั้น
+  const access = useQuery({
+    queryKey: ['access', selected?.id],
+    queryFn: () => workspaceApi.access(selected!.id),
+    enabled: detailsOpen && tab === 'access' && Boolean(selected),
+  });
 
   if (!detailsOpen) return null;
 
   const isFolder = selected?.kind === 'folder';
+  const isFavorite = selected ? favoriteIds.has(selected.id) : false;
 
   // แท็บเวอร์ชันมีความหมายเฉพาะกับไฟล์เท่านั้น
-  const tabs: Array<{ id: DetailsTab; label: string }> = [
+  const tabs: Array<{ id: typeof tab; label: string }> = [
     { id: 'details', label: 'รายละเอียด' },
     ...(isFolder ? [] : [{ id: 'versions' as const, label: 'เวอร์ชัน' }]),
     { id: 'access', label: 'การเข้าถึง' },
@@ -122,6 +136,43 @@ export function DetailsDrawer() {
                     ) : null}
                   </div>
                 ) : null}
+                <div className="flex flex-wrap gap-1.5">
+                  <QuickAction
+                    icon={<Star className={cn('h-3.5 w-3.5', isFavorite && 'fill-current')} />}
+                    label={isFavorite ? 'อยู่ในรายการโปรด' : 'เพิ่มในรายการโปรด'}
+                    active={isFavorite}
+                    onClick={() => toggleFavorite(selected.id, !isFavorite)}
+                  />
+                  {selected.capabilities.canEdit ? (
+                    <QuickAction
+                      icon={<Tag className="h-3.5 w-3.5" />}
+                      label="แท็ก"
+                      onClick={() => handleWorkspaceAction('tags', selected)}
+                    />
+                  ) : null}
+                  {selected.capabilities.canEdit ? (
+                    <QuickAction
+                      icon={<MessageSquareText className="h-3.5 w-3.5" />}
+                      label="หมายเหตุ"
+                      onClick={() => handleWorkspaceAction('remark', selected)}
+                    />
+                  ) : null}
+                  {selected.capabilities.canShare ? (
+                    <QuickAction
+                      icon={<Share2 className="h-3.5 w-3.5" />}
+                      label="สิทธิ์เข้าถึง"
+                      onClick={() => handleWorkspaceAction('share', selected)}
+                    />
+                  ) : null}
+                  {selected.capabilities.canLock ? (
+                    <QuickAction
+                      icon={<Lock className="h-3.5 w-3.5" />}
+                      label={selected.isLocked ? 'ปลดล็อก' : 'ล็อก'}
+                      onClick={() => handleWorkspaceAction(selected.isLocked ? 'unlock' : 'lock', selected)}
+                    />
+                  ) : null}
+                </div>
+
               <dl className="space-y-3 text-[12.5px]">
                 <Row label="ผู้ดูแลพื้นที่">
                   <OwnerIdentity
@@ -161,7 +212,31 @@ export function DetailsDrawer() {
                   <Row label="เวอร์ชันปัจจุบัน">{`v${selected.currentVersion}`}</Row>
                 ) : null}
                 {selected.remark ? <Row label="หมายเหตุ">{selected.remark}</Row> : null}
+                {selected.tags.length > 0 ? (
+                  <Row label="แท็ก">
+                    <span className="flex flex-wrap justify-end gap-1">
+                      {selected.tags.map((tag) => (
+                        <span
+                          key={tag.id}
+                          className="rounded-md border border-line bg-[var(--s2-surface-soft)] px-1.5 py-0.5 text-[10.5px] font-normal text-navy-500"
+                        >
+                          {tag.name}
+                        </span>
+                      ))}
+                    </span>
+                  </Row>
+                ) : null}
                 <Row label="สถานะ">{selected.isLocked ? 'ล็อกไว้' : 'แก้ไขได้'}</Row>
+                {selected.isLocked ? (
+                  <>
+                    <Row label="เหตุผลที่ล็อก">{selected.lockReason ?? 'ไม่ได้ระบุ'}</Row>
+                    {selected.lockedByName ? (
+                      <Row label="ล็อกโดย" title={selected.lockedAt ? formatDateTime(selected.lockedAt) : undefined}>
+                        {selected.lockedByName}
+                      </Row>
+                    ) : null}
+                  </>
+                ) : null}
               </dl>
               </div>
             ) : tab === 'versions' ? (
@@ -179,15 +254,52 @@ export function DetailsDrawer() {
                   </div>
                 </div>
 
+                <div className="flex items-start gap-2.5 rounded-xl border border-line bg-[var(--s2-surface-soft)] px-3 py-2.5">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-navy-400" aria-hidden />
+                  <p className="text-[11.5px] leading-relaxed text-navy-500">
+                    {selected.visibility === 'RESTRICTED'
+                      ? 'จำกัดเฉพาะผู้ที่ได้รับสิทธิ์ ผู้ดูแลหลัก และผู้ดูแลระบบ'
+                      : 'ผู้ใช้ที่เปิดใช้งานในองค์กรเปิดดูได้ตามค่าเริ่มต้น'}
+                  </p>
+                </div>
+
                 <div>
-                  <p className="s2-section-title">สิทธิ์เพิ่มเติม</p>
-                  <div className="mt-2 flex items-start gap-2.5 rounded-xl border border-dashed border-line px-3 py-3">
-                    <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-navy-300" aria-hidden />
-                    <p className="text-[11.5px] leading-relaxed text-navy-400">
-                      ยังไม่มีการให้สิทธิ์รายบุคคลกับทรัพยากรนี้ ขณะนี้เข้าถึงได้ผ่านผู้ดูแลหลัก
-                      และสิทธิ์ตามบทบาทของผู้ใช้เท่านั้น
-                    </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="s2-section-title">ผู้ที่ได้รับสิทธิ์รายบุคคล</p>
+                    {selected.capabilities.canShare ? (
+                      <button
+                        type="button"
+                        onClick={() => handleWorkspaceAction('share', selected)}
+                        className="text-[11.5px] text-brand-700 underline-offset-2 hover:underline"
+                      >
+                        จัดการ
+                      </button>
+                    ) : null}
                   </div>
+
+                  {access.isPending ? (
+                    <p className="mt-2 text-[11.5px] text-navy-400">กำลังโหลด…</p>
+                  ) : (access.data?.data.grants.length ?? 0) === 0 ? (
+                    <p className="mt-2 rounded-xl border border-dashed border-line px-3 py-3 text-[11.5px] leading-relaxed text-navy-400">
+                      ยังไม่มีการให้สิทธิ์รายบุคคลกับทรัพยากรนี้
+                    </p>
+                  ) : (
+                    <ul className="mt-2 divide-y divide-line rounded-xl border border-line">
+                      {(access.data?.data.grants ?? []).map((grant) => (
+                        <li key={grant.userId} className="flex items-center gap-2 px-3 py-2.5">
+                          <div className="min-w-0 flex-1">
+                            <OwnerIdentity owner={grant.user} caption={grant.user.email} size="sm" />
+                          </div>
+                          <span className="shrink-0 rounded-md border border-line bg-[var(--s2-surface-soft)] px-1.5 py-0.5 text-[10.5px] text-navy-500">
+                            {grant.accessLevel === 'EDITOR' ? 'แก้ไขได้' : 'เปิดดูได้'}
+                          </span>
+                          {!grant.allowDownload ? (
+                            <span className="shrink-0 text-[10px] text-navy-400">ห้ามดาวน์โหลด</span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
 
                 <div>
@@ -216,11 +328,7 @@ export function DetailsDrawer() {
                 </div>
               </div>
             ) : (
-              <EmptyState
-                title="ยังไม่มีบันทึกกิจกรรม"
-                description="ประวัติการเข้าถึงและแก้ไขของทรัพยากรนี้จะแสดงเมื่อเปิดใช้งาน Activity Log"
-                className="py-10"
-              />
+              <ActivityTimeline resourceId={selected.id} />
             )}
           </div>
         </>
@@ -233,6 +341,8 @@ export function DetailsDrawer() {
           />
         </div>
       )}
+
+      {workspaceDialogs}
     </aside>
   );
 }
@@ -245,5 +355,34 @@ function Row({ label, children, title }: { label: string; children: ReactNode; t
         {children}
       </dd>
     </div>
+  );
+}
+
+function QuickAction({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11.5px] transition-colors',
+        active
+          ? 'border-amber-200 bg-amber-50 text-amber-700'
+          : 'border-line text-navy-500 hover:bg-navy-50 hover:text-navy-800',
+      )}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }

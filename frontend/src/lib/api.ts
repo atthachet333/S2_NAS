@@ -160,7 +160,8 @@ export const authApi = {
 
 export interface ResourceCapabilities {
   canView: boolean; canEdit: boolean; canRename: boolean; canMove: boolean;
-  canDelete: boolean; canShare: boolean; canDownload: boolean; canUploadVersion: boolean; canTransferOwner: boolean;
+  canDelete: boolean; canShare: boolean; canLock: boolean;
+  canDownload: boolean; canUploadVersion: boolean; canTransferOwner: boolean;
 }
 
 export interface ResourceDto {
@@ -176,6 +177,10 @@ export interface ResourceDto {
   currentVersion: number | null;
   /** ผู้อัปโหลดตามประวัติ ไม่ใช่เจ้าของไฟล์ */
   uploadedBy: { id: string; displayName: string; email: string } | null;
+  tags: TagDto[];
+  lockedAt: string | null;
+  lockReason: string | null;
+  lockedBy: { id: string; displayName: string; email: string } | null;
   capabilities: ResourceCapabilities;
 }
 
@@ -221,8 +226,66 @@ export const resourceApi = {
   remove: (id: string) => apiFetch<{ success: true; data: { deleted: true; deletedAt: string } }>(`/resources/${id}`, { method: 'DELETE' }),
 };
 
-export interface PublicUser { id: string; email: string; displayName: string; status: string }
-export const usersApi = { list: () => apiFetch<{ success: true; data: PublicUser[] }>('/users') };
+export type UserStatus = 'INVITED' | 'ACTIVE' | 'SUSPENDED' | 'DISABLED';
+
+export interface RoleRef { id: string; code: string; name: string }
+
+export interface PublicUser {
+  id: string;
+  email: string;
+  displayName: string;
+  type: string;
+  status: UserStatus;
+  mustChangePassword: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  roles: Array<{ role: RoleRef }>;
+}
+
+export interface UserPage { items: PublicUser[]; nextCursor: string | null; total: number }
+
+export interface UserListFilter {
+  q?: string;
+  status?: UserStatus;
+  roleCode?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export const usersApi = {
+  list: (filter: UserListFilter = {}) => {
+    const params = new URLSearchParams();
+    if (filter.q) params.set('q', filter.q);
+    if (filter.status) params.set('status', filter.status);
+    if (filter.roleCode) params.set('roleCode', filter.roleCode);
+    params.set('limit', String(filter.limit ?? 50));
+    if (filter.cursor) params.set('cursor', filter.cursor);
+    return apiFetch<{ success: true; data: UserPage }>(`/users?${params.toString()}`);
+  },
+  roles: () => apiFetch<{ success: true; data: Array<RoleRef & { permissions: Array<{ permission: { code: string; name: string } }> }> }>('/roles'),
+
+  /** รหัสผ่านชั่วคราวถูกส่งครั้งเดียวตอนตั้ง และไม่มีเส้นทางใดอ่านกลับมาได้อีก */
+  activate: (id: string, temporaryPassword: string) =>
+    apiFetch<{ success: true; data: PublicUser }>(`/users/${id}/activate`, {
+      method: 'POST',
+      body: JSON.stringify({ temporaryPassword }),
+    }),
+  resetPassword: (id: string, temporaryPassword: string) =>
+    apiFetch<{ success: true; data: PublicUser }>(`/users/${id}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ temporaryPassword }),
+    }),
+  disable: (id: string, acknowledgeHandover = false) =>
+    apiFetch<{ success: true; data: PublicUser }>(`/users/${id}/disable`, {
+      method: 'POST',
+      body: JSON.stringify({ acknowledgeHandover }),
+    }),
+  changeRoles: (id: string, roleCodes: string[]) =>
+    apiFetch<{ success: true; data: PublicUser }>(`/users/${id}/roles`, {
+      method: 'PATCH',
+      body: JSON.stringify({ roleCodes }),
+    }),
+};
 
 
 export interface DashboardSummaryResponse {
@@ -274,3 +337,137 @@ export const fileApi = {
 
 export interface OwnershipRow { user: { id: string; displayName: string; email: string }; ownedFolderCount: number }
 export const adminApi = { ownership: () => apiFetch<{ success: true; data: OwnershipRow[] }>('/admin/ownership') };
+
+
+/* ---------- Phase E: พื้นที่ทำงานองค์กร ---------- */
+
+export interface TagDto { id: string; name: string }
+
+export interface AccessGrantDto {
+  userId: string;
+  user: { id: string; displayName: string; email: string };
+  accessLevel: 'EDITOR' | 'VIEWER';
+  allowDownload: boolean;
+  userStatus: string;
+}
+
+export interface AccessListDto {
+  owner: { id: string; displayName: string; email: string };
+  visibility: 'ORGANIZATION' | 'RESTRICTED';
+  canManage: boolean;
+  grants: AccessGrantDto[];
+}
+
+export interface SharedResourceDto extends ResourceDto {
+  myAccessLevel: 'OWNER' | 'EDITOR' | 'VIEWER';
+  myAllowDownload: boolean;
+  sharedAt: string;
+}
+
+export interface SearchResultDto {
+  items: ResourceDto[];
+  nextCursor: string | null;
+  total: number;
+}
+
+export interface SearchFacetsDto {
+  owners: Array<{ id: string; displayName: string; email: string; resourceCount: number }>;
+  tags: Array<{ id: string; name: string; resourceCount: number }>;
+}
+
+export interface ActivityEntryDto {
+  id: string;
+  action: string;
+  resourceId: string | null;
+  actor: { id: string; displayName: string; email: string } | null;
+  metadata: unknown;
+  createdAt: string;
+  /** เห็นเฉพาะผู้ดูแลระบบ */
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}
+
+export interface ActivityPageDto { items: ActivityEntryDto[]; nextCursor: string | null }
+
+export interface HandoverRow {
+  user: { id: string; displayName: string; email: string; status: string };
+  ownedTotal: number;
+  ownedFolders: number;
+  ownedFiles: number;
+  needsHandover: boolean;
+}
+
+export interface HandoverPreviewDto {
+  from: { id: string; displayName: string; email: string; status: string };
+  to: { id: string; displayName: string; email: string; status: string };
+  total: number;
+  sample: Array<{ id: string; name: string; type: string; isLocked: boolean }>;
+  truncated: boolean;
+}
+
+export interface OffboardingCheckDto {
+  user: { id: string; displayName: string; email: string; status: string };
+  ownedTotal: number;
+  ownedFolders: number;
+  ownedFiles: number;
+  lockedByUser: number;
+  requiresHandover: boolean;
+}
+
+type Ok<T> = { success: true; data: T };
+
+export const workspaceApi = {
+  /* รายการโปรด */
+  favorites: () => apiFetch<Ok<ResourceDto[]>>('/favorites'),
+  addFavorite: (id: string) => apiFetch<Ok<ResourceDto>>(`/resources/${id}/favorite`, { method: 'POST' }),
+  removeFavorite: (id: string) => apiFetch<Ok<{ removed: boolean }>>(`/resources/${id}/favorite`, { method: 'DELETE' }),
+
+  /* ปักหมุด */
+  pins: () => apiFetch<Ok<ResourceDto[]>>('/pins'),
+  pin: (id: string) => apiFetch<Ok<ResourceDto>>(`/resources/${id}/pin`, { method: 'POST' }),
+  unpin: (id: string) => apiFetch<Ok<{ removed: boolean }>>(`/resources/${id}/pin`, { method: 'DELETE' }),
+
+  /* แท็ก */
+  tags: (q?: string) => apiFetch<Ok<Array<TagDto & { resourceCount: number }>>>(`/tags${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  addTag: (id: string, name: string) => apiFetch<Ok<ResourceDto>>(`/resources/${id}/tags`, { method: 'POST', body: JSON.stringify({ name }) }),
+  removeTag: (id: string, tagId: string) => apiFetch<Ok<ResourceDto>>(`/resources/${id}/tags/${tagId}`, { method: 'DELETE' }),
+
+  /* หมายเหตุ */
+  updateRemark: (id: string, remark: string | null) =>
+    apiFetch<Ok<ResourceDto>>(`/resources/${id}/remark`, { method: 'PATCH', body: JSON.stringify({ remark }) }),
+
+  /* ล็อก */
+  lock: (id: string, reason: string | null) =>
+    apiFetch<Ok<ResourceDto>>(`/resources/${id}/lock`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  unlock: (id: string) => apiFetch<Ok<ResourceDto>>(`/resources/${id}/lock`, { method: 'DELETE' }),
+
+  /* การแชร์ภายใน */
+  access: (id: string) => apiFetch<Ok<AccessListDto>>(`/resources/${id}/access`),
+  grantAccess: (id: string, input: { userId: string; accessLevel: 'EDITOR' | 'VIEWER'; allowDownload: boolean }) =>
+    apiFetch<Ok<AccessListDto>>(`/resources/${id}/access`, { method: 'POST', body: JSON.stringify(input) }),
+  revokeAccess: (id: string, userId: string) =>
+    apiFetch<Ok<AccessListDto>>(`/resources/${id}/access/${userId}`, { method: 'DELETE' }),
+  sharedWithMe: () => apiFetch<Ok<SharedResourceDto[]>>('/shared'),
+  shareTargets: (q: string) => apiFetch<Ok<Array<{ id: string; displayName: string; email: string }>>>(`/share-targets?q=${encodeURIComponent(q)}`),
+
+  /* ค้นหา */
+  search: (params: URLSearchParams) => apiFetch<Ok<SearchResultDto>>(`/search?${params.toString()}`),
+  facets: () => apiFetch<Ok<SearchFacetsDto>>('/search/facets'),
+
+  /* ประวัติ */
+  resourceActivity: (id: string, cursor?: string) =>
+    apiFetch<Ok<ActivityPageDto>>(`/resources/${id}/activity${cursor ? `?cursor=${cursor}` : ''}`),
+  activity: (params: URLSearchParams) => apiFetch<Ok<ActivityPageDto>>(`/activity?${params.toString()}`),
+  activityActions: () => apiFetch<Ok<Array<{ action: string; count: number }>>>('/activity/actions'),
+
+  /* ส่งมอบความรับผิดชอบ */
+  handoverOverview: () => apiFetch<Ok<HandoverRow[]>>('/handover/overview'),
+  handoverPreview: (fromUserId: string, toUserId: string) =>
+    apiFetch<Ok<HandoverPreviewDto>>(`/handover/preview?fromUserId=${fromUserId}&toUserId=${toUserId}`),
+  handoverTransfer: (fromUserId: string, toUserId: string) =>
+    apiFetch<Ok<{ transferred: number; from: { displayName: string }; to: { displayName: string } }>>('/handover/transfer', {
+      method: 'POST',
+      body: JSON.stringify({ fromUserId, toUserId }),
+    }),
+  offboardingCheck: (userId: string) => apiFetch<Ok<OffboardingCheckDto>>(`/users/${userId}/offboarding-check`),
+};

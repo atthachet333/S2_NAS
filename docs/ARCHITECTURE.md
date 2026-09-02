@@ -73,3 +73,30 @@ modules/documents/
 - Preview ของ Excel / Word เพิ่มเป็น renderer module ใหม่ได้โดยไม่แตะ storage layer
 - Search แยกเป็น service ของตัวเอง เพื่อรองรับการค้นหา invoice number / vendor ภายหลัง
 - OCR และ AI เป็น worker แยก อ่านไฟล์จาก storage แล้วเขียน metadata กลับเข้า database
+
+## Phase E modules
+
+`backend/src/modules/workspace/` holds the organization-workspace layer:
+
+| File | Responsibility |
+| --- | --- |
+| `workspace.service.ts` | favorites, pins, tags, remark, lock |
+| `sharing.service.ts` | internal access grants, `/shared`, share targets |
+| `search.service.ts` | permission-scoped search and facets |
+| `activity.service.ts` | resource timeline and admin activity log |
+| `handover.service.ts` | ownership overview, bulk transfer, offboarding check |
+| `workspace.routes.ts` | all Phase E HTTP routes |
+
+`resource.service.ts` remains the single source of `resourceInclude`, `toResourceDto`, `capabilities`, and `assertNotLocked`; the workspace, file, trash, zip, and dashboard modules all import from it.
+
+On the client, `useWorkspaceMarks` loads favorites and pins once per session and joins them onto whatever list is rendered, and `useWorkspaceActions` provides one shared set of Phase E actions and dialogs to Files, Favorites, Shared, Search, and the details drawer — so the same resource offers the same capabilities everywhere.
+
+Related documents: [SHARING.md](SHARING.md), [SEARCH.md](SEARCH.md), [TAGS.md](TAGS.md), [RESOURCE_LOCK.md](RESOURCE_LOCK.md), [HANDOVER.md](HANDOVER.md).
+
+## Phase F1 modules
+
+`backend/src/modules/users/user.service.ts` owns account lifecycle: listing with filters and pagination, activation, temporary-password reset, status changes, and role changes. `auth/password-policy.ts` holds the single password rule set, imported by both the admin path and self-service change-password so neither can be weaker than the other.
+
+On the client, `lib/user-text.ts` is a dependency-free module for status labels and action eligibility, and `components/admin/UserActionDialog.tsx` handles all four account actions in one place.
+
+See [USER_MANAGEMENT.md](USER_MANAGEMENT.md).

@@ -3,16 +3,15 @@ import { TopHeader } from './TopHeader';
 import { TopNav } from './TopNav';
 import { DetailsDrawer } from '@/components/files/DetailsDrawer';
 import { UploadPanel } from '@/components/files/UploadPanel';
-import { DriveUiProvider, useDriveUi } from '@/hooks/useDriveUi';
+import { DriveUiProvider } from '@/hooks/useDriveUi';
 import { CommandPalette } from './CommandPalette';
 
 function Shell() {
-  const { query, setQuery } = useDriveUi();
 
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
       <div className="sticky top-0 z-[var(--z-header)]">
-        <TopHeader query={query} onQueryChange={setQuery} />
+        <TopHeader />
         <TopNav />
       </div>
       <div className="flex min-h-0 flex-1">

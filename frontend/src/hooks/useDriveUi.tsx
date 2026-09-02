@@ -2,17 +2,19 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import { useViewMode, type ViewMode } from './useViewMode';
 import type { DriveEntry } from '@/lib/drive';
 
+export type DetailsTab = 'details' | 'versions' | 'access' | 'activity';
+
 interface DriveUiValue {
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
   detailsOpen: boolean;
-  openDetails: () => void;
+  openDetails: (tab?: DetailsTab) => void;
+  detailsTab: DetailsTab;
+  setDetailsTab: (tab: DetailsTab) => void;
   closeDetails: () => void;
   toggleDetails: () => void;
   selected: DriveEntry | null;
   select: (entry: DriveEntry | null) => void;
-  query: string;
-  setQuery: (value: string) => void;
 }
 
 const DriveUiContext = createContext<DriveUiValue | null>(null);
@@ -21,10 +23,14 @@ const DriveUiContext = createContext<DriveUiValue | null>(null);
 export function DriveUiProvider({ children }: { children: ReactNode }) {
   const [viewMode, setViewMode] = useViewMode();
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsTab, setDetailsTab] = useState<DetailsTab>('details');
   const [selected, setSelected] = useState<DriveEntry | null>(null);
-  const [query, setQuery] = useState('');
 
-  const openDetails = useCallback(() => setDetailsOpen(true), []);
+  // เปิดแผงพร้อมเลือกแท็บได้ เพื่อให้เมนู "ประวัติการใช้งาน" พาไปถึงที่หมายในคลิกเดียว
+  const openDetails = useCallback((tab?: DetailsTab) => {
+    if (tab) setDetailsTab(tab);
+    setDetailsOpen(true);
+  }, []);
   const closeDetails = useCallback(() => setDetailsOpen(false), []);
   const toggleDetails = useCallback(() => setDetailsOpen((v) => !v), []);
   const select = useCallback((entry: DriveEntry | null) => setSelected(entry), []);
@@ -35,14 +41,14 @@ export function DriveUiProvider({ children }: { children: ReactNode }) {
       setViewMode,
       detailsOpen,
       openDetails,
+      detailsTab,
+      setDetailsTab,
       closeDetails,
       toggleDetails,
       selected,
       select,
-      query,
-      setQuery,
     }),
-    [viewMode, setViewMode, detailsOpen, openDetails, closeDetails, toggleDetails, selected, select, query],
+    [viewMode, setViewMode, detailsOpen, openDetails, detailsTab, closeDetails, toggleDetails, selected, select],
   );
 
   return <DriveUiContext.Provider value={value}>{children}</DriveUiContext.Provider>;

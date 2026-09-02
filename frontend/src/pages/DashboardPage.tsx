@@ -10,7 +10,12 @@ import {
   FolderTree,
   HardDrive,
   Layers,
+  Lock,
+  LockOpen,
+  MessageSquareText,
   PenLine,
+  Share2,
+  Tag,
   Trash2,
   UserRoundCog,
   type LucideIcon,
@@ -23,6 +28,8 @@ import { ResourceSourceBadge } from '@/components/files/ResourceSourceBadge';
 import { StorageDonut } from '@/components/dashboard/StorageDonut';
 import { ErrorState, TextSkeleton } from '@/components/ui/States';
 import { formatBytes, formatRelativeTime } from '@/lib/utils';
+import { useWorkspaceMarks } from '@/hooks/useWorkspaceMarks';
+import { activityLabel } from '@/lib/activity-text';
 
 /** เหตุการณ์ที่ระบบบันทึกไว้จริง พร้อมไอคอนกำกับให้อ่านเร็วขึ้น */
 const ACTION_META: Record<string, { label: string; icon: LucideIcon; tone: string }> = {
@@ -38,6 +45,14 @@ const ACTION_META: Record<string, { label: string; icon: LucideIcon; tone: strin
   RESOURCE_TRASHED: { label: 'ย้ายไปถังขยะ', icon: Trash2, tone: 'text-red-500 bg-red-50' },
   RESOURCE_RESTORED: { label: 'กู้คืน', icon: RotateCcw, tone: 'text-emerald-600 bg-emerald-50' },
   RESOURCE_PERMANENTLY_DELETED: { label: 'ลบถาวร', icon: Trash2, tone: 'text-red-600 bg-red-50' },
+  RESOURCE_ACCESS_GRANTED: { label: 'ให้สิทธิ์เข้าถึง', icon: Share2, tone: 'text-amber-600 bg-amber-50' },
+  RESOURCE_ACCESS_REVOKED: { label: 'ยกเลิกสิทธิ์เข้าถึง', icon: Share2, tone: 'text-amber-600 bg-amber-50' },
+  RESOURCE_TAG_ADDED: { label: 'เพิ่มแท็ก', icon: Tag, tone: 'text-navy-500 bg-navy-50' },
+  RESOURCE_TAG_REMOVED: { label: 'ลบแท็ก', icon: Tag, tone: 'text-navy-500 bg-navy-50' },
+  RESOURCE_REMARK_UPDATED: { label: 'แก้ไขหมายเหตุ', icon: MessageSquareText, tone: 'text-navy-500 bg-navy-50' },
+  RESOURCE_LOCKED: { label: 'ล็อกทรัพยากร', icon: Lock, tone: 'text-amber-600 bg-amber-50' },
+  RESOURCE_UNLOCKED: { label: 'ปลดล็อกทรัพยากร', icon: LockOpen, tone: 'text-emerald-600 bg-emerald-50' },
+  OWNERSHIP_BULK_TRANSFERRED: { label: 'ส่งมอบความรับผิดชอบ', icon: UserRoundCog, tone: 'text-violet-500 bg-navy-50' },
 };
 
 export default function DashboardPage() {
@@ -48,6 +63,7 @@ export default function DashboardPage() {
   const totals = summary.data?.data.totals;
   const disk = storage.data?.data;
   const managedBytes = managed.data?.data.managedBytes;
+  const { pinnedResources: pinned } = useWorkspaceMarks();
 
   return (
     <div className="space-y-7">
@@ -95,6 +111,32 @@ export default function DashboardPage() {
       {/* ---------- เนื้อหาหลัก ---------- */}
       <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-6">
+          {/* ปักหมุดขึ้นก่อนของล่าสุด เพราะเป็นสิ่งที่ผู้ใช้เลือกเองว่ากำลังทำอยู่ */}
+          {pinned.length > 0 ? (
+            <section>
+              <SectionHeader title="ปักหมุดไว้" action={{ to: '/files', label: 'ไปที่ไฟล์' }} />
+              <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {pinned.map((resource) => {
+                  const entry = toDriveEntry(resource);
+                  return (
+                    <li key={resource.id}>
+                      <Link
+                        to={entry.kind === 'folder' ? `/files/${entry.id}` : `/files/${entry.parentId ?? ''}?focus=${entry.id}`}
+                        className="s2-surface flex items-center gap-2.5 p-3 transition-colors hover:border-brand-300"
+                      >
+                        <FileTypeIcon name={entry.name} kind={entry.kind} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[12.5px] font-medium text-navy-800">{entry.name}</span>
+                          <span className="block truncate text-[10.5px] text-navy-400">ผู้ดูแล {entry.ownerName}</span>
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
+
           <section>
             <SectionHeader title="ทรัพยากรล่าสุด" action={{ to: '/files', label: 'ดูทั้งหมด' }} />
 
@@ -167,7 +209,7 @@ export default function DashboardPage() {
               <ul className="mt-3 overflow-hidden rounded-2xl border border-[var(--s2-card-border)] bg-[var(--s2-layer-card)]">
                 {summary.data.data.recentActivity.map((event) => {
                   const meta = ACTION_META[event.action] ?? {
-                    label: event.action,
+                    label: activityLabel(event.action),
                     icon: PenLine,
                     tone: 'text-navy-500 bg-navy-50',
                   };

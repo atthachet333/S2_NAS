@@ -5,16 +5,10 @@ import { AppError, badRequest, notFound } from '../../core/errors.js';
 import { createStoredFileStream, statStoredFile } from '../../core/file-storage.js';
 import { prisma } from '../../core/prisma.js';
 import type { AuthUser } from '../auth/auth.service.js';
-import { capabilities, validateResourceName } from '../resources/resource.service.js';
+import { capabilities, resourceInclude, validateResourceName } from '../resources/resource.service.js';
 import type { AuditContext } from './file.service.js';
 
-const actorSelect = { id: true, displayName: true, email: true } as const;
-const include = {
-  owner: { select: actorSelect },
-  createdBy: { select: actorSelect },
-  access: { select: { userId: true, accessLevel: true, allowDownload: true } },
-  _count: { select: { children: { where: { deletedAt: null } } } },
-} as const;
+const include = resourceInclude;
 type ZipResource = Prisma.ResourceGetPayload<{ include: typeof include }>;
 
 export interface ZipPlanEntry {

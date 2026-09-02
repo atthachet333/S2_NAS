@@ -5,9 +5,13 @@ import { logger } from '../../core/logger.js';
 import type { AuthUser } from '../auth/auth.service.js';
 
 const ownerSelect = { id: true, displayName: true, email: true } as const;
-const resourceInclude = {
+/** นิยามความสัมพันธ์ชุดเดียวของทั้งระบบ ทุกโมดูลต้องใช้ตัวนี้
+ * มิฉะนั้น DTO จะขาดฟิลด์และ capabilities() จะคำนวณจากข้อมูลไม่ครบ */
+export const resourceInclude = {
   owner: { select: ownerSelect },
   createdBy: { select: ownerSelect },
+  lockedBy: { select: ownerSelect },
+  tags: { include: { tag: { select: { id: true, name: true } } } },
   access: { select: { userId: true, accessLevel: true, allowDownload: true } },
   _count: { select: { children: { where: { deletedAt: null } } } },
 } as const;
@@ -47,6 +51,19 @@ function isOrganizationVisible(resource: ResourceWithRelations): boolean {
   return resource.visibility === 'ORGANIZATION';
 }
 
+/**
+ * ทรัพยากรที่ถูกล็อกต้องแจ้งเหตุผลที่แท้จริง
+ *
+ * ถ้าปล่อยให้ตกไปเป็น "ไม่มีสิทธิ์" ผู้ดูแลหลักจะสับสน เพราะเขามีสิทธิ์เต็มอยู่แล้ว
+ * แต่ถูกกันด้วยการล็อกที่ตัวเขาเองเป็นคนตั้ง จึงต้องเรียกตรวจก่อนด่านสิทธิ์เสมอ
+ */
+export function assertNotLocked(resource: { isLocked: boolean; lockReason: string | null }): void {
+  if (!resource.isLocked) return;
+  throw new AppError('RESOURCE_LOCKED', 'ทรัพยากรนี้ถูกล็อกอยู่ ต้องปลดล็อกก่อนจึงจะแก้ไขได้', 423, {
+    lockReason: resource.lockReason,
+  });
+}
+
 export function capabilities(resource: ResourceWithRelations, user: AuthUser) {
   const admin = isAdmin(user);
   const level = directLevel(resource, user);
@@ -62,22 +79,41 @@ export function capabilities(resource: ResourceWithRelations, user: AuthUser) {
   const canDelete =
     user.permissions.includes('resources:delete') && (admin || level === 'OWNER');
 
-  // ไฟล์ที่องค์กรมองเห็นได้ ย่อมดาวน์โหลดได้ ไม่ต้องให้สิทธิ์รายคนซ้ำ
+  /**
+   * สิทธิ์ดาวน์โหลด
+   *
+   * การให้สิทธิ์รายบุคคลมีน้ำหนักเหนือค่าเริ่มต้นขององค์กรเสมอ
+   * ผู้ที่ถูกกำหนดเป็น VIEWER พร้อม allowDownload = false จึงเปิดดูได้ แต่ดาวน์โหลดไม่ได้
+   * แม้โฟลเดอร์จะเป็น ORGANIZATION ก็ตาม เพราะนั่นคือเจตนาของการจำกัดรายคน
+   */
+  const grant = resource.access.find((item) => item.userId === user.id);
   const canDownload =
     resource.type === 'FILE' &&
     canView &&
     (admin ||
-      orgVisible ||
       level === 'OWNER' ||
-      resource.access.some((item) => item.userId === user.id && item.allowDownload));
+      (grant ? grant.allowDownload : orgVisible));
+
+  /**
+   * การจัดการสิทธิ์เป็นการตัดสินใจเชิงการควบคุม ไม่ใช่การแก้ไขเนื้อหา
+   * จึงสงวนไว้ให้ผู้ดูแลหลัก ผู้ดูแลระบบ หรือผู้ที่ได้รับสิทธิ์ resources:share โดยเฉพาะ
+   * ผู้แก้ไข (EDITOR) ไม่ได้สิทธิ์นี้โดยอัตโนมัติ
+   */
+  const canShare =
+    admin || resource.ownerId === user.id || user.permissions.includes('resources:share');
+
+  /** การล็อกใช้เกณฑ์เดียวกับการจัดการสิทธิ์ แต่แยก permission ของตัวเอง */
+  const canLock =
+    admin || resource.ownerId === user.id || user.permissions.includes('resources:lock');
 
   return {
     canView,
-    canEdit: writer,
+    canEdit: writer && !resource.isLocked,
     canRename: writer && !resource.isLocked,
     canMove: writer && !resource.isLocked,
     canDelete: canDelete && !resource.isLocked,
-    canShare: writer,
+    canShare,
+    canLock,
     canDownload,
     /** อัปโหลดเวอร์ชันใหม่ถือเป็นการแก้ไขเนื้อหา จึงใช้เกณฑ์เดียวกับการแก้ไข */
     canUploadVersion: resource.type === 'FILE' && writer && !resource.isLocked,
@@ -93,6 +129,9 @@ export function toResourceDto(resource: ResourceWithRelations, user: AuthUser) {
     externalUrl: resource.externalUrl, externalProvider: resource.externalProvider,
     remark: resource.remark, isLocked: resource.isLocked, itemCount: resource._count.children,
     visibility: resource.visibility, currentVersion: resource.currentVersion,
+    tags: resource.tags.map((link) => ({ id: link.tag.id, name: link.tag.name })),
+    lockedAt: resource.lockedAt, lockReason: resource.lockReason,
+    lockedBy: resource.lockedBy ?? null,
     uploadedBy: resource.createdBy ? { id: resource.createdBy.id, displayName: resource.createdBy.displayName, email: resource.createdBy.email } : null,
     createdAt: resource.createdAt, updatedAt: resource.updatedAt,
     capabilities: capabilities(resource, user),
@@ -114,6 +153,7 @@ async function assertView(resource: ResourceWithRelations, user: AuthUser): Prom
 
 async function assertEdit(resource: ResourceWithRelations, user: AuthUser): Promise<void> {
   await assertView(resource, user);
+  assertNotLocked(resource);
   if (!capabilities(resource, user).canEdit) throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์แก้ไขทรัพยากร', 403);
 }
 
@@ -236,6 +276,7 @@ export async function transferOwner(id: string, user: AuthUser, newOwnerId: stri
 
 export async function softDeleteResource(id: string, user: AuthUser, audit: { ipAddress?: string; userAgent?: string }) {
   const resource = await findResource(id);
+  assertNotLocked(resource);
   if (!capabilities(resource, user).canDelete) throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์ลบทรัพยากร', 403);
   const activeChildren = await prisma.resource.count({ where: { parentId: id, deletedAt: null } });
   if (activeChildren) throw badRequest('FOLDER_NOT_EMPTY', 'ต้องย้ายหรือลบรายการภายในโฟลเดอร์ก่อน');

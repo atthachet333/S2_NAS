@@ -10,18 +10,17 @@ import {
   stageUpload,
   type StagedFile,
 } from '../../core/file-storage.js';
-import { capabilities, toResourceDto, validateResourceName } from '../resources/resource.service.js';
+import {
+  assertNotLocked,
+  capabilities,
+  resourceInclude,
+  toResourceDto,
+  validateResourceName,
+} from '../resources/resource.service.js';
 import { resolveMimeType, sanitizeFileName } from './file-security.js';
 import type { AuthUser } from '../auth/auth.service.js';
 
 const ownerSelect = { id: true, displayName: true, email: true } as const;
-const resourceInclude = {
-  owner: { select: ownerSelect },
-  createdBy: { select: ownerSelect },
-  access: { select: { userId: true, accessLevel: true, allowDownload: true } },
-  _count: { select: { children: { where: { deletedAt: null } } } },
-} as const;
-
 export type NameConflictPolicy = 'FAIL' | 'NEW_VERSION' | 'KEEP_BOTH';
 
 export interface UploadInput {
@@ -66,6 +65,7 @@ async function assertUploadTarget(parentId: string | null, user: AuthUser) {
   const parent = await loadResource(parentId);
   if (parent.deletedAt) throw notFound('FOLDER_NOT_FOUND', 'ไม่พบโฟลเดอร์ปลายทาง');
   if (parent.type !== 'FOLDER') throw notFound('FOLDER_NOT_FOUND', 'ปลายทางไม่ใช่โฟลเดอร์');
+  assertNotLocked(parent);
   if (!capabilities(parent, user).canEdit) {
     throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์อัปโหลดไฟล์ในโฟลเดอร์นี้', 403);
   }
@@ -273,6 +273,7 @@ export async function uploadVersion(
   const resource = await loadResource(resourceId);
   if (resource.deletedAt) throw notFound('RESOURCE_NOT_FOUND', 'ไม่พบทรัพยากร');
   if (resource.type !== 'FILE') throw new AppError('INVALID_RESOURCE_TYPE', 'อัปโหลดเวอร์ชันได้เฉพาะไฟล์', 400);
+  assertNotLocked(resource);
   if (!capabilities(resource, user).canUploadVersion) {
     throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์อัปโหลดเวอร์ชันใหม่ของไฟล์นี้', 403);
   }

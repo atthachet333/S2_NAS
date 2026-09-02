@@ -55,27 +55,32 @@ enum ResourceAccessLevel {
 }
 
 model User {
-  id                 String            @id @default(cuid())
-  email              String            @unique @db.VarChar(191)
-  displayName        String            @db.VarChar(191)
-  passwordHash       String?           @db.VarChar(191)
-  type               UserType          @default(HUMAN)
-  status             UserStatus        @default(INVITED)
-  mustChangePassword Boolean           @default(true)
-  tokenVersion       Int               @default(0)
+  id                 String               @id @default(cuid())
+  email              String               @unique @db.VarChar(191)
+  displayName        String               @db.VarChar(191)
+  passwordHash       String?              @db.VarChar(191)
+  type               UserType             @default(HUMAN)
+  status             UserStatus           @default(INVITED)
+  mustChangePassword Boolean              @default(true)
+  tokenVersion       Int                  @default(0)
   lastLoginAt        DateTime?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
   roles              UserRole[]
   refreshTokens      RefreshToken[]
   activityLogs       ActivityLog[]
-  ownedResources     Resource[]        @relation("ResourceOwner")
-  createdResources   Resource[]        @relation("ResourceCreator")
-  updatedResources   Resource[]        @relation("ResourceUpdater")
-  deletedResources   Resource[]        @relation("ResourceDeleter")
-  createdVersions    ResourceVersion[] @relation("ResourceVersionCreator")
-  resourceAccess     ResourceAccess[]  @relation("ResourceAccessUser")
-  grantedAccess      ResourceAccess[]  @relation("ResourceAccessCreator")
+  ownedResources     Resource[]           @relation("ResourceOwner")
+  createdResources   Resource[]           @relation("ResourceCreator")
+  updatedResources   Resource[]           @relation("ResourceUpdater")
+  deletedResources   Resource[]           @relation("ResourceDeleter")
+  lockedResources    Resource[]           @relation("ResourceLocker")
+  favorites          UserFavorite[]       @relation("UserFavorites")
+  pins               UserPinnedResource[] @relation("UserPins")
+  createdTags        Tag[]                @relation("TagCreator")
+  taggedResources    ResourceTag[]        @relation("ResourceTagCreator")
+  createdVersions    ResourceVersion[]    @relation("ResourceVersionCreator")
+  resourceAccess     ResourceAccess[]     @relation("ResourceAccessUser")
+  grantedAccess      ResourceAccess[]     @relation("ResourceAccessCreator")
 
   @@index([status])
   @@index([createdAt])
@@ -83,43 +88,51 @@ model User {
 }
 
 model Resource {
-  id               String             @id @default(cuid())
+  id               String               @id @default(cuid())
   type             ResourceType
-  name             String             @db.VarChar(191)
-  normalizedName   String             @db.VarChar(191)
-  siblingKey       String             @unique @db.VarChar(500)
+  name             String               @db.VarChar(191)
+  normalizedName   String               @db.VarChar(191)
+  siblingKey       String               @unique @db.VarChar(500)
   parentId         String?
   ownerId          String
   createdById      String
   updatedById      String?
-  sourceType       ResourceSourceType @default(MANUAL)
-  mimeType         String?            @db.VarChar(191)
-  extension        String?            @db.VarChar(32)
+  sourceType       ResourceSourceType   @default(MANUAL)
+  mimeType         String?              @db.VarChar(191)
+  extension        String?              @db.VarChar(32)
   size             BigInt?
-  storageKey       String?            @unique @db.VarChar(500)
-  checksum         String?            @db.VarChar(191)
-  externalUrl      String?            @db.Text
-  externalProvider String?            @db.VarChar(100)
-  remark           String?            @db.VarChar(1000)
-  isLocked         Boolean            @default(false)
+  storageKey       String?              @unique @db.VarChar(500)
+  checksum         String?              @db.VarChar(191)
+  externalUrl      String?              @db.Text
+  externalProvider String?              @db.VarChar(100)
+  remark           String?              @db.VarChar(1000)
+  isLocked         Boolean              @default(false)
+  /// ใครล็อก เมื่อไร และเพราะอะไร - สำคัญมากกับเอกสารบัญชีที่ปิดงบแล้ว
+  lockedAt         DateTime?
+  lockedById       String?
+  lockReason       String?              @db.VarChar(500)
   /// นโยบายการมองเห็น สืบทอดจากโฟลเดอร์แม่เมื่อสร้างทรัพยากรใหม่
-  visibility       ResourceVisibility @default(ORGANIZATION)
+  visibility       ResourceVisibility   @default(ORGANIZATION)
   /// เลขเวอร์ชันปัจจุบันของไฟล์ (สะท้อนจาก ResourceVersion เพื่อให้ listing เร็ว)
   currentVersion   Int?
   deletedAt        DateTime?
   /// ผู้ที่ย้ายทรัพยากรไปถังขยะ และตำแหน่งเดิมก่อนถูกลบ ใช้สำหรับการกู้คืน
   deletedById      String?
-  trashedFromId    String?            @db.VarChar(191)
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-  parent           Resource?          @relation("ResourceHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
-  children         Resource[]         @relation("ResourceHierarchy")
-  owner            User               @relation("ResourceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  createdBy        User               @relation("ResourceCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy        User?              @relation("ResourceUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
-  deletedBy        User?              @relation("ResourceDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
+  trashedFromId    String?              @db.VarChar(191)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  parent           Resource?            @relation("ResourceHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children         Resource[]           @relation("ResourceHierarchy")
+  owner            User                 @relation("ResourceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  createdBy        User                 @relation("ResourceCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy        User?                @relation("ResourceUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedBy        User?                @relation("ResourceDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
+  lockedBy         User?                @relation("ResourceLocker", fields: [lockedById], references: [id], onDelete: SetNull)
   access           ResourceAccess[]
   versions         ResourceVersion[]
+  tags             ResourceTag[]
+  favoritedBy      UserFavorite[]
+  pinnedBy         UserPinnedResource[]
 
   @@index([parentId])
   @@index([ownerId])
@@ -130,6 +143,8 @@ model Resource {
   @@index([parentId, type, deletedAt])
   @@index([checksum])
   @@index([visibility])
+  @@index([normalizedName])
+  @@index([isLocked])
   @@map("resources")
 }
 
@@ -155,6 +170,73 @@ model ResourceVersion {
   @@index([checksum])
   @@index([createdById])
   @@map("resource_versions")
+}
+
+/// รายการโปรดส่วนบุคคล - เป็นความชอบของผู้ใช้ ไม่ใช่การให้สิทธิ์
+model UserFavorite {
+  id         String   @id @default(cuid())
+  userId     String
+  resourceId String
+  createdAt  DateTime @default(now())
+
+  user     User     @relation("UserFavorites", fields: [userId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, resourceId])
+  @@index([userId])
+  @@index([resourceId])
+  @@map("user_favorites")
+}
+
+/// การปักหมุดเพื่อให้เข้าถึงเร็วจากหน้าไฟล์ แยกความหมายจากรายการโปรด
+model UserPinnedResource {
+  id         String   @id @default(cuid())
+  userId     String
+  resourceId String
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  user     User     @relation("UserPins", fields: [userId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, resourceId])
+  @@index([userId, sortOrder])
+  @@index([resourceId])
+  @@map("user_pinned_resources")
+}
+
+/// แท็กระดับองค์กร ใช้ร่วมกันทั้งระบบ
+/// normalizedName กันชื่อซ้ำแบบไม่สนตัวพิมพ์ใหญ่เล็กและช่องว่างส่วนเกิน
+model Tag {
+  id             String   @id @default(cuid())
+  name           String   @db.VarChar(64)
+  normalizedName String   @unique @db.VarChar(64)
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  createdBy User          @relation("TagCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  resources ResourceTag[]
+
+  @@index([normalizedName])
+  @@map("tags")
+}
+
+/// ความสัมพันธ์ระหว่างทรัพยากรกับแท็ก
+model ResourceTag {
+  resourceId  String
+  tagId       String
+  createdById String
+  createdAt   DateTime @default(now())
+
+  resource  Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdBy User     @relation("ResourceTagCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@id([resourceId, tagId])
+  @@index([tagId])
+  @@index([resourceId])
+  @@map("resource_tags")
 }
 
 model ResourceAccess {

@@ -1,6 +1,6 @@
 import { prisma } from '../../core/prisma.js';
 import { forbidden } from '../../core/errors.js';
-import { toResourceDto } from '../resources/resource.service.js';
+import { resourceInclude, toResourceDto } from '../resources/resource.service.js';
 import type { AuthUser } from '../auth/auth.service.js';
 
 /**
@@ -9,13 +9,6 @@ import type { AuthUser } from '../auth/auth.service.js';
  * อ่านอย่างเดียวทั้งหมด และคืนเฉพาะข้อมูลที่มีอยู่จริงในฐานข้อมูล
  * ไม่มีการประมาณค่า ไม่มีตัวเลขสมมติ และไม่เปิดเผยเส้นทางไฟล์จริงบนเซิร์ฟเวอร์
  */
-
-const resourceInclude = {
-  owner: { select: { id: true, displayName: true, email: true } },
-  createdBy: { select: { id: true, displayName: true, email: true } },
-  access: { select: { userId: true, accessLevel: true, allowDownload: true } },
-  _count: { select: { children: { where: { deletedAt: null } } } },
-} as const;
 
 /** เหตุการณ์ที่เกี่ยวกับทรัพยากรเท่านั้น ไม่รวมเหตุการณ์ยืนยันตัวตน */
 const RESOURCE_ACTIONS = [

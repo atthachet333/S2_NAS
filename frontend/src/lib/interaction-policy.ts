@@ -43,16 +43,36 @@ export const EMPTY_WORKSPACE_ACTIONS = [
   { id: 'web-link', label: 'เพิ่มลิงก์', disabled: true },
 ] as const;
 
+/**
+ * เมนูส่วนตัว: โปรดและปักหมุดเป็นของผู้ใช้แต่ละคน ใครก็ตามที่เปิดดูได้ย่อมทำได้
+ * จึงไม่ผูกกับสิทธิ์แก้ไข และแสดงทั้งกับโฟลเดอร์และไฟล์เสมอ
+ */
+function personalActions(entry: DriveEntry): string[] {
+  return [entry.favorite ? 'unfavorite' : 'favorite', entry.pinned ? 'unpin' : 'pin'];
+}
+
+/** เมนูจัดการข้อมูลกำกับ ขึ้นกับสิทธิ์จริงที่เซิร์ฟเวอร์คำนวณมาให้ */
+function metadataActions(entry: DriveEntry): string[] {
+  return [
+    ...(entry.capabilities.canEdit ? ['tags', 'remark'] : []),
+    ...(entry.capabilities.canShare ? ['share'] : []),
+    ...(entry.capabilities.canLock ? [entry.isLocked ? 'unlock' : 'lock'] : []),
+  ];
+}
+
 export function visibleResourceActions(entry: DriveEntry): string[] {
   if (entry.kind === 'folder') {
     return [
       'open',
       ...(entry.capabilities.canEdit ? ['create-folder-inside', 'upload-here'] : []),
       'download-zip',
+      ...personalActions(entry),
       ...(entry.capabilities.canRename ? ['rename'] : []),
       ...(entry.capabilities.canMove ? ['move'] : []),
+      ...metadataActions(entry),
       ...(entry.capabilities.canTransferOwner ? ['owner'] : []),
       'details',
+      'activity',
       ...(entry.capabilities.canDelete ? ['trash'] : []),
     ];
   }
@@ -60,9 +80,12 @@ export function visibleResourceActions(entry: DriveEntry): string[] {
     'preview',
     ...(entry.capabilities.canDownload ? ['download'] : []),
     ...(entry.capabilities.canUploadVersion ? ['new-version'] : []),
+    ...personalActions(entry),
     ...(entry.capabilities.canRename ? ['rename'] : []),
     ...(entry.capabilities.canMove ? ['move'] : []),
+    ...metadataActions(entry),
     'details',
+    'activity',
     ...(entry.capabilities.canDelete ? ['trash'] : []),
   ];
 }

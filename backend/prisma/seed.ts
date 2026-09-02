@@ -10,12 +10,17 @@ const permissions = [
   ['resources:read', 'ดูทรัพยากร'], ['resources:write', 'สร้างและแก้ไขทรัพยากร'],
   ['resources:delete', 'ลบทรัพยากร'], ['admin:access', 'เข้าพื้นที่ผู้ดูแลระบบ'],
   ['resources:owner:manage', 'โอนเจ้าของทรัพยากร'],
+  ['resources:share', 'จัดการสิทธิ์เข้าถึงทรัพยากร'],
+  ['resources:lock', 'ล็อกและปลดล็อกทรัพยากร'],
 ] as const;
 
 const rolePermissions: Record<string, string[]> = {
   SUPER_ADMIN: permissions.map(([code]) => code),
   ADMIN: permissions.map(([code]) => code).filter((code) => code !== 'roles:manage'),
-  MANAGER: ['users:read', 'resources:read', 'resources:write', 'resources:delete', 'resources:owner:manage'],
+  MANAGER: [
+    'users:read', 'resources:read', 'resources:write', 'resources:delete',
+    'resources:owner:manage', 'resources:share', 'resources:lock',
+  ],
   MEMBER: ['resources:read', 'resources:write'],
   VIEWER: ['resources:read'],
 };

@@ -161,6 +161,45 @@ HTTP status: `200` เมื่อ `ok` หรือ `degraded`, `503` เมื
 }
 ```
 
+## Phase E — พื้นที่ทำงานองค์กร
+
+| Method | Path | หมายเหตุ |
+| --- | --- | --- |
+| `GET` | `/api/favorites` | รายการโปรดของผู้เรียก |
+| `POST` / `DELETE` | `/api/resources/:id/favorite` | เพิ่ม/นำออกจากรายการโปรด |
+| `GET` | `/api/pins` | รายการที่ปักหมุด |
+| `POST` / `DELETE` | `/api/resources/:id/pin` | ปักหมุด/ยกเลิก |
+| `GET` | `/api/tags?q=` | แท็กพร้อมจำนวนที่ผู้เรียกเห็นได้ |
+| `POST` | `/api/resources/:id/tags` | ต้องมี `canEdit` และ `resources:tag:create` เมื่อสร้างแท็กใหม่ |
+| `DELETE` | `/api/resources/:id/tags/:tagId` | |
+| `PATCH` | `/api/resources/:id/remark` | เนื้อหาหมายเหตุไม่ถูกบันทึกลง log |
+| `POST` / `DELETE` | `/api/resources/:id/lock` | ต้องมี `canLock` |
+| `GET` / `POST` | `/api/resources/:id/access` | อ่านต้องมี `canView`, แก้ไขต้องมี `canShare` |
+| `DELETE` | `/api/resources/:id/access/:userId` | |
+| `GET` | `/api/shared` | เฉพาะที่ถูกแชร์รายบุคคล ไม่รวม ORGANIZATION |
+| `GET` | `/api/share-targets?q=` | ผู้ใช้ ACTIVE เท่านั้น |
+| `GET` | `/api/search` | กรองสิทธิ์ใน WHERE ก่อนดึงผล |
+| `GET` | `/api/search/facets` | ตัวเลือกกรองตามสิ่งที่ผู้เรียกเห็นได้ |
+| `GET` | `/api/resources/:id/activity` | ต้องมี `canView`; ไม่คืน IP/user agent ให้ผู้ใช้ทั่วไป |
+| `GET` | `/api/activity`, `/api/activity/actions` | เฉพาะผู้ดูแล |
+| `GET` | `/api/handover/overview`, `/api/handover/preview` | ต้องมี `resources:owner:manage` |
+| `POST` | `/api/handover/transfer` | โอนใน transaction เดียว |
+| `GET` | `/api/users/:id/offboarding-check` | |
+
+## Phase F1 — จัดการบัญชีผู้ใช้
+
+| Method | Path | หมายเหตุ |
+| --- | --- | --- |
+| `GET` | `/api/users?q=&status=&roleCode=&limit=&cursor=` | ต้องมี `users:read`; คืน `{ items, nextCursor, total }` |
+| `POST` | `/api/users` | สร้างบัญชีสถานะ INVITED |
+| `PATCH` | `/api/users/:id` | แก้ชื่อ สถานะ หรือบทบาท |
+| `POST` | `/api/users/:id/activate` | ตั้งรหัสผ่านชั่วคราว บังคับเปลี่ยนเมื่อเข้าใช้ครั้งแรก |
+| `POST` | `/api/users/:id/reset-password` | ตั้งรหัสชั่วคราวใหม่ ตัด session เดิม |
+| `POST` | `/api/users/:id/disable` | กันปิดบัญชีที่ยังถือทรัพยากร |
+| `PATCH` | `/api/users/:id/roles` | เฉพาะบทบาทที่มีอยู่จริง |
+
+รหัสผ่านไม่เคยถูกส่งกลับในผลลัพธ์ ไม่ถูกบันทึกลง log และไม่มี endpoint ใดอ่านกลับมาได้
+
 ## Endpoint ตามแผน
 
 | Phase | Endpoint |
@@ -182,4 +221,18 @@ HTTP status: `200` เมื่อ `ok` หรือ `degraded`, `503` เมื
 | `RESOURCE_ACCESS_DENIED` | 403 | ไม่มีสิทธิ์ต่อ resource หรือ descendant |
 | `ZIP_TOO_LARGE` | 413 | ZIP เกินจำนวนหรือขนาดรวมที่กำหนด |
 | `TRASH_RESTORE_CONFLICT` | 409 | ต้องตั้งชื่อใหม่หรือเลือกปลายทาง restore |
+| `RESOURCE_LOCKED` | 423 | ทรัพยากรถูกล็อก ตรวจก่อนด่านสิทธิ์เสมอ |
+| `RESOURCE_ALREADY_LOCKED` | 409 | ล็อกซ้ำ |
+| `LOCK_DENIED` | 403 | ไม่มีสิทธิ์ล็อก/ปลดล็อก |
+| `SHARE_DENIED` | 403 | ไม่มีสิทธิ์จัดการสิทธิ์เข้าถึง |
+| `SHARE_TARGET_INACTIVE` | 400 | แชร์ได้เฉพาะผู้ใช้ ACTIVE |
+| `SHARE_INVALID_TARGET` | 400 | ผู้ดูแลหลักมีสิทธิ์เต็มอยู่แล้ว |
+| `TAG_CREATE_DENIED` | 403 | ไม่มีสิทธิ์สร้างแท็กใหม่ |
+| `HANDOVER_SAME_USER` | 400 | ผู้โอนและผู้รับต้องต่างคน |
+| `HANDOVER_TARGET_INACTIVE` | 400 | ผู้รับต้องเป็นบัญชี ACTIVE |
+| `USER_STILL_OWNS_RESOURCES` | 409 | ปิดบัญชีที่ยังถือทรัพยากร ต้องยืนยัน |
+| `WEAK_PASSWORD` | 400 | รหัสผ่านไม่ผ่านนโยบาย |
+| `USER_ALREADY_ACTIVE` | 409 | บัญชีเปิดใช้งานอยู่แล้ว |
+| `LAST_SUPER_ADMIN` | 409 | ต้องเหลือผู้ดูแลสูงสุดที่เปิดใช้งานอย่างน้อยหนึ่งคน |
+| `CANNOT_DISABLE_SELF` | 400 | ปิดบัญชีตัวเองไม่ได้ |
 | `INTERNAL_ERROR` | 500 | ข้อผิดพลาดภายในระบบ |

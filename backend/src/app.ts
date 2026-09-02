@@ -19,6 +19,7 @@ import { usersRoutes } from './modules/users/users.routes.js';
 import { resourceRoutes } from './modules/resources/resource.routes.js';
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js';
 import { fileRoutes } from './modules/files/file.routes.js';
+import { workspaceRoutes } from './modules/workspace/workspace.routes.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -58,6 +59,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(resourceRoutes);
       await api.register(dashboardRoutes);
       await api.register(fileRoutes);
+      await api.register(workspaceRoutes);
     },
     { prefix: '/api' },
   );

@@ -2,7 +2,8 @@ import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Download, Eye, FileArchive, FileText, FileUp, FolderInput, FolderPlus, FolderUp,
-  Globe2, Info, Link2, PenLine, Sheet, SquareArrowOutUpRight, Trash2, Upload, UserRoundCog,
+  Globe2, History, Info, Link2, Lock, LockOpen, MessageSquareText, PenLine, Pin, PinOff,
+  Share2, Sheet, SquareArrowOutUpRight, Star, StarOff, Tag, Trash2, Upload, UserRoundCog,
 } from 'lucide-react';
 import { MenuItem, MenuLabel, MenuSeparator } from '@/components/ui/Menu';
 import type { DriveEntry } from '@/lib/drive';
@@ -87,6 +88,26 @@ export function ContextMenu({
   const allowed = entry ? new Set(visibleResourceActions(entry)) : new Set<string>();
   const run = (action: string) => () => { onAction(action, entry); onClose(); };
 
+  const personal = (
+    <>
+      {allowed.has('favorite') ? <MenuItem icon={<Star className="h-4 w-4" />} label="เพิ่มในรายการโปรด" onSelect={run('favorite')} /> : null}
+      {allowed.has('unfavorite') ? <MenuItem icon={<StarOff className="h-4 w-4" />} label="นำออกจากรายการโปรด" onSelect={run('unfavorite')} /> : null}
+      {allowed.has('pin') ? <MenuItem icon={<Pin className="h-4 w-4" />} label="ปักหมุด" onSelect={run('pin')} /> : null}
+      {allowed.has('unpin') ? <MenuItem icon={<PinOff className="h-4 w-4" />} label="ยกเลิกปักหมุด" onSelect={run('unpin')} /> : null}
+    </>
+  );
+
+  const metadata = (
+    <>
+      {allowed.has('tags') ? <MenuItem icon={<Tag className="h-4 w-4" />} label="จัดการแท็ก" onSelect={run('tags')} /> : null}
+      {allowed.has('remark') ? <MenuItem icon={<MessageSquareText className="h-4 w-4" />} label="หมายเหตุ" onSelect={run('remark')} /> : null}
+      {allowed.has('share') ? <MenuItem icon={<Share2 className="h-4 w-4" />} label="จัดการสิทธิ์เข้าถึง" onSelect={run('share')} /> : null}
+      {allowed.has('lock') ? <MenuItem icon={<Lock className="h-4 w-4" />} label="ล็อกทรัพยากร" onSelect={run('lock')} /> : null}
+      {allowed.has('unlock') ? <MenuItem icon={<LockOpen className="h-4 w-4" />} label="ปลดล็อก" onSelect={run('unlock')} /> : null}
+    </>
+  );
+
+
   const menu = (
     <div
       ref={ref}
@@ -125,10 +146,15 @@ export function ContextMenu({
           <MenuSeparator />
           <MenuItem icon={<FileArchive className="h-4 w-4" />} label="ดาวน์โหลดเป็น ZIP" onSelect={run('download-zip')} />
           <MenuSeparator />
+          {personal}
+          <MenuSeparator />
           {allowed.has('rename') ? <MenuItem icon={<PenLine className="h-4 w-4" />} label="เปลี่ยนชื่อ" onSelect={run('rename')} /> : null}
           {allowed.has('move') ? <MenuItem icon={<FolderInput className="h-4 w-4" />} label="ย้าย" onSelect={run('move')} /> : null}
+          {metadata}
           {allowed.has('owner') ? <MenuItem icon={<UserRoundCog className="h-4 w-4" />} label="เปลี่ยนผู้ดูแล" onSelect={run('owner')} /> : null}
+          <MenuSeparator />
           <MenuItem icon={<Info className="h-4 w-4" />} label="รายละเอียด" onSelect={run('details')} />
+          <MenuItem icon={<History className="h-4 w-4" />} label="ประวัติการใช้งาน" onSelect={run('activity')} />
           {allowed.has('trash') ? <><MenuSeparator /><MenuItem icon={<Trash2 className="h-4 w-4" />} label="ย้ายไปถังขยะ" danger onSelect={run('trash')} /></> : null}
         </>
       ) : (
@@ -137,9 +163,14 @@ export function ContextMenu({
           {allowed.has('download') ? <MenuItem icon={<Download className="h-4 w-4" />} label="ดาวน์โหลดไฟล์ต้นฉบับ" onSelect={run('download')} /> : null}
           {allowed.has('new-version') ? <><MenuSeparator /><MenuItem icon={<FileUp className="h-4 w-4" />} label="อัปโหลดเวอร์ชันใหม่" onSelect={run('new-version')} /></> : null}
           <MenuSeparator />
+          {personal}
+          <MenuSeparator />
           {allowed.has('rename') ? <MenuItem icon={<PenLine className="h-4 w-4" />} label="เปลี่ยนชื่อ" onSelect={run('rename')} /> : null}
           {allowed.has('move') ? <MenuItem icon={<FolderInput className="h-4 w-4" />} label="ย้าย" onSelect={run('move')} /> : null}
+          {metadata}
+          <MenuSeparator />
           <MenuItem icon={<Info className="h-4 w-4" />} label="รายละเอียด" onSelect={run('details')} />
+          <MenuItem icon={<History className="h-4 w-4" />} label="ประวัติการใช้งาน" onSelect={run('activity')} />
           {allowed.has('trash') ? <><MenuSeparator /><MenuItem icon={<Trash2 className="h-4 w-4" />} label="ย้ายไปถังขยะ" danger onSelect={run('trash')} /></> : null}
         </>
       )}

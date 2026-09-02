@@ -15,3 +15,13 @@ Files have current metadata on `Resource` and immutable history in `ResourceVers
 - New children inherit the parent visibility: `ORGANIZATION` or `RESTRICTED`.
 
 Trash is a subtree soft-delete: `deletedAt`, `deletedById`, and `trashedFromId` preserve state and original location. Permanent delete removes every descendant version from storage before deleting metadata.
+
+## Workspace metadata (Phase E)
+
+- `remark` (max 1000 chars) is descriptive text on the resource. Its content is never written to the activity log; only "set" vs "cleared" is recorded.
+- `isLocked`, `lockedAt`, `lockedById`, `lockReason` freeze a resource against modification. See [RESOURCE_LOCK.md](RESOURCE_LOCK.md).
+- `ResourceTag` links a resource to organization-wide `Tag` rows. See [TAGS.md](TAGS.md).
+- `UserFavorite` and `UserPinnedResource` are per-user and private. They are not part of the resource DTO; the client loads them once and joins them to whatever is on screen.
+- `ResourceAccess` carries `accessLevel` and `allowDownload` per user. See [SHARING.md](SHARING.md).
+
+All modules share one `resourceInclude` definition exported from `resource.service.ts`. Per-module copies previously drifted and produced DTOs that were missing fields.

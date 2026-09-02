@@ -1,4 +1,4 @@
-import { resourceApi, type ResourceCapabilities, type ResourceDto } from './api';
+import { resourceApi, type ResourceCapabilities, type ResourceDto, type TagDto } from './api';
 
 export type DriveEntryKind = 'folder' | 'file';
 export type SharePermission = 'OWNER' | 'EDITOR' | 'VIEWER';
@@ -11,7 +11,11 @@ export interface DriveEntry {
   uploadedBy: { id: string; displayName: string; email: string } | null;
   currentVersion: number | null;
   visibility: 'ORGANIZATION' | 'RESTRICTED';
-  favorite: boolean; parentId: string | null; remark?: string; isLocked: boolean;
+  favorite: boolean; pinned: boolean; parentId: string | null; remark?: string; isLocked: boolean;
+  tags: TagDto[];
+  lockReason: string | null;
+  lockedAt: string | null;
+  lockedByName: string | null;
   source?: import('@/components/files/ResourceSourceBadge').ResourceSource;
   capabilities: ResourceCapabilities;
   location?: string; sharedBy?: string; sharedAt?: string; permission?: SharePermission;
@@ -32,7 +36,12 @@ export function toDriveEntry(resource: ResourceDto): DriveEntry {
     name: resource.name, extension: resource.extension ?? undefined, sizeBytes: resource.size ?? undefined,
     itemCount: resource.type === 'FOLDER' ? resource.itemCount : undefined,
     ownerId: resource.owner.id, ownerName: resource.owner.displayName, ownerEmail: resource.owner.email,
-    modifiedAt: resource.updatedAt, createdAt: resource.createdAt, favorite: false, parentId: resource.parentId,
+    modifiedAt: resource.updatedAt, createdAt: resource.createdAt, parentId: resource.parentId,
+    favorite: false, pinned: false,
+    tags: resource.tags ?? [],
+    lockReason: resource.lockReason ?? null,
+    lockedAt: resource.lockedAt ?? null,
+    lockedByName: resource.lockedBy?.displayName ?? null,
     mimeType: resource.mimeType, uploadedBy: resource.uploadedBy ?? null,
     currentVersion: resource.currentVersion ?? null, visibility: resource.visibility ?? 'ORGANIZATION',
     remark: resource.remark ?? undefined, isLocked: resource.isLocked,
@@ -54,4 +63,14 @@ export async function listDrive(scope: DriveScope, folderId?: string, sort = 'na
     folderId ? resourceApi.breadcrumb(folderId) : Promise.resolve({ success: true as const, data: [] }),
   ]);
   return { entries: listing.data.items.map(toDriveEntry), breadcrumb: crumbs.data };
+}
+
+/**
+ * ติดธง "โปรด" และ "ปักหมุด" ให้รายการที่แสดงอยู่
+ *
+ * สองอย่างนี้เป็นข้อมูลรายบุคคล ไม่ได้อยู่ใน DTO ของทรัพยากร จึงโหลดแยกครั้งเดียว
+ * แล้วนำมาประกบทีหลัง เพื่อไม่ให้ทุกการ list ต้องยิงคำถามซ้ำต่อรายการ
+ */
+export function applyMarks(entries: DriveEntry[], favorites: Set<string>, pins: Set<string>): DriveEntry[] {
+  return entries.map((entry) => ({ ...entry, favorite: favorites.has(entry.id), pinned: pins.has(entry.id) }));
 }

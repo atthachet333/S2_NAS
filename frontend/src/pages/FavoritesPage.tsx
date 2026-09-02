@@ -1,30 +1,58 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { Star } from 'lucide-react';
 import { DriveWorkspace } from '@/components/files/DriveWorkspace';
-import { FileToolbar, type SortKey } from '@/components/files/FileToolbar';
 import { EmptyState } from '@/components/ui/States';
 import { PageTitle } from '@/components/ui/PageTitle';
-import { listDrive } from '@/lib/drive';
+import { applyMarks, toDriveEntry, type DriveEntry } from '@/lib/drive';
+import { useWorkspaceMarks } from '@/hooks/useWorkspaceMarks';
+import { useWorkspaceActions } from '@/hooks/useWorkspaceActions';
+import { useDriveUi } from '@/hooks/useDriveUi';
+import { isPreviewable } from '@/lib/file-types';
+import { PreviewModal } from '@/components/files/PreviewModal';
+import { useState } from 'react';
 
 export default function FavoritesPage() {
-  const [sort, setSort] = useState<SortKey>('name-asc');
+  const navigate = useNavigate();
+  const { select, openDetails } = useDriveUi();
+  const { favoriteResources, favoriteIds, pinnedIds, isLoading } = useWorkspaceMarks();
+  const { handleWorkspaceAction, workspaceDialogs } = useWorkspaceActions();
+  const [preview, setPreview] = useState<DriveEntry | null>(null);
 
-  const { data, isPending, isError, refetch } = useQuery({
-    queryKey: ['drive', 'favorites'],
-    queryFn: () => listDrive('favorites'),
-  });
+  const entries = applyMarks(favoriteResources.map(toDriveEntry), favoriteIds, pinnedIds);
+
+  const action = (name: string, entry: DriveEntry | null) => {
+    if (handleWorkspaceAction(name, entry)) return;
+    if (!entry) return;
+    if (name === 'open' && entry.kind === 'folder') {
+      navigate(`/files/${entry.id}`);
+      return;
+    }
+    if ((name === 'open' || name === 'preview') && entry.kind === 'file') {
+      if (isPreviewable(entry.name, entry.mimeType)) setPreview(entry);
+      else {
+        select(entry);
+        openDetails();
+      }
+      return;
+    }
+    if (name === 'details') {
+      select(entry);
+      openDetails();
+    }
+  };
 
   return (
     <div className="space-y-4">
-      <PageTitle title="รายการโปรด" description="ไฟล์และโฟลเดอร์ที่คุณปักหมุดไว้" />
-      <FileToolbar sort={sort} onSortChange={setSort} showNew={false} showUpload={false} />
+      <PageTitle
+        title="รายการโปรด"
+        description="ไฟล์และโฟลเดอร์ที่คุณทำเครื่องหมายไว้ เห็นเฉพาะคุณคนเดียว"
+      />
 
       <DriveWorkspace
-        entries={data?.entries ?? []}
-        isLoading={isPending}
-        isError={isError}
-        onRetry={() => void refetch()}
+        entries={entries}
+        isLoading={isLoading}
+        isError={false}
+        onResourceAction={action}
         allowUpload={false}
         emptyState={
           <EmptyState
@@ -34,6 +62,20 @@ export default function FavoritesPage() {
           />
         }
       />
+
+      {preview ? (
+        <PreviewModal
+          entry={preview}
+          onClose={() => setPreview(null)}
+          onShowDetails={() => {
+            select(preview);
+            openDetails();
+            setPreview(null);
+          }}
+        />
+      ) : null}
+
+      {workspaceDialogs}
     </div>
   );
 }

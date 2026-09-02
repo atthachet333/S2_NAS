@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
+import { assertPasswordStrength } from './password-policy.js';
 import { SignJWT, jwtVerify } from 'jose';
 import { env } from '../../config/env.js';
 import { prisma } from '../../core/prisma.js';
@@ -117,6 +118,8 @@ export async function revokeRefreshToken(rawToken?: string): Promise<void> {
 }
 
 export async function changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+  // ใช้เกณฑ์เดียวกับที่ผู้ดูแลตั้งรหัสชั่วคราว ผู้ใช้จึงตั้งรหัสอ่อนกว่านั้นไม่ได้
+  assertPasswordStrength(newPassword);
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user?.passwordHash || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
     throw unauthorized('รหัสผ่านปัจจุบันไม่ถูกต้อง');

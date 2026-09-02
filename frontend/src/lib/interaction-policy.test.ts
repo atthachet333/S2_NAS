@@ -13,13 +13,14 @@ import {
 
 const capabilities = {
   canView: true, canEdit: true, canRename: true, canMove: true, canDelete: true,
-  canShare: true, canDownload: true, canUploadVersion: true, canTransferOwner: true,
+  canShare: true, canLock: true, canDownload: true, canUploadVersion: true, canTransferOwner: true,
 };
 const entry = (kind: 'file' | 'folder', overrides: Partial<DriveEntry> = {}): DriveEntry => ({
   id: kind, kind, resourceType: kind === 'file' ? 'FILE' : 'FOLDER', name: kind === 'file' ? 'test.pdf' : 'TEST',
   ownerId: 'owner', ownerName: 'Owner', ownerEmail: 'owner@example.invalid', modifiedAt: '', createdAt: '',
   mimeType: kind === 'file' ? 'application/pdf' : null, uploadedBy: null, currentVersion: kind === 'file' ? 2 : null,
-  visibility: 'ORGANIZATION', favorite: false, parentId: null, isLocked: false, capabilities, ...overrides,
+  visibility: 'ORGANIZATION', favorite: false, pinned: false, parentId: null, isLocked: false,
+  tags: [], lockReason: null, lockedAt: null, lockedByName: null, capabilities, ...overrides,
 });
 
 describe('file manager interaction policy', () => {
@@ -63,5 +64,42 @@ describe('file manager interaction policy', () => {
     assert.equal(nextMenuIndex(3, 'ArrowDown', 4), 0);
     assert.equal(nextMenuIndex(2, 'Home', 4), 0);
     assert.equal(nextMenuIndex(1, 'End', 4), 3);
+  });
+  test('เมนูรายการโปรดและปักหมุดสลับตามสถานะปัจจุบัน', () => {
+    const plain = visibleResourceActions(entry('file'));
+    assert.ok(plain.includes('favorite') && plain.includes('pin'));
+    assert.ok(!plain.includes('unfavorite') && !plain.includes('unpin'));
+
+    const marked = visibleResourceActions(entry('file', { favorite: true, pinned: true }));
+    assert.ok(marked.includes('unfavorite') && marked.includes('unpin'));
+    assert.ok(!marked.includes('favorite') && !marked.includes('pin'));
+  });
+
+  test('รายการโปรดและปักหมุดใช้ได้แม้ไม่มีสิทธิ์แก้ไข เพราะเป็นข้อมูลส่วนตัว', () => {
+    const readonly = visibleResourceActions(
+      entry('file', {
+        capabilities: {
+          ...capabilities,
+          canEdit: false, canRename: false, canMove: false, canDelete: false,
+          canShare: false, canLock: false, canUploadVersion: false,
+        },
+      }),
+    );
+    assert.ok(readonly.includes('favorite') && readonly.includes('pin'));
+    assert.ok(!readonly.includes('share') && !readonly.includes('lock') && !readonly.includes('tags'));
+  });
+
+  test('ล็อกและปลดล็อกแสดงเฉพาะผู้ที่มีสิทธิ์ล็อก และสลับตามสถานะไฟล์', () => {
+    assert.ok(visibleResourceActions(entry('file')).includes('lock'));
+    const locked = visibleResourceActions(entry('file', { isLocked: true }));
+    assert.ok(locked.includes('unlock') && !locked.includes('lock'));
+
+    const noLockRight = visibleResourceActions(entry('file', { capabilities: { ...capabilities, canLock: false } }));
+    assert.ok(!noLockRight.includes('lock') && !noLockRight.includes('unlock'));
+  });
+
+  test('ประวัติการใช้งานเปิดดูได้ทุกรายการที่มองเห็น', () => {
+    assert.ok(visibleResourceActions(entry('file')).includes('activity'));
+    assert.ok(visibleResourceActions(entry('folder')).includes('activity'));
   });
 });

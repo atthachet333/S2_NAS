@@ -1,32 +1,57 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../core/prisma.js';
 import { notFound } from '../../core/errors.js';
 import { requirePermission } from '../auth/auth.guard.js';
 import { normalizeEmail } from '../../config/seed-users.js';
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from '../auth/password-policy.js';
+import {
+  activateUser,
+  changeUserRoles,
+  listUsers,
+  resetTemporaryPassword,
+  setUserStatus,
+  userSelect,
+} from './user.service.js';
 
 const createSchema = z.object({
   email: z.string().email(),
   displayName: z.string().trim().min(1).max(191),
   roleCodes: z.array(z.string().min(1)).min(1),
 });
+
 const updateSchema = z.object({
   displayName: z.string().trim().min(1).max(191).optional(),
   status: z.enum(['INVITED', 'ACTIVE', 'SUSPENDED', 'DISABLED']).optional(),
+  /** ยืนยันว่ารับทราบว่าผู้ใช้รายนี้ยังดูแลทรัพยากรอยู่ และยังยืนยันจะปิดการใช้งาน */
+  acknowledgeHandover: z.boolean().optional(),
   roleCodes: z.array(z.string().min(1)).min(1).optional(),
 });
 
-const publicSelect = {
-  id: true, email: true, displayName: true, type: true, status: true,
-  mustChangePassword: true, lastLoginAt: true, createdAt: true,
-  roles: { select: { role: { select: { code: true, name: true } } } },
-} as const;
+/** รหัสผ่านชั่วคราวถูกตรวจความแข็งแรงจริงอีกชั้นในเซอร์วิส */
+const passwordSchema = z.object({
+  temporaryPassword: z.string().min(MIN_PASSWORD_LENGTH).max(MAX_PASSWORD_LENGTH),
+});
+
+const idParams = z.object({ id: z.string().min(1) });
+const audit = (request: FastifyRequest) => ({
+  ipAddress: request.ip,
+  userAgent: request.headers['user-agent'],
+});
 
 export async function usersRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/users', { preHandler: requirePermission('users:read') }, async () => ({
-    success: true,
-    data: await prisma.user.findMany({ select: publicSelect, orderBy: { createdAt: 'asc' } }),
-  }));
+  app.get('/users', { preHandler: requirePermission('users:read') }, async (request) => {
+    const query = z
+      .object({
+        q: z.string().trim().max(191).optional(),
+        status: z.enum(['INVITED', 'ACTIVE', 'SUSPENDED', 'DISABLED']).optional(),
+        roleCode: z.string().min(1).max(64).optional(),
+        limit: z.coerce.number().int().min(1).max(100).default(50),
+        cursor: z.string().min(1).optional(),
+      })
+      .parse(request.query);
+    return { success: true, data: await listUsers(query) };
+  });
 
   app.post('/users', { preHandler: requirePermission('users:manage') }, async (request, reply) => {
     const input = createSchema.parse(request.body);
@@ -34,37 +59,113 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     if (roles.length !== new Set(input.roleCodes).size) throw notFound('ROLE_NOT_FOUND', 'ไม่พบบทบาทที่ระบุ');
     const user = await prisma.user.create({
       data: {
-        email: normalizeEmail(input.email), displayName: input.displayName, status: 'INVITED',
+        email: normalizeEmail(input.email),
+        displayName: input.displayName,
+        status: 'INVITED',
         roles: { create: roles.map((role) => ({ roleId: role.id })) },
-      }, select: publicSelect,
+      },
+      select: userSelect,
     });
-    await prisma.activityLog.create({ data: { userId: request.authUser!.id, action: 'CREATE_USER', metadata: { targetUserId: user.id } } });
+    await prisma.activityLog.create({
+      data: { userId: request.authUser!.id, action: 'CREATE_USER', metadata: { targetUserId: user.id } },
+    });
     return reply.status(201).send({ success: true, data: user });
   });
 
+  /** แก้ไขข้อมูลทั่วไป สถานะและบทบาทมีเส้นทางเฉพาะของตัวเองที่มีการป้องกันครบกว่า */
   app.patch('/users/:id', { preHandler: requirePermission('users:manage') }, async (request) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
+    const { id } = idParams.parse(request.params);
     const input = updateSchema.parse(request.body);
-    const roles = input.roleCodes ? await prisma.role.findMany({ where: { code: { in: input.roleCodes } } }) : null;
-    if (roles && roles.length !== new Set(input.roleCodes).size) throw notFound('ROLE_NOT_FOUND', 'ไม่พบบทบาทที่ระบุ');
-    const user = await prisma.$transaction(async (tx) => {
-      const existing = await tx.user.findUnique({ where: { id } });
+    const actor = request.authUser!;
+
+    if (input.displayName) {
+      const existing = await prisma.user.findUnique({ where: { id }, select: { id: true } });
       if (!existing) throw notFound('USER_NOT_FOUND', 'ไม่พบผู้ใช้');
-      if (roles) {
-        await tx.userRole.deleteMany({ where: { userId: id } });
-        await tx.userRole.createMany({ data: roles.map((role) => ({ userId: id, roleId: role.id })) });
-      }
-      return tx.user.update({ where: { id }, data: { displayName: input.displayName, status: input.status, tokenVersion: input.status && input.status !== 'ACTIVE' ? { increment: 1 } : undefined }, select: publicSelect });
-    });
-    await prisma.activityLog.create({ data: { userId: request.authUser!.id, action: 'UPDATE_USER', metadata: { targetUserId: id } } });
+      await prisma.user.update({ where: { id }, data: { displayName: input.displayName } });
+      await prisma.activityLog.create({
+        data: { userId: actor.id, action: 'UPDATE_USER', metadata: { targetUserId: id } },
+      });
+    }
+    if (input.roleCodes) await changeUserRoles(id, input.roleCodes, actor, audit(request));
+    if (input.status) {
+      await setUserStatus(
+        id,
+        input.status,
+        { acknowledgeHandover: input.acknowledgeHandover },
+        actor,
+        audit(request),
+      );
+    }
+
+    const user = await prisma.user.findUnique({ where: { id }, select: userSelect });
+    if (!user) throw notFound('USER_NOT_FOUND', 'ไม่พบผู้ใช้');
     return { success: true, data: user };
+  });
+
+  /** เปิดใช้งานบัญชีที่ถูกเชิญไว้ พร้อมตั้งรหัสผ่านชั่วคราว */
+  app.post('/users/:id/activate', { preHandler: requirePermission('users:manage') }, async (request) => {
+    const body = passwordSchema.parse(request.body);
+    return {
+      success: true,
+      data: await activateUser(
+        idParams.parse(request.params).id,
+        body.temporaryPassword,
+        request.authUser!,
+        audit(request),
+      ),
+    };
+  });
+
+  app.post('/users/:id/disable', { preHandler: requirePermission('users:manage') }, async (request) => {
+    const body = z.object({ acknowledgeHandover: z.boolean().optional() }).parse(request.body ?? {});
+    return {
+      success: true,
+      data: await setUserStatus(
+        idParams.parse(request.params).id,
+        'DISABLED',
+        { acknowledgeHandover: body.acknowledgeHandover },
+        request.authUser!,
+        audit(request),
+      ),
+    };
+  });
+
+  app.post('/users/:id/reset-password', { preHandler: requirePermission('users:manage') }, async (request) => {
+    const body = passwordSchema.parse(request.body);
+    return {
+      success: true,
+      data: await resetTemporaryPassword(
+        idParams.parse(request.params).id,
+        body.temporaryPassword,
+        request.authUser!,
+        audit(request),
+      ),
+    };
+  });
+
+  app.patch('/users/:id/roles', { preHandler: requirePermission('users:manage') }, async (request) => {
+    const body = z.object({ roleCodes: z.array(z.string().min(1)).min(1) }).parse(request.body);
+    return {
+      success: true,
+      data: await changeUserRoles(
+        idParams.parse(request.params).id,
+        body.roleCodes,
+        request.authUser!,
+        audit(request),
+      ),
+    };
   });
 
   app.get('/roles', { preHandler: requirePermission('roles:read') }, async () => ({
     success: true,
-    data: await prisma.role.findMany({ include: { permissions: { select: { permission: true } } }, orderBy: { code: 'asc' } }),
+    data: await prisma.role.findMany({
+      include: { permissions: { select: { permission: true } } },
+      orderBy: { code: 'asc' },
+    }),
   }));
+
   app.get('/permissions', { preHandler: requirePermission('roles:read') }, async () => ({
-    success: true, data: await prisma.permission.findMany({ orderBy: { code: 'asc' } }),
+    success: true,
+    data: await prisma.permission.findMany({ orderBy: { code: 'asc' } }),
   }));
 }

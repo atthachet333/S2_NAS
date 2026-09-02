@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Bell, Search } from 'lucide-react';
+import { GlobalSearch } from './GlobalSearch';
 import { NewMenu } from './NewMenu';
 import { UserMenu } from './UserMenu';
 import { BrandLogo } from './BrandLogo';
@@ -11,33 +11,7 @@ import { ThemeControl } from './ThemeControl';
  * Header หลัก
  * ซ้าย: แบรนด์ | กลาง: ค้นหา | ขวา: ปุ่มใหม่, สถานะเซิร์ฟเวอร์, แจ้งเตือน, ผู้ใช้
  */
-export function TopHeader({
-  query,
-  onQueryChange,
-}: {
-  query: string;
-  onQueryChange: (value: string) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // ทางลัด "/" เพื่อโฟกัสช่องค้นหา แบบเดียวกับเครื่องมือจัดการไฟล์ทั่วไป
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      const typingInField =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable;
-
-      if (event.key === '/' && !typingInField) {
-        event.preventDefault();
-        inputRef.current?.focus();
-      }
-    }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, []);
-
+export function TopHeader() {
   return (
     <header className="s2-header-bar border-b border-line">
       <div className="mx-auto flex h-16 max-w-[1680px] items-center gap-3 px-4 lg:gap-5 lg:px-8">
@@ -45,22 +19,7 @@ export function TopHeader({
           <BrandLogo size={36} />
         </Link>
 
-        <div className="relative mx-auto hidden w-full max-w-2xl sm:block">
-          <Search
-            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-navy-300"
-            aria-hidden
-          />
-          <input
-            ref={inputRef}
-            type="search"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="ค้นหาไฟล์ โฟลเดอร์ ลิงก์ หรือทรัพยากร..."
-            aria-label="ค้นหาไฟล์และโฟลเดอร์"
-            className="s2-input h-10 rounded-[12px] pl-10 pr-12 text-[13px] placeholder:text-navy-300"
-          />
-          <span className="s2-kbd pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">/</span>
-        </div>
+        <GlobalSearch />
 
         <div className="flex shrink-0 items-center gap-1.5">
           <NewMenu />
