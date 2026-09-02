@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { prisma } from '../../core/prisma.js';
 import type { AuthUser } from '../auth/auth.service.js';
-import { breadcrumb, createFolder, getResource, listResources, moveResource, softDeleteResource, transferOwner, updateResource } from './resource.service.js';
+import { breadcrumb, createExternalResource, createFolder, getResource, listResources, moveResource, softDeleteResource, transferOwner, updateResource } from './resource.service.js';
+import { permanentlyDelete, restoreResource, trashResource } from '../files/trash.service.js';
 
 describe('Phase C resource domain', () => {
   const prefix = `resource-test-${process.pid}`;
@@ -135,5 +136,64 @@ describe('Phase C resource domain', () => {
   test('Physical path และ storageKey ไม่ถูกเปิดเผย', async () => {
     const dto = await getResource(rootId, owner) as unknown as Record<string, unknown>;
     assert.equal('storageKey' in dto, false); assert.equal('physicalPath' in dto, false);
+  });
+
+  test('สร้าง external resources ทั้งสี่ชนิดในโฟลเดอร์ปัจจุบัน พร้อม provider ที่ server กำหนด', async () => {
+    const cases = [
+      ['GOOGLE_SHEET', 'ชีตทดสอบ', 'https://docs.google.com/spreadsheets/d/sheet-id/edit', 'GOOGLE_SHEETS', 'GOOGLE'],
+      ['GOOGLE_DOC', 'เอกสารทดสอบ', 'https://docs.google.com/document/d/doc-id/edit', 'GOOGLE_DOCS', 'GOOGLE'],
+      ['GOOGLE_DRIVE', 'พื้นที่ Drive', 'https://drive.google.com/drive/folders/folder-id', 'GOOGLE_DRIVE', 'GOOGLE'],
+      ['WEB_LINK', 'เว็บไซต์ตัวอย่าง', 'https://example.com/path?q=1', 'WEB', 'MANUAL'],
+    ] as const;
+    for (const [type, name, url, provider, sourceType] of cases) {
+      const resource = await createExternalResource(owner, { type, name, parentId: rootId, url, remark: 'หมายเหตุทดสอบ' }, audit);
+      assert.equal(resource.type, type);
+      assert.equal(resource.parentId, rootId);
+      assert.equal(resource.externalProvider, provider);
+      assert.equal(resource.sourceType, sourceType);
+      assert.equal(resource.remark, 'หมายเหตุทดสอบ');
+      assert.match(resource.externalUrl ?? '', /^https:\/\//u);
+    }
+  });
+
+  test('ปฏิเสธ Google URL ผิดประเภทและ scheme ที่ไม่ปลอดภัย โดยไม่ fetch network', async () => {
+    await assert.rejects(
+      createExternalResource(owner, { type: 'GOOGLE_SHEET', name: 'ผิดชนิด', url: 'https://docs.google.com/document/d/doc-id/edit' }, audit),
+      (error: unknown) => (error as { code?: string }).code === 'INVALID_EXTERNAL_RESOURCE_URL',
+    );
+    for (const url of ['javascript:alert(1)', 'data:text/plain,test', 'file:///tmp/test']) {
+      await assert.rejects(
+        createExternalResource(owner, { type: 'WEB_LINK', name: `unsafe-${url.slice(0, 4)}`, url }, audit),
+        (error: unknown) => (error as { code?: string }).code === 'UNSAFE_URL_SCHEME',
+      );
+    }
+  });
+
+  test('ผู้ไม่มี write สร้างไม่ได้ และแก้ URL คง Resource.id เดิม ขณะ lock ป้องกันการแก้', async () => {
+    await assert.rejects(
+      createExternalResource(viewer, { type: 'WEB_LINK', name: 'ไม่มีสิทธิ์', url: 'https://example.com' }, audit),
+      (error: unknown) => (error as { code?: string }).code === 'RESOURCE_ACCESS_DENIED',
+    );
+    const resource = await createExternalResource(owner, { type: 'WEB_LINK', name: 'แก้ URL', url: 'http://example.com' }, audit);
+    const updated = await updateResource(resource.id, owner, { externalUrl: 'https://example.com/updated', name: 'แก้ URL แล้ว' }, audit);
+    assert.equal(updated.id, resource.id);
+    assert.equal(updated.externalUrl, 'https://example.com/updated');
+    await prisma.resource.update({ where: { id: resource.id }, data: { isLocked: true } });
+    await assert.rejects(
+      updateResource(resource.id, owner, { externalUrl: 'https://example.com/blocked' }, audit),
+      (error: unknown) => (error as { code?: string }).code === 'RESOURCE_LOCKED',
+    );
+  });
+
+  test('external resource ใช้ trash/restore และ permanent delete เดิมโดยไม่แตะ storage', async () => {
+    const resource = await createExternalResource(owner, { type: 'WEB_LINK', name: 'วงจรถังขยะ', url: 'https://example.com/trash' }, audit);
+    await trashResource(resource.id, owner, audit);
+    const restored = await restoreResource(resource.id, owner, {}, audit);
+    assert.equal(restored.id, resource.id);
+    assert.equal(restored.externalUrl, resource.externalUrl);
+    await trashResource(resource.id, owner, audit);
+    const deleted = await permanentlyDelete(resource.id, owner, audit);
+    assert.equal(deleted.deleted, true);
+    assert.equal(await prisma.resource.count({ where: { id: resource.id } }), 0);
   });
 });

@@ -1,5 +1,9 @@
 # RESOURCE MODEL
 
+## External resources (F2)
+
+`GOOGLE_SHEET`, `GOOGLE_DOC`, `GOOGLE_DRIVE`, and `WEB_LINK` use the same `Resource` hierarchy as files and folders. Their URL is stored in `externalUrl`, while `externalProvider` is normalized by the server. They have no physical file or size and keep the same S2 NAS identity through URL edits, moves, trash, and restore. See [EXTERNAL_RESOURCES.md](./EXTERNAL_RESOURCES.md).
+
 `Resource.id` is the stable logical identity for folders and files. Rename, move, owner transfer, new versions, trash, and restore do not change it. `parentId = null` is the organization root; the hierarchy is database metadata and is independent of physical storage.
 
 Active sibling names are unique through `siblingKey`. Names are trimmed, whitespace-collapsed, NFC normalized, and reject `.`, `..`, path separators, control/format characters, and Windows reserved device names. Thai and other Unicode names are supported.

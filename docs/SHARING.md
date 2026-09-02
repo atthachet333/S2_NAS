@@ -1,5 +1,9 @@
 # SHARING
 
+## Google and external resources
+
+`ResourceAccess` governs visibility and management of the link record inside S2 NAS. It does not alter Google-side permissions. A user who can see a Google resource in S2 NAS may still be denied by Google, and this is expected in F2.
+
 Sharing in S2 NAS is internal only. There are no public links, no external upload links, and no anonymous access. Every grant is bound to a real user account.
 
 ## Grant model

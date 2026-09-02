@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { authenticate, requirePermission } from '../auth/auth.guard.js';
-import { breadcrumb, createFolder, getResource, listRecentResources, listResources, moveResource, ownershipOverview, softDeleteResource, transferOwner, updateResource } from './resource.service.js';
+import { breadcrumb, createExternalResource, createFolder, getResource, listRecentResources, listResources, moveResource, ownershipOverview, softDeleteResource, transferOwner, updateResource } from './resource.service.js';
+import { EXTERNAL_RESOURCE_TYPES } from './external-resource.js';
 
 const idParams = z.object({ id: z.string().min(1) });
 const audit = (request: FastifyRequest) => ({ ipAddress: request.ip, userAgent: request.headers['user-agent'] });
@@ -26,8 +27,19 @@ export async function resourceRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ success: true, data: await createFolder(request.authUser!, input, audit(request)) });
   });
 
+  app.post('/resources/external', { preHandler: authenticate }, async (request, reply) => {
+    const input = z.object({
+      type: z.enum(EXTERNAL_RESOURCE_TYPES),
+      name: z.string(),
+      parentId: z.string().nullable().optional(),
+      url: z.string().max(2048),
+      remark: z.string().max(1000).nullable().optional(),
+    }).strict().parse(request.body);
+    return reply.status(201).send({ success: true, data: await createExternalResource(request.authUser!, input, audit(request)) });
+  });
+
   app.patch('/resources/:id', { preHandler: authenticate }, async (request) => {
-    const input = z.object({ name: z.string().optional(), remark: z.string().max(1000).nullable().optional(), isLocked: z.boolean().optional() }).refine((value) => Object.keys(value).length > 0).parse(request.body);
+    const input = z.object({ name: z.string().optional(), remark: z.string().max(1000).nullable().optional(), isLocked: z.boolean().optional(), externalUrl: z.string().max(2048).optional() }).strict().refine((value) => Object.keys(value).length > 0).parse(request.body);
     return { success: true, data: await updateResource(idParams.parse(request.params).id, request.authUser!, input, audit(request)) };
   });
 

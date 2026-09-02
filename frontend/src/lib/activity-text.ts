@@ -16,6 +16,8 @@ interface ActivityMeta {
 const ACTIVITY_TEXT: Record<string, ActivityMeta> = {
   /* ทรัพยากร */
   RESOURCE_FOLDER_CREATED: { label: 'สร้างโฟลเดอร์', tone: 'brand' },
+  RESOURCE_EXTERNAL_CREATED: { label: 'เพิ่มลิงก์ภายนอก', tone: 'brand' },
+  RESOURCE_EXTERNAL_URL_UPDATED: { label: 'แก้ไขลิงก์ภายนอก', tone: 'warning' },
   RESOURCE_RENAMED: { label: 'เปลี่ยนชื่อ', tone: 'neutral' },
   RESOURCE_UPDATED: { label: 'แก้ไขข้อมูล', tone: 'neutral' },
   RESOURCE_MOVED: { label: 'ย้ายตำแหน่ง', tone: 'neutral' },
@@ -45,6 +47,9 @@ const ACTIVITY_TEXT: Record<string, ActivityMeta> = {
   PASSWORD_CHANGED: { label: 'เปลี่ยนรหัสผ่าน', tone: 'warning' },
   CREATE_USER: { label: 'สร้างผู้ใช้', tone: 'brand' },
   UPDATE_USER: { label: 'แก้ไขผู้ใช้', tone: 'neutral' },
+  USER_PROFILE_UPDATED: { label: 'แก้ไขโปรไฟล์ผู้ใช้', tone: 'neutral' },
+  USER_ROLE_CHANGED: { label: 'เปลี่ยนบทบาทผู้ใช้', tone: 'warning' },
+  USER_ACTIVATED: { label: 'เปิดใช้งานผู้ใช้', tone: 'positive' },
 };
 
 export function activityLabel(action: string): string {

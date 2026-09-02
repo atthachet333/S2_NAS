@@ -5,6 +5,7 @@ import { OwnerAvatar, ownerLabel } from './OwnerIdentity';
 import { ResourceSourceBadge } from './ResourceSourceBadge';
 import { getFileTypeStyle } from '@/lib/file-types';
 import { cn, formatBytes, formatRelativeTime } from '@/lib/utils';
+import { externalResourceLabel, isExternalEntry } from '@/lib/external-resources';
 
 /**
  * การ์ดทรัพยากร V3
@@ -35,6 +36,7 @@ export function FileGrid({
     <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
       {entries.map((entry) => {
         const isFolder = entry.kind === 'folder';
+        const isExternal = isExternalEntry(entry);
         const selected = selectedId === entry.id || selectedIds.has(entry.id);
 
         return (
@@ -42,7 +44,7 @@ export function FileGrid({
             key={entry.id}
             tabIndex={0}
             role="button"
-            aria-label={`${isFolder ? 'โฟลเดอร์' : 'ไฟล์'} ${entry.name} ผู้ดูแล ${entry.ownerName}`}
+            aria-label={`${isFolder ? 'โฟลเดอร์' : isExternal ? 'ลิงก์ภายนอก' : 'ไฟล์'} ${entry.name} ผู้ดูแล ${entry.ownerName}`}
             data-selected={selected}
             onClick={() => onSelect(entry)}
             onDoubleClick={() => onOpen(entry)}
@@ -71,7 +73,7 @@ export function FileGrid({
             className={cn('s2-resource-card group cursor-default p-4', isFolder && 's2-folder-accent')}
           >
             <div className="flex items-start justify-between gap-2">
-              <FileTypeIcon name={entry.name} kind={entry.kind} size="lg" mimeType={entry.mimeType} resourceId={entry.id} sizeBytes={entry.sizeBytes} showThumbnail />
+              <FileTypeIcon name={entry.name} kind={entry.kind} resourceType={entry.resourceType} size="lg" mimeType={entry.mimeType} resourceId={entry.id} sizeBytes={entry.sizeBytes} showThumbnail />
 
               <div className="flex items-center gap-1">
                 {onToggleSelection ? (
@@ -108,7 +110,7 @@ export function FileGrid({
             </p>
 
             <p className="mt-0.5 truncate text-[11px] text-navy-400">
-              {isFolder
+              {isExternal ? `${externalResourceLabel(entry.resourceType)} · ลิงก์ภายนอก` : isFolder
                 ? entry.itemCount === undefined
                   ? 'โฟลเดอร์'
                   : `${entry.itemCount} รายการ`
@@ -126,6 +128,7 @@ export function FileGrid({
                 </span>
               </div>
               <ResourceSourceBadge source={entry.source} hideManual />
+              {isExternal ? <span className="shrink-0 rounded-full border border-line px-1.5 py-0.5 text-[9px] text-navy-500">{externalResourceLabel(entry.resourceType)}</span> : null}
             </div>
 
             <p className="mt-2 truncate text-[10.5px] text-navy-400">

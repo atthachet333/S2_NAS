@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { KeyRound, Search, ShieldCheck, UserCheck, UserRoundCog, Users, UserX } from 'lucide-react';
+import { KeyRound, Pencil, Search, ShieldCheck, UserCheck, UserRoundCog, Users, UserX } from 'lucide-react';
 import { Panel, PanelBody, PanelHeader } from '@/components/ui/Panel';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/States';
 import { PageTitle } from '@/components/ui/PageTitle';
@@ -214,6 +214,11 @@ export default function AdminUsersPage() {
                                   onClick={() => setDialog({ mode: 'reset-password', user: row })}
                                 />
                               ) : null}
+                              <RowAction
+                                icon={<Pencil className="h-3.5 w-3.5" />}
+                                label="แก้ไขข้อมูลผู้ใช้"
+                                onClick={() => setDialog({ mode: 'profile', user: row })}
+                              />
                               <RowAction
                                 icon={<ShieldCheck className="h-3.5 w-3.5" />}
                                 label="บทบาท"

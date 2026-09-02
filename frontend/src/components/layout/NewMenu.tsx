@@ -3,12 +3,18 @@ import { FileText, FolderPlus, FolderUp, Globe2, Link2, Plus, Sheet, Upload } fr
 import { MenuItem, MenuSeparator } from '@/components/ui/Menu';
 import { useOutsideClose } from '@/hooks/useOutsideClose';
 import { cn } from '@/lib/utils';
+import type { ExternalResourceType } from '@/lib/external-resources';
 
 /** ปุ่ม + ใหม่ สำหรับสร้างโฟลเดอร์และอัปโหลด */
-export function NewMenu({ variant = 'solid', onCreateFolder }: { variant?: 'solid' | 'outline'; onCreateFolder?: () => void }) {
+export function NewMenu({ variant = 'solid', onCreateFolder, onCreateExternal }: { variant?: 'solid' | 'outline'; onCreateFolder?: () => void; onCreateExternal?: (type: ExternalResourceType) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useOutsideClose(ref, open, () => setOpen(false));
+  const createExternal = (type: ExternalResourceType) => {
+    setOpen(false);
+    if (onCreateExternal) onCreateExternal(type);
+    else window.dispatchEvent(new CustomEvent('s2-create-external', { detail: { type } }));
+  };
 
   return (
     <div className="relative" ref={ref}>
@@ -44,10 +50,10 @@ export function NewMenu({ variant = 'solid', onCreateFolder }: { variant?: 'soli
             disabled
           />
           <MenuSeparator />
-          <MenuItem icon={<Sheet className="h-4 w-4" />} label="เพิ่ม Google Sheet" shortcut="เร็ว ๆ นี้" disabled />
-          <MenuItem icon={<FileText className="h-4 w-4" />} label="เพิ่ม Google Doc" shortcut="เร็ว ๆ นี้" disabled />
-          <MenuItem icon={<Globe2 className="h-4 w-4" />} label="เพิ่ม Google Drive" shortcut="เร็ว ๆ นี้" disabled />
-          <MenuItem icon={<Link2 className="h-4 w-4" />} label="เพิ่มลิงก์" shortcut="เร็ว ๆ นี้" disabled />
+          <MenuItem icon={<Sheet className="h-4 w-4" />} label="เพิ่ม Google Sheet" onSelect={() => createExternal('GOOGLE_SHEET')} />
+          <MenuItem icon={<FileText className="h-4 w-4" />} label="เพิ่ม Google Doc" onSelect={() => createExternal('GOOGLE_DOC')} />
+          <MenuItem icon={<Globe2 className="h-4 w-4" />} label="เพิ่ม Google Drive" onSelect={() => createExternal('GOOGLE_DRIVE')} />
+          <MenuItem icon={<Link2 className="h-4 w-4" />} label="เพิ่มลิงก์" onSelect={() => createExternal('WEB_LINK')} />
         </div>
       ) : null}
     </div>

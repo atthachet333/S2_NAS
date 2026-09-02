@@ -163,6 +163,10 @@
   .s2-header-bar { position:relative;z-index:2;background:var(--s2-header); }
   .s2-nav-bar { position:relative;z-index:1;background:var(--s2-nav); }
   .s2-menu { background:var(--s2-elevated);border:1px solid var(--s2-border);border-radius:14px;box-shadow:var(--s2-shadow-pop);padding:.35rem;animation:s2-menu-in .15s ease-out; }
+  .s2-context-menu { overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--s2-border-strong) transparent;-webkit-overflow-scrolling:touch; }
+  .s2-context-menu::-webkit-scrollbar { width:6px; }
+  .s2-context-menu::-webkit-scrollbar-track { background:transparent; }
+  .s2-context-menu::-webkit-scrollbar-thumb { border:1px solid transparent;border-radius:999px;background:var(--s2-border-strong);background-clip:padding-box; }
   .s2-menu-item { display:flex;width:100%;align-items:center;gap:.625rem;border-radius:10px;padding:.55rem .65rem;font-size:12.5px;color:var(--s2-text-2);text-align:left;transition:background-color .14s ease,color .14s ease; }
   .s2-menu-item:hover:not(:disabled),.s2-menu-item:focus-visible { background:var(--s2-neutral-50);color:var(--s2-text); }
   .s2-menu-item:disabled { opacity:.4;cursor:not-allowed; }

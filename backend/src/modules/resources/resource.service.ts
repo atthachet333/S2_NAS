@@ -3,6 +3,7 @@ import { prisma } from '../../core/prisma.js';
 import { AppError, badRequest, forbidden, notFound } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
 import type { AuthUser } from '../auth/auth.service.js';
+import { externalResourceConfig, isExternalResourceType, validateExternalResourceUrl, type ExternalResourceType } from './external-resource.js';
 
 const ownerSelect = { id: true, displayName: true, email: true } as const;
 /** นิยามความสัมพันธ์ชุดเดียวของทั้งระบบ ทุกโมดูลต้องใช้ตัวนี้
@@ -10,6 +11,7 @@ const ownerSelect = { id: true, displayName: true, email: true } as const;
 export const resourceInclude = {
   owner: { select: ownerSelect },
   createdBy: { select: ownerSelect },
+  createdByIntegrationApp: { select: { id: true, name: true, code: true } },
   lockedBy: { select: ownerSelect },
   tags: { include: { tag: { select: { id: true, name: true } } } },
   access: { select: { userId: true, accessLevel: true, allowDownload: true } },
@@ -127,6 +129,9 @@ export function toResourceDto(resource: ResourceWithRelations, user: AuthUser) {
     owner: resource.owner, sourceType: resource.sourceType, mimeType: resource.mimeType,
     extension: resource.extension, size: resource.size === null ? null : Number(resource.size),
     externalUrl: resource.externalUrl, externalProvider: resource.externalProvider,
+    sourceSystem: resource.sourceSystem, sourceEntityType: resource.sourceEntityType,
+    sourceEntityId: resource.sourceEntityId, sourceUrl: resource.sourceUrl,
+    createdByIntegrationApp: resource.createdByIntegrationApp,
     remark: resource.remark, isLocked: resource.isLocked, itemCount: resource._count.children,
     visibility: resource.visibility, currentVersion: resource.currentVersion,
     tags: resource.tags.map((link) => ({ id: link.tag.id, name: link.tag.name })),
@@ -160,6 +165,19 @@ async function assertEdit(resource: ResourceWithRelations, user: AuthUser): Prom
 function translateDuplicate(error: unknown): never {
   if ((error as { code?: string }).code === 'P2002') throw new AppError('FOLDER_NAME_EXISTS', 'มีโฟลเดอร์ชื่อนี้อยู่แล้ว', 409);
   throw error;
+}
+
+async function createDestination(user: AuthUser, parentId?: string | null): Promise<ResourceWithRelations['visibility']> {
+  if (parentId) {
+    const parent = await findResource(parentId);
+    if (parent.type !== 'FOLDER') throw notFound('FOLDER_NOT_FOUND', 'ไม่พบโฟลเดอร์ปลายทาง');
+    await assertEdit(parent, user);
+    return parent.visibility;
+  }
+  if (!user.permissions.includes('resources:write')) {
+    throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์เพิ่มทรัพยากรในตำแหน่งนี้', 403);
+  }
+  return 'ORGANIZATION';
 }
 
 export async function listResources(user: AuthUser, input: { parentId?: string | null; type?: ResourceType; ownerId?: string; sort: 'name' | 'updatedAt' | 'createdAt' | 'size'; direction: 'asc' | 'desc'; limit: number; cursor?: string }) {
@@ -199,13 +217,7 @@ export async function getResource(id: string, user: AuthUser) {
 
 export async function createFolder(user: AuthUser, input: { name: string; parentId?: string | null; ownerId?: string; remark?: string | null }, audit: { ipAddress?: string; userAgent?: string }) {
   const named = validateResourceName(input.name);
-  let inheritedVisibility: ResourceWithRelations['visibility'] = 'ORGANIZATION';
-  if (input.parentId) {
-    const parent = await findResource(input.parentId);
-    if (parent.type !== 'FOLDER') throw notFound('FOLDER_NOT_FOUND', 'ไม่พบโฟลเดอร์ปลายทาง');
-    await assertEdit(parent, user);
-    inheritedVisibility = parent.visibility;
-  } else if (!user.permissions.includes('resources:write')) throw forbidden('ไม่มีสิทธิ์สร้างโฟลเดอร์');
+  const inheritedVisibility = await createDestination(user, input.parentId);
   const ownerId = input.ownerId ?? user.id;
   if (ownerId !== user.id && !isAdmin(user) && !user.permissions.includes('resources:owner:manage')) throw new AppError('OWNER_TRANSFER_DENIED', 'ไม่มีสิทธิ์กำหนดเจ้าของรายอื่น', 403);
   const owner = await prisma.user.findFirst({ where: { id: ownerId, status: 'ACTIVE' } });
@@ -221,16 +233,66 @@ export async function createFolder(user: AuthUser, input: { name: string; parent
   } catch (error) { return translateDuplicate(error); }
 }
 
-export async function updateResource(id: string, user: AuthUser, input: { name?: string; remark?: string | null; isLocked?: boolean }, audit: { ipAddress?: string; userAgent?: string }) {
+export async function createExternalResource(
+  user: AuthUser,
+  input: { type: ExternalResourceType; name: string; parentId?: string | null; url: string; remark?: string | null },
+  audit: { ipAddress?: string; userAgent?: string },
+) {
+  const named = validateResourceName(input.name);
+  const externalUrl = validateExternalResourceUrl(input.type, input.url);
+  const { provider: externalProvider, sourceType } = externalResourceConfig(input.type);
+  const visibility = await createDestination(user, input.parentId);
+  try {
+    const id = await prisma.$transaction(async (tx) => {
+      const resource = await tx.resource.create({
+        data: {
+          type: input.type,
+          ...named,
+          siblingKey: siblingKey(input.parentId ?? null, named.normalizedName),
+          parentId: input.parentId ?? null,
+          ownerId: user.id,
+          createdById: user.id,
+          sourceType,
+          externalUrl,
+          externalProvider,
+          visibility,
+          remark: input.remark?.trim() || null,
+        },
+      });
+      await tx.activityLog.create({
+        data: {
+          userId: user.id,
+          action: 'RESOURCE_EXTERNAL_CREATED',
+          resourceId: resource.id,
+          ipAddress: audit.ipAddress,
+          userAgent: audit.userAgent?.slice(0, 500),
+          metadata: { type: input.type, parentId: resource.parentId, externalProvider },
+        },
+      });
+      return resource.id;
+    });
+    logger.info(`[EXTERNAL_RESOURCE] Created type=${input.type}`);
+    return getResource(id, user);
+  } catch (error) {
+    return translateDuplicate(error);
+  }
+}
+
+export async function updateResource(id: string, user: AuthUser, input: { name?: string; remark?: string | null; isLocked?: boolean; externalUrl?: string }, audit: { ipAddress?: string; userAgent?: string }) {
   const resource = await findResource(id); await assertEdit(resource, user);
   if (input.isLocked !== undefined && !isAdmin(user)) throw forbidden('เฉพาะผู้ดูแลระบบเท่านั้นที่เปลี่ยนสถานะล็อกได้');
   const named = input.name === undefined ? null : validateResourceName(input.name);
+  let externalUrl: string | undefined;
+  if (input.externalUrl !== undefined) {
+    if (!isExternalResourceType(resource.type)) throw badRequest('INVALID_EXTERNAL_RESOURCE_TYPE', 'ทรัพยากรนี้ไม่ใช่ลิงก์ภายนอก');
+    externalUrl = validateExternalResourceUrl(resource.type, input.externalUrl);
+  }
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.resource.update({ where: { id }, data: { ...(named ? { ...named, siblingKey: siblingKey(resource.parentId, named.normalizedName) } : {}), remark: input.remark, isLocked: input.isLocked, updatedById: user.id } });
-      await tx.activityLog.create({ data: { userId: user.id, action: named ? 'RESOURCE_RENAMED' : 'RESOURCE_UPDATED', resourceId: id, ipAddress: audit.ipAddress, userAgent: audit.userAgent?.slice(0, 500), metadata: named ? { previousName: resource.name } : undefined } });
+      await tx.resource.update({ where: { id }, data: { ...(named ? { ...named, siblingKey: siblingKey(resource.parentId, named.normalizedName) } : {}), remark: input.remark, isLocked: input.isLocked, externalUrl, updatedById: user.id } });
+      await tx.activityLog.create({ data: { userId: user.id, action: externalUrl !== undefined && externalUrl !== resource.externalUrl ? 'RESOURCE_EXTERNAL_URL_UPDATED' : named ? 'RESOURCE_RENAMED' : 'RESOURCE_UPDATED', resourceId: id, ipAddress: audit.ipAddress, userAgent: audit.userAgent?.slice(0, 500), metadata: externalUrl !== undefined && externalUrl !== resource.externalUrl ? { externalProvider: resource.externalProvider } : named ? { previousName: resource.name } : undefined } });
     });
-    if (named) logger.info('[FOLDER] Renamed resource');
+    if (named) logger.info('[RESOURCE] Renamed resource');
     return getResource(id, user);
   } catch (error) { return translateDuplicate(error); }
 }

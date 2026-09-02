@@ -6,7 +6,8 @@ import { AnchoredMenu } from '@/components/ui/AnchoredMenu';
 import { useToast } from '@/hooks/useToast';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme, type ThemePreference } from '@/hooks/useTheme';
-import { OwnerAvatar } from '@/components/files/OwnerIdentity';
+import { OwnerAvatar, ownerLabel } from '@/components/files/OwnerIdentity';
+import { ProfileDialog } from './ProfileDialog';
 
 /**
  * เมนูบัญชีผู้ใช้
@@ -16,6 +17,7 @@ import { OwnerAvatar } from '@/components/files/OwnerIdentity';
  */
 export function UserMenu() {
   const [open, setOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const { notify } = useToast();
   const { user, logout } = useAuth();
@@ -23,6 +25,7 @@ export function UserMenu() {
   const { preference, setPreference } = useTheme();
 
   const isAdmin = Boolean(user?.permissions.includes('admin:access'));
+  const visibleName = ownerLabel({ displayName: user?.displayName, email: user?.email });
 
   return (
     <>
@@ -32,12 +35,12 @@ export function UserMenu() {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`${user?.displayName ?? 'ผู้ใช้'} ${user?.roles.join(', ') ?? ''}`.trim()}
+        aria-label={`${visibleName} ${user?.roles.join(', ') ?? ''}`.trim()}
         className="flex h-9 items-center gap-2 rounded-[10px] pl-1 pr-1.5 transition-colors hover:bg-navy-50"
       >
         <OwnerAvatar owner={{ displayName: user?.displayName, email: user?.email }} size="md" />
         <span className="hidden max-w-[120px] text-left leading-tight xl:block">
-          <span className="block truncate text-[12.5px] font-semibold text-navy-800">{user?.displayName}</span>
+          <span className="block truncate text-[12.5px] font-semibold text-navy-800">{visibleName}</span>
           <span className="block truncate text-[10px] text-navy-400">{user?.roles.join(', ')}</span>
         </span>
         <ChevronDown className="hidden h-3.5 w-3.5 text-navy-400 xl:block" aria-hidden />
@@ -54,13 +57,20 @@ export function UserMenu() {
           <div className="flex items-center gap-2.5 border-b border-line px-2.5 pb-2.5 pt-1.5">
             <OwnerAvatar owner={{ displayName: user?.displayName, email: user?.email }} size="md" />
             <div className="min-w-0">
-              <p className="truncate text-[12.5px] font-semibold text-navy-800">{user?.displayName}</p>
+              <p className="truncate text-[12.5px] font-semibold text-navy-800">{visibleName}</p>
               <p className="truncate text-[10.5px] text-navy-400">{user?.email}</p>
             </div>
           </div>
 
           <p className="s2-section-title px-2.5 pb-1 pt-2">บัญชี</p>
-          <MenuItem icon={<UserRound className="h-4 w-4" />} label="โปรไฟล์" disabled onSelect={() => undefined} />
+          <MenuItem
+            icon={<UserRound className="h-4 w-4" />}
+            label="โปรไฟล์"
+            onSelect={() => {
+              setOpen(false);
+              setProfileOpen(true);
+            }}
+          />
           <MenuItem
             icon={<KeyRound className="h-4 w-4" />}
             label="เปลี่ยนรหัสผ่าน"
@@ -127,6 +137,7 @@ export function UserMenu() {
           />
         </>
       </AnchoredMenu>
+      {profileOpen ? <ProfileDialog onClose={() => setProfileOpen(false)} /> : null}
     </>
   );
 }

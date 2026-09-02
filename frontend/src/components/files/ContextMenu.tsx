@@ -1,13 +1,19 @@
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Download, Eye, FileArchive, FileText, FileUp, FolderInput, FolderPlus, FolderUp,
+  Clipboard, Download, Eye, FileArchive, FileText, FileUp, FolderInput, FolderPlus, FolderUp,
   Globe2, History, Info, Link2, Lock, LockOpen, MessageSquareText, PenLine, Pin, PinOff,
   Share2, Sheet, SquareArrowOutUpRight, Star, StarOff, Tag, Trash2, Upload, UserRoundCog,
 } from 'lucide-react';
 import { MenuItem, MenuLabel, MenuSeparator } from '@/components/ui/Menu';
 import type { DriveEntry } from '@/lib/drive';
-import { clampContextMenuPosition, nextMenuIndex, visibleResourceActions } from '@/lib/interaction-policy';
+import {
+  clampContextMenuPosition,
+  contextMenuMaxHeight,
+  focusMenuItem,
+  nextMenuIndex,
+  visibleResourceActions,
+} from '@/lib/interaction-policy';
 import { isPreviewable } from '@/lib/file-types';
 
 export interface ContextMenuState {
@@ -58,15 +64,26 @@ export function ContextMenu({
 
   useEffect(() => {
     if (!state.open || !ref.current) return;
-    const rect = ref.current.getBoundingClientRect();
-    setPosition(clampContextMenuPosition(
-      { x: state.x, y: state.y },
-      { width: rect.width, height: rect.height },
-      { width: window.innerWidth, height: window.innerHeight },
-    ));
+    const place = () => {
+      const menu = ref.current;
+      if (!menu) return;
+      // offsetWidth/offsetHeight ไม่รวม transform ของ animation จึงไม่วัดเมนูเล็กกว่าขนาดจริง
+      setPosition(clampContextMenuPosition(
+        { x: state.x, y: state.y },
+        { width: menu.offsetWidth, height: menu.offsetHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+      ));
+    };
+
+    place();
+    window.addEventListener('resize', place);
     if (state.keyboard) {
-      requestAnimationFrame(() => ref.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')?.focus());
+      requestAnimationFrame(() => {
+        const first = ref.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)');
+        if (first) focusMenuItem([first], 0);
+      });
     }
+    return () => window.removeEventListener('resize', place);
   }, [state.open, state.x, state.y, state.keyboard]);
 
   useEffect(() => {
@@ -74,11 +91,22 @@ export function ContextMenu({
     const onPointerDown = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) onClose();
     };
-    const onScroll = () => onClose();
+    const onScroll = (event: Event) => {
+      // เมนูยาวเลื่อนภายในได้ ส่วนการเลื่อนหน้า/ancestor ยังปิดเมนูตามพฤติกรรมเดิม
+      if (event.target instanceof Node && ref.current?.contains(event.target)) return;
+      onClose();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onClose();
+    };
     document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
     window.addEventListener('scroll', onScroll, true);
     return () => {
       document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('scroll', onScroll, true);
     };
   }, [state.open, onClose]);
@@ -113,15 +141,18 @@ export function ContextMenu({
       ref={ref}
       role="menu"
       aria-label={entry ? `ตัวเลือกของ ${entry.name}` : `สร้างใน ${destinationName}`}
-      className="s2-menu fixed z-[var(--z-context)] w-64"
-      style={{ left: position.x, top: position.y }}
+      className="s2-menu s2-context-menu fixed z-[var(--z-context)] w-64"
+      style={{
+        left: position.x,
+        top: position.y,
+        maxHeight: contextMenuMaxHeight(window.innerHeight),
+      }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
         if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
         event.preventDefault();
         const items = Array.from(ref.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)') ?? []);
         const current = Math.max(0, items.indexOf(document.activeElement as HTMLButtonElement));
-        items[nextMenuIndex(current, event.key, items.length)]?.focus();
+        focusMenuItem(items, nextMenuIndex(current, event.key, items.length));
       }}
     >
       {entry === null ? (
@@ -132,10 +163,26 @@ export function ContextMenu({
           <MenuItem icon={<Upload className="h-4 w-4" />} label="อัปโหลดไฟล์" onSelect={run('upload-here')} />
           <MenuItem icon={<FolderUp className="h-4 w-4" />} label="อัปโหลดโฟลเดอร์" shortcut="เร็ว ๆ นี้" disabled />
           <MenuSeparator />
-          <MenuItem icon={<Sheet className="h-4 w-4" />} label="เพิ่ม Google Sheet" shortcut="เร็ว ๆ นี้" disabled />
-          <MenuItem icon={<FileText className="h-4 w-4" />} label="เพิ่ม Google Doc" shortcut="เร็ว ๆ นี้" disabled />
-          <MenuItem icon={<Globe2 className="h-4 w-4" />} label="เพิ่ม Google Drive" shortcut="เร็ว ๆ นี้" disabled />
-          <MenuItem icon={<Link2 className="h-4 w-4" />} label="เพิ่มลิงก์" shortcut="เร็ว ๆ นี้" disabled />
+          <MenuItem icon={<Sheet className="h-4 w-4" />} label="เพิ่ม Google Sheet" onSelect={run('create-google-sheet')} />
+          <MenuItem icon={<FileText className="h-4 w-4" />} label="เพิ่ม Google Doc" onSelect={run('create-google-doc')} />
+          <MenuItem icon={<Globe2 className="h-4 w-4" />} label="เพิ่ม Google Drive" onSelect={run('create-google-drive')} />
+          <MenuItem icon={<Link2 className="h-4 w-4" />} label="เพิ่มลิงก์" onSelect={run('create-web-link')} />
+        </>
+      ) : allowed.has('open-external') ? (
+        <>
+          <MenuItem icon={<SquareArrowOutUpRight className="h-4 w-4" />} label="เปิดลิงก์" onSelect={run('open-external')} />
+          <MenuItem icon={<Clipboard className="h-4 w-4" />} label="คัดลอกลิงก์" onSelect={run('copy-external-link')} />
+          <MenuSeparator />
+          {personal}
+          <MenuSeparator />
+          {allowed.has('rename') ? <MenuItem icon={<PenLine className="h-4 w-4" />} label="เปลี่ยนชื่อ" onSelect={run('rename')} /> : null}
+          {allowed.has('move') ? <MenuItem icon={<FolderInput className="h-4 w-4" />} label="ย้าย" onSelect={run('move')} /> : null}
+          {metadata}
+          {allowed.has('edit-external') ? <MenuItem icon={<Link2 className="h-4 w-4" />} label="แก้ไขลิงก์" onSelect={run('edit-external')} /> : null}
+          <MenuSeparator />
+          <MenuItem icon={<Info className="h-4 w-4" />} label="รายละเอียด" onSelect={run('details')} />
+          <MenuItem icon={<History className="h-4 w-4" />} label="ประวัติการใช้งาน" onSelect={run('activity')} />
+          {allowed.has('trash') ? <><MenuSeparator /><MenuItem icon={<Trash2 className="h-4 w-4" />} label="ย้ายไปถังขยะ" danger onSelect={run('trash')} /></> : null}
         </>
       ) : entry.kind === 'folder' ? (
         <>

@@ -124,7 +124,7 @@ export default function DashboardPage() {
                         to={entry.kind === 'folder' ? `/files/${entry.id}` : `/files/${entry.parentId ?? ''}?focus=${entry.id}`}
                         className="s2-surface flex items-center gap-2.5 p-3 transition-colors hover:border-brand-300"
                       >
-                        <FileTypeIcon name={entry.name} kind={entry.kind} />
+                        <FileTypeIcon name={entry.name} kind={entry.kind} resourceType={entry.resourceType} />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[12.5px] font-medium text-navy-800">{entry.name}</span>
                           <span className="block truncate text-[10.5px] text-navy-400">ผู้ดูแล {entry.ownerName}</span>
@@ -158,7 +158,7 @@ export default function DashboardPage() {
                         to={entry.kind === 'folder' ? `/files/${entry.id}` : '/files'}
                         className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-[var(--s2-surface-soft)]"
                       >
-                        <FileTypeIcon name={entry.name} kind={entry.kind} size="sm" />
+                        <FileTypeIcon name={entry.name} kind={entry.kind} resourceType={entry.resourceType} size="sm" />
 
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13px] font-medium text-navy-900">{entry.name}</span>

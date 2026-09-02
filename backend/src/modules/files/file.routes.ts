@@ -63,7 +63,7 @@ function contentDisposition(fileName: string, disposition: 'inline' | 'attachmen
 }
 
 /** ส่งไฟล์ออกไปแบบสตรีม รองรับ HTTP Range สำหรับสื่อขนาดใหญ่และ PDF */
-async function sendFile(
+export async function sendFile(
   request: FastifyRequest,
   reply: FastifyReply,
   content: { storageKey: string; size: number; mimeType: string; fileName: string },

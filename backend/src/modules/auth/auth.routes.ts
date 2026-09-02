@@ -4,9 +4,16 @@ import { env } from '../../config/env.js';
 import { prisma } from '../../core/prisma.js';
 import { authenticate } from './auth.guard.js';
 import { changePassword, login, revokeRefreshToken, rotateRefreshToken } from './auth.service.js';
+import { MAX_DISPLAY_NAME_LENGTH, updateUserProfile } from '../users/user.service.js';
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1).max(200) });
 const passwordSchema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(12).max(200) });
+const profileSchema = z.object({
+  displayName: z.string().trim().min(1).max(MAX_DISPLAY_NAME_LENGTH).refine(
+    (value) => !/\p{Cc}/u.test(value),
+    { message: 'ชื่อที่แสดงมีอักขระควบคุมที่ไม่อนุญาต' },
+  ),
+});
 const cookieName = 's2-refresh';
 const cookieOptions = { httpOnly: true, secure: env.isProduction, sameSite: 'strict' as const, path: '/api/auth' };
 
@@ -64,6 +71,19 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/auth/me', { preHandler: authenticate }, async (request) => ({ success: true, data: request.authUser }));
+
+  app.patch('/auth/profile', { preHandler: authenticate }, async (request) => {
+    const input = profileSchema.parse(request.body);
+    const actor = request.authUser!;
+    const user = await updateUserProfile(actor.id, input, actor, {
+      ipAddress: request.ip,
+      userAgent: request.headers['user-agent'],
+    });
+    return {
+      success: true,
+      data: { ...actor, displayName: user.displayName },
+    };
+  });
 
   app.post('/auth/change-password', { preHandler: authenticate }, async (request, reply) => {
     const input = passwordSchema.parse(request.body);

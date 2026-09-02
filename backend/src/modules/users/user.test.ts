@@ -14,6 +14,7 @@ import {
   listUsers,
   resetTemporaryPassword,
   setUserStatus,
+  updateUserProfile,
 } from './user.service.js';
 import type { AuthUser } from '../auth/auth.service.js';
 
@@ -32,6 +33,7 @@ describe('Phase F1 user management', () => {
   let successorId = '';
   let superAdminId = '';
   let otherSuperAdminId = '';
+  let profileId = '';
 
   let admin: AuthUser;
   let owner: AuthUser;
@@ -77,9 +79,12 @@ describe('Phase F1 user management', () => {
           roles: { create: [{ roleId: superAdminRole!.id }] },
         },
       }),
+      prisma.user.create({
+        data: { email: `${prefix}-profile@example.invalid`, displayName: 'Profile User', status: 'ACTIVE' },
+      }),
     ]);
-    [invitedId, ownerId, successorId, superAdminId, otherSuperAdminId] = users.map((u) => u.id) as [
-      string, string, string, string, string,
+    [invitedId, ownerId, successorId, superAdminId, otherSuperAdminId, profileId] = users.map((u) => u.id) as [
+      string, string, string, string, string, string,
     ];
 
     admin = auth(successorId, ['users:read', 'users:manage', 'resources:owner:manage'], ['SUPER_ADMIN']);
@@ -87,7 +92,7 @@ describe('Phase F1 user management', () => {
   });
 
   after(async () => {
-    const userIds = [invitedId, ownerId, successorId, superAdminId, otherSuperAdminId];
+    const userIds = [invitedId, ownerId, successorId, superAdminId, otherSuperAdminId, profileId];
     const { deleteStoredFile, removeResourceDirectory } = await import('../../core/file-storage.js');
     const versions = await prisma.resourceVersion.findMany({
       where: { createdById: { in: userIds } },
@@ -219,6 +224,27 @@ describe('Phase F1 user management', () => {
   /* ---------------- บทบาท ---------------- */
 
   describe('การเปลี่ยนบทบาท', () => {
+    test('ผู้ดูแลกำหนด SUPER_ADMIN ผ่าน service จริงและบทบาทคงอยู่ในฐานข้อมูล', async () => {
+      const user = await changeUserRoles(profileId, ['SUPER_ADMIN'], admin, audit);
+      assert.ok(user.roles.some((link) => link.role.code === 'SUPER_ADMIN'));
+      const persisted = await prisma.userRole.count({
+        where: { userId: profileId, role: { code: 'SUPER_ADMIN' } },
+      });
+      assert.equal(persisted, 1);
+      await changeUserRoles(profileId, ['MEMBER'], admin, audit);
+    });
+
+    test('ผู้ใช้ที่ไม่มี users:manage กำหนด SUPER_ADMIN ไม่ได้', async () => {
+      await assert.rejects(
+        changeUserRoles(profileId, ['SUPER_ADMIN'], owner, audit),
+        (error: unknown) => (error as { statusCode?: number }).statusCode === 403,
+      );
+      const persisted = await prisma.userRole.count({
+        where: { userId: profileId, role: { code: 'SUPER_ADMIN' } },
+      });
+      assert.equal(persisted, 0);
+    });
+
     test('เปลี่ยนบทบาทได้เฉพาะบทบาทที่มีอยู่จริง', async () => {
       const user = await changeUserRoles(invitedId, ['MEMBER'], admin, audit);
       assert.deepEqual(user.roles.map((link) => link.role.code), ['MEMBER']);
@@ -243,6 +269,68 @@ describe('Phase F1 user management', () => {
       });
       assert.ok(log);
       assert.equal((log!.metadata as { targetUserId?: string }).targetUserId, invitedId);
+    });
+  });
+
+  /* ---------------- โปรไฟล์ ---------------- */
+
+  describe('แก้ไขชื่อที่แสดง', () => {
+    const profileAuth = (): AuthUser => auth(
+      profileId,
+      ['resources:read', 'resources:write', 'resources:delete'],
+    );
+
+    test('ผู้ใช้แก้ displayName ของตัวเองเป็นภาษาไทยได้ และ DTO สะท้อนค่าทันที', async () => {
+      const user = await updateUserProfile(profileId, { displayName: '  อัฐเชษฐ์ ทองชาติ  ' }, profileAuth(), audit);
+      assert.equal(user.displayName, 'อัฐเชษฐ์ ทองชาติ');
+      const persisted = await prisma.user.findUnique({ where: { id: profileId }, select: { displayName: true } });
+      assert.equal(persisted?.displayName, 'อัฐเชษฐ์ ทองชาติ');
+    });
+
+    test('ผู้ดูแลแก้ displayName ของผู้ใช้อื่นได้', async () => {
+      const user = await updateUserProfile(profileId, { displayName: 'Profile Display' }, admin, audit);
+      assert.equal(user.displayName, 'Profile Display');
+    });
+
+    test('ผู้ใช้ทั่วไปแก้โปรไฟล์ของผู้อื่นไม่ได้', async () => {
+      await assert.rejects(
+        updateUserProfile(profileId, { displayName: 'Denied' }, owner, audit),
+        (error: unknown) => (error as { statusCode?: number }).statusCode === 403,
+      );
+    });
+
+    test('ชื่อว่างและ control character ถูกปฏิเสธ', async () => {
+      await assert.rejects(
+        updateUserProfile(profileId, { displayName: '   ' }, profileAuth(), audit),
+        (error: unknown) => (error as { code?: string }).code === 'INVALID_DISPLAY_NAME',
+      );
+      await assert.rejects(
+        updateUserProfile(profileId, { displayName: 'Name\u0000Hidden' }, profileAuth(), audit),
+        (error: unknown) => (error as { code?: string }).code === 'INVALID_DISPLAY_NAME',
+      );
+    });
+
+    test('เปลี่ยนชื่อไม่แตะ ownerId, createdById หรือรหัสทรัพยากร', async () => {
+      const folder = await createFolder(profileAuth(), { name: `${prefix} Profile Relation` }, audit);
+      const before = await prisma.resource.findUnique({
+        where: { id: folder.id },
+        select: { id: true, ownerId: true, createdById: true },
+      });
+      await updateUserProfile(profileId, { displayName: 'Relation Renamed' }, profileAuth(), audit);
+      const after = await prisma.resource.findUnique({
+        where: { id: folder.id },
+        select: { id: true, ownerId: true, createdById: true },
+      });
+      assert.deepEqual(after, before);
+    });
+
+    test('บันทึก USER_PROFILE_UPDATED ด้วย metadata ที่ปลอดภัย', async () => {
+      const log = await prisma.activityLog.findFirst({
+        where: { action: 'USER_PROFILE_UPDATED', userId: profileId },
+        orderBy: { createdAt: 'desc' },
+      });
+      assert.ok(log);
+      assert.deepEqual(log.metadata, { userId: profileId, changedFields: ['displayName'] });
     });
   });
 

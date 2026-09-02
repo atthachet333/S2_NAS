@@ -20,7 +20,7 @@ export function ownerInitials(owner: OwnerLike): string {
     return name.slice(0, 2).toUpperCase();
   }
   const email = owner.email?.trim();
-  if (email) return email.slice(0, 2).toUpperCase();
+  if (email) return (email.split('@')[0] ?? email).slice(0, 2).toUpperCase();
   return '—';
 }
 
@@ -53,7 +53,7 @@ export function OwnerAvatar({
     <span
       className={cn('s2-avatar', SIZES[size], className)}
       aria-hidden
-      title={owner.displayName ?? owner.email ?? undefined}
+      title={ownerLabel(owner)}
     >
       {ownerInitials(owner)}
     </span>

@@ -149,7 +149,7 @@ export function GlobalSearch() {
                     index === active ? 'bg-navy-50' : ''
                   }`}
                 >
-                  <FileTypeIcon name={item.name} kind={item.type === 'FOLDER' ? 'folder' : 'file'} />
+                  <FileTypeIcon name={item.name} kind={item.type === 'FOLDER' ? 'folder' : 'file'} resourceType={item.type} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[12.5px] font-medium text-navy-800">{item.name}</span>
                     <span className="block truncate text-[10.5px] text-navy-400">

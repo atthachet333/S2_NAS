@@ -9,7 +9,7 @@ import { CommandPalette } from './CommandPalette';
 function Shell() {
 
   return (
-    <div className="flex min-h-screen flex-col bg-canvas">
+    <div className="flex min-h-screen w-full max-w-full flex-col overflow-x-hidden bg-canvas">
       <div className="sticky top-0 z-[var(--z-header)]">
         <TopHeader />
         <TopNav />

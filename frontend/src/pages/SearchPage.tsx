@@ -78,7 +78,7 @@ export default function SearchPage() {
   };
 
   const activeChips = [
-    params.get('type') ? { key: 'type', label: params.get('type') === 'FOLDER' ? 'เฉพาะโฟลเดอร์' : 'เฉพาะไฟล์' } : null,
+    params.get('type') ? { key: 'type', label: `ประเภท: ${({ FOLDER: 'โฟลเดอร์', FILE: 'ไฟล์', GOOGLE_SHEET: 'Google Sheet', GOOGLE_DOC: 'Google Doc', GOOGLE_DRIVE: 'Google Drive', WEB_LINK: 'Web Link' } as Record<string, string>)[params.get('type')!] ?? params.get('type')}` } : null,
     params.get('ownerId')
       ? {
           key: 'ownerId',
@@ -175,6 +175,10 @@ export default function SearchPage() {
                 <option value="">ทั้งหมด</option>
                 <option value="FOLDER">โฟลเดอร์</option>
                 <option value="FILE">ไฟล์</option>
+                <option value="GOOGLE_SHEET">Google Sheet</option>
+                <option value="GOOGLE_DOC">Google Doc</option>
+                <option value="GOOGLE_DRIVE">Google Drive</option>
+                <option value="WEB_LINK">Web Link</option>
               </select>
             </Field>
 

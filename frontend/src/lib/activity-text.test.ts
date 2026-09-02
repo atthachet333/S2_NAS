@@ -7,6 +7,9 @@ describe('คำอธิบายบันทึกกิจกรรม', () =
     assert.equal(activityLabel('RESOURCE_UPLOADED'), 'อัปโหลดไฟล์');
     assert.equal(activityLabel('RESOURCE_ACCESS_GRANTED'), 'ให้สิทธิ์เข้าถึง');
     assert.equal(activityLabel('OWNERSHIP_BULK_TRANSFERRED'), 'ส่งมอบความรับผิดชอบทั้งชุด');
+    assert.equal(activityLabel('USER_PROFILE_UPDATED'), 'แก้ไขโปรไฟล์ผู้ใช้');
+    assert.equal(activityLabel('USER_ROLE_CHANGED'), 'เปลี่ยนบทบาทผู้ใช้');
+    assert.equal(activityLabel('USER_ACTIVATED'), 'เปิดใช้งานผู้ใช้');
   });
 
   test('เหตุการณ์ที่ยังไม่รู้จักต้องอ่านออก ไม่ใช่ช่องว่าง', () => {

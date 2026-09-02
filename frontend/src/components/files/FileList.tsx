@@ -5,6 +5,7 @@ import { getFileTypeStyle } from '@/lib/file-types';
 import { cn, formatBytes, formatDateTime, formatRelativeTime } from '@/lib/utils';
 import { ResourceSourceBadge, sourceLabel } from './ResourceSourceBadge';
 import { OwnerChip } from './OwnerIdentity';
+import { externalResourceLabel, isExternalEntry } from '@/lib/external-resources';
 
 export interface ListColumn {
   key: 'owner' | 'source' | 'modified' | 'size' | 'type' | 'sharedBy' | 'permission' | 'sharedAt' | 'deletedBy' | 'deletedAt';
@@ -28,9 +29,9 @@ function cellValue(entry: DriveEntry, key: ListColumn['key']): string {
       return sourceLabel(entry.source);
     case 'size':
       // โฟลเดอร์ไม่มีขนาดรวมที่เชื่อถือได้ จึงแสดงขีดแทนการเดา
-      return entry.kind === 'folder' ? '—' : formatBytes(entry.sizeBytes);
+      return entry.kind === 'folder' || isExternalEntry(entry) ? '—' : formatBytes(entry.sizeBytes);
     case 'type':
-      return entry.kind === 'folder' ? 'โฟลเดอร์' : getFileTypeStyle(entry.name).label;
+      return entry.kind === 'folder' ? 'โฟลเดอร์' : externalResourceLabel(entry.resourceType) ?? getFileTypeStyle(entry.name).label;
     case 'sharedBy':
       return entry.sharedBy ?? '-';
     case 'permission':
@@ -122,7 +123,7 @@ export function FileList({
               ) : null}
               <td className="px-4 py-2.5">
                 <div className="flex min-w-0 items-center gap-2.5">
-                  <FileTypeIcon name={entry.name} kind={entry.kind} size="sm" mimeType={entry.mimeType} resourceId={entry.id} sizeBytes={entry.sizeBytes} showThumbnail />
+                  <FileTypeIcon name={entry.name} kind={entry.kind} resourceType={entry.resourceType} size="sm" mimeType={entry.mimeType} resourceId={entry.id} sizeBytes={entry.sizeBytes} showThumbnail />
                   <span className="truncate text-[13px] font-medium text-navy-900">{entry.name}</span>
                   {entry.isLocked ? (
                     <Lock className="h-3.5 w-3.5 shrink-0 text-navy-300" aria-label="ถูกล็อกไว้" />
@@ -132,7 +133,7 @@ export function FileList({
               {columns.map((column) => (
                 <td key={column.key} className="whitespace-nowrap px-4 py-3 text-[12px] text-navy-500">
                   {column.key === 'source' ? (
-                    <ResourceSourceBadge source={entry.source} />
+                    <span className="flex items-center gap-1"><ResourceSourceBadge source={entry.source} />{isExternalEntry(entry) ? <span className="rounded-md border border-line px-1.5 py-0.5 text-[10px] text-navy-500">{externalResourceLabel(entry.resourceType)}</span> : null}</span>
                   ) : column.key === 'owner' ? (
                     <OwnerChip owner={{ displayName: entry.ownerName, email: entry.ownerEmail }} />
                   ) : (

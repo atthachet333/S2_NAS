@@ -18,7 +18,7 @@ Filtering after the query would leak the existence of restricted documents throu
 | Param | Meaning |
 | --- | --- |
 | `q` | Matches normalized name (case-insensitive, NFC) or remark text |
-| `type` | `FOLDER` / `FILE` |
+| `type` | `FOLDER` / `FILE` / `GOOGLE_SHEET` / `GOOGLE_DOC` / `GOOGLE_DRIVE` / `WEB_LINK` |
 | `sourceType` | `MANUAL`, `GOOGLE`, `S2_PAYROLL`, `S2_ERP`, `S2_LINE_BOT`, `EXTERNAL_UPLOAD`, `SYSTEM` |
 | `ownerId` | Responsible owner |
 | `tagId` | Tag membership |
@@ -27,6 +27,7 @@ Filtering after the query would leak the existence of restricted documents throu
 | `favoriteOnly` | Caller's own favorites |
 | `limit`, `cursor` | Pagination (folders first, then most recently modified) |
 
+External resources are searched by their local S2 NAS name, remark, and tags. F2 never reads or searches remote Google/web content.
 `storageKey` and physical paths are never searchable and never returned.
 
 ## Facets

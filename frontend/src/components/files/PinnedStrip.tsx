@@ -45,7 +45,7 @@ export function PinnedStrip({
               }}
               className="s2-surface flex w-full items-center gap-2.5 p-3 text-left transition-colors hover:border-brand-300"
             >
-              <FileTypeIcon name={entry.name} kind={entry.kind} />
+              <FileTypeIcon name={entry.name} kind={entry.kind} resourceType={entry.resourceType} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12.5px] font-medium text-navy-800">{entry.name}</span>
                 <span className="block truncate text-[10.5px] text-navy-400">{entry.ownerName}</span>

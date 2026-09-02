@@ -1,5 +1,13 @@
 # API
 
+## Create an external resource
+
+`POST /api/resources/external`
+
+Authenticated JSON body: `type`, `name`, `parentId` (nullable), `url`, and optional `remark`. Accepted types are `GOOGLE_SHEET`, `GOOGLE_DOC`, `GOOGLE_DRIVE`, and `WEB_LINK`. The server determines provider/source and rejects storage fields, unsafe schemes, and Google URLs that do not match the selected type.
+
+`PATCH /api/resources/:id` accepts `externalUrl` only for an existing external resource and revalidates it. A successful URL change records `RESOURCE_EXTERNAL_URL_UPDATED` without changing the resource ID.
+
 Base URL: `http://localhost:8889/api`
 Frontend เรียกผ่าน `/api` และ Vite proxy ไปยัง backend ให้อัตโนมัติ
 

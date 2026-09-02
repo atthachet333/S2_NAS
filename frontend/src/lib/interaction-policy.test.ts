@@ -6,6 +6,8 @@ import {
   ORIGINAL_DOWNLOAD_LABEL,
   VERSION_DOWNLOAD_LABEL,
   clampContextMenuPosition,
+  contextMenuMaxHeight,
+  focusMenuItem,
   nextMenuIndex,
   selectionDownloadMode,
   visibleResourceActions,
@@ -24,9 +26,10 @@ const entry = (kind: 'file' | 'folder', overrides: Partial<DriveEntry> = {}): Dr
 });
 
 describe('file manager interaction policy', () => {
-  test('empty-space menu exposes create/upload and disables unsupported future actions', () => {
+  test('empty-space menu activates all F2 external actions while upload-folder stays future', () => {
     assert.deepEqual(EMPTY_WORKSPACE_ACTIONS.slice(0, 3).map((item) => item.label), ['สร้างโฟลเดอร์', 'อัปโหลดไฟล์', 'อัปโหลดโฟลเดอร์']);
-    assert.ok(EMPTY_WORKSPACE_ACTIONS.filter((item) => ['upload-folder', 'google-sheet', 'google-doc', 'google-drive', 'web-link'].includes(item.id)).every((item) => item.disabled));
+    assert.equal(EMPTY_WORKSPACE_ACTIONS.find((item) => item.id === 'upload-folder')?.disabled, true);
+    assert.ok(EMPTY_WORKSPACE_ACTIONS.filter((item) => ['google-sheet', 'google-doc', 'google-drive', 'web-link'].includes(item.id)).every((item) => !item.disabled));
   });
 
   test('folder context menu has folder-only actions and capability filtering', () => {
@@ -43,6 +46,14 @@ describe('file manager interaction policy', () => {
     assert.ok(!actions.includes('download-zip') && !actions.includes('create-folder-inside'));
   });
 
+  test('external context menu opens, copies, and edits links without physical-file actions', () => {
+    const external = entry('file', { resourceType: 'GOOGLE_SHEET', externalUrl: 'https://docs.google.com/spreadsheets/d/id/edit' });
+    const actions = visibleResourceActions(external);
+    assert.ok(actions.includes('open-external') && actions.includes('copy-external-link') && actions.includes('edit-external'));
+    assert.ok(!actions.includes('preview') && !actions.includes('download') && !actions.includes('new-version'));
+    assert.equal(selectionDownloadMode([external]), null);
+  });
+
   test('selection download semantics distinguish file, folder, and multiple resources', () => {
     assert.equal(selectionDownloadMode([entry('file')]), 'ORIGINAL');
     assert.equal(selectionDownloadMode([entry('folder')]), 'ZIP');
@@ -55,8 +66,21 @@ describe('file manager interaction policy', () => {
   });
 
   test('context menu positioning flips inside every viewport edge', () => {
-    assert.deepEqual(clampContextMenuPosition({ x: 790, y: 590 }, { width: 240, height: 300 }, { width: 800, height: 600 }), { x: 552, y: 292 });
-    assert.deepEqual(clampContextMenuPosition({ x: -20, y: -10 }, { width: 240, height: 300 }, { width: 800, height: 600 }), { x: 8, y: 8 });
+    assert.deepEqual(clampContextMenuPosition({ x: 790, y: 590 }, { width: 240, height: 300 }, { width: 800, height: 600 }), { x: 550, y: 290 });
+    assert.deepEqual(clampContextMenuPosition({ x: -20, y: -10 }, { width: 240, height: 300 }, { width: 800, height: 600 }), { x: 10, y: 10 });
+  });
+
+  test('context menu max height keeps safe margins and enables overflow for long content', () => {
+    assert.equal(contextMenuMaxHeight(768), 748);
+    assert.equal(contextMenuMaxHeight(900, 12), 876);
+    assert.ok(900 > contextMenuMaxHeight(768), 'long menu content must exceed the capped height and scroll internally');
+  });
+
+  test('bottom-edge placement uses the full untransformed menu height', () => {
+    assert.deepEqual(
+      clampContextMenuPosition({ x: 360, y: 740 }, { width: 256, height: 648 }, { width: 375, height: 768 }),
+      { x: 109, y: 110 },
+    );
   });
 
   test('keyboard navigation wraps and supports Home/End', () => {
@@ -64,6 +88,16 @@ describe('file manager interaction policy', () => {
     assert.equal(nextMenuIndex(3, 'ArrowDown', 4), 0);
     assert.equal(nextMenuIndex(2, 'Home', 4), 0);
     assert.equal(nextMenuIndex(1, 'End', 4), 3);
+  });
+
+  test('active keyboard item receives focus and scrolls into view', () => {
+    const calls: string[] = [];
+    const items = [0, 1].map((index) => ({
+      focus: () => calls.push(`focus:${index}`),
+      scrollIntoView: (options?: ScrollIntoViewOptions) => calls.push(`scroll:${index}:${options?.block}`),
+    }));
+    focusMenuItem(items, 1);
+    assert.deepEqual(calls, ['focus:1', 'scroll:1:nearest']);
   });
   test('เมนูรายการโปรดและปักหมุดสลับตามสถานะปัจจุบัน', () => {
     const plain = visibleResourceActions(entry('file'));

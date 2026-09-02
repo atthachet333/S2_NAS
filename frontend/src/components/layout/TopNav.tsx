@@ -21,7 +21,7 @@ const TABS: NavTab[] = [
 export function TopNav() {
   return (
     <nav className="s2-nav-bar border-b border-line" aria-label="พื้นที่ไฟล์">
-      <ul className="mx-auto flex max-w-[1680px] items-center gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:justify-center lg:px-8 [&::-webkit-scrollbar]:hidden">
+      <ul className="mx-auto flex w-full min-w-0 max-w-[1680px] items-center gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:justify-center lg:px-8 [&::-webkit-scrollbar]:hidden">
         {TABS.map((tab) => (
           <li key={tab.to}>
             <NavLink

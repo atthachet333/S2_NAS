@@ -20,6 +20,8 @@ import { useUploadQueue } from '@/hooks/useUploadQueue';
 import { downloadResource, downloadZip } from '@/lib/download';
 import { isPreviewable } from '@/lib/file-types';
 import { selectionDownloadMode } from '@/lib/interaction-policy';
+import { ExternalResourceDialog } from '@/components/files/ExternalResourceDialog';
+import { isExternalEntry, openExternalUrl, type ExternalResourceType } from '@/lib/external-resources';
 
 const SORT_API: Record<SortKey, { sort: string; direction: 'asc' | 'desc' }> = {
   'name-asc': { sort: 'name', direction: 'asc' },
@@ -33,6 +35,7 @@ export default function FilesPage() {
   const parentId = folderId ?? null;
   const [sort, setSort] = useState<SortKey>('name-asc');
   const [dialog, setDialog] = useState<{ mode: ResourceDialogMode; entry: DriveEntry | null; targetParentId?: string | null } | null>(null);
+  const [externalDialog, setExternalDialog] = useState<{ type: ExternalResourceType; entry?: DriveEntry | null } | null>(null);
   const { notify } = useToast();
   const { select, openDetails } = useDriveUi();
   const { enqueue, enqueueVersion } = useUploadQueue();
@@ -69,17 +72,36 @@ export default function FilesPage() {
       uploadTargetRef.current = { parentId, parentName: currentFolder?.data.name ?? 'ไฟล์ของฉัน' };
       filePickerRef.current?.click();
     };
+    const createExternal = (event: Event) => {
+      const type = (event as CustomEvent<{ type?: ExternalResourceType }>).detail?.type;
+      if (type) setExternalDialog({ type });
+    };
     window.addEventListener('s2-create-folder', open);
     window.addEventListener('s2-upload-file', upload);
+    window.addEventListener('s2-create-external', createExternal);
     return () => {
       window.removeEventListener('s2-create-folder', open);
       window.removeEventListener('s2-upload-file', upload);
+      window.removeEventListener('s2-create-external', createExternal);
     };
   }, [parentId, currentFolder?.data.name]);
 
   const action = (name: string, entry: DriveEntry | null) => {
     // รายการโปรด ปักหมุด แท็ก หมายเหตุ สิทธิ์ ล็อก และประวัติ ใช้ตัวจัดการกลางร่วมกับหน้าอื่น
     if (handleWorkspaceAction(name, entry)) return;
+    if (name === 'open' && entry && isExternalEntry(entry)) {
+      if (!entry.externalUrl || !openExternalUrl(entry.externalUrl)) notify({ tone: 'error', title: 'ลิงก์ไม่ถูกต้อง' });
+      return;
+    }
+    const createTypes: Record<string, ExternalResourceType> = {
+      'create-google-sheet': 'GOOGLE_SHEET', 'create-google-doc': 'GOOGLE_DOC',
+      'create-google-drive': 'GOOGLE_DRIVE', 'create-web-link': 'WEB_LINK',
+    };
+    if (createTypes[name]) { setExternalDialog({ type: createTypes[name] }); return; }
+    if (name === 'edit-external' && entry && isExternalEntry(entry)) {
+      setExternalDialog({ type: entry.resourceType as ExternalResourceType, entry });
+      return;
+    }
     if (name === 'open' && entry?.kind === 'folder') {
       navigate(`/files/${entry.id}`);
       return;
@@ -252,7 +274,7 @@ export default function FilesPage() {
           {selectedEntries.length > 0 ? (
             <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2" role="toolbar" aria-label="การทำงานกับรายการที่เลือก">
               <span className="mr-auto text-[12px] font-semibold text-brand-700">เลือกแล้ว {selectedEntries.length} รายการ</span>
-              <button
+              {selectedDownloadMode ? <button
                 type="button"
                 className="s2-btn s2-btn-outline"
                 disabled={zipPending}
@@ -272,7 +294,7 @@ export default function FilesPage() {
               >
                 {selectedDownloadMode === 'ORIGINAL' ? <Download className="h-4 w-4" aria-hidden /> : <FileArchive className="h-4 w-4" aria-hidden />}
                 {zipPending ? 'กำลังดาวน์โหลด…' : selectedDownloadMode === 'ORIGINAL' ? 'ดาวน์โหลดไฟล์ต้นฉบับ' : 'ดาวน์โหลดเป็น ZIP'}
-              </button>
+              </button> : null}
               <button type="button" className="s2-btn border border-red-200 bg-red-50 text-red-700" onClick={() => setBulkTrashConfirm(true)}>
                 <Trash2 className="h-4 w-4" aria-hidden />
                 ย้ายไปถังขยะ
@@ -359,6 +381,17 @@ export default function FilesPage() {
           parentId={dialog.targetParentId !== undefined ? dialog.targetParentId : parentId}
           onClose={() => setDialog(null)}
           onSuccess={success}
+        />
+      ) : null}
+
+      {externalDialog ? (
+        <ExternalResourceDialog
+          type={externalDialog.type}
+          entry={externalDialog.entry}
+          parentId={parentId}
+          destinationName={folder?.name ?? 'ไฟล์ของฉัน'}
+          onClose={() => setExternalDialog(null)}
+          onSuccess={(message) => { setExternalDialog(null); success(message); }}
         />
       ) : null}
 

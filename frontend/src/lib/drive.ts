@@ -17,6 +17,10 @@ export interface DriveEntry {
   lockedAt: string | null;
   lockedByName: string | null;
   source?: import('@/components/files/ResourceSourceBadge').ResourceSource;
+  externalUrl?: string | null; externalProvider?: string | null;
+  sourceSystem?: string | null; sourceEntityType?: string | null; sourceEntityId?: string | null;
+  sourceUrl?: string | null;
+  createdByIntegrationApp?: { id: string; name: string; code: string } | null;
   capabilities: ResourceCapabilities;
   location?: string; sharedBy?: string; sharedAt?: string; permission?: SharePermission;
   deletedBy?: string; deletedAt?: string;
@@ -45,6 +49,10 @@ export function toDriveEntry(resource: ResourceDto): DriveEntry {
     mimeType: resource.mimeType, uploadedBy: resource.uploadedBy ?? null,
     currentVersion: resource.currentVersion ?? null, visibility: resource.visibility ?? 'ORGANIZATION',
     remark: resource.remark ?? undefined, isLocked: resource.isLocked,
+    externalUrl: resource.externalUrl, externalProvider: resource.externalProvider,
+    sourceSystem: resource.sourceSystem, sourceEntityType: resource.sourceEntityType,
+    sourceEntityId: resource.sourceEntityId, sourceUrl: resource.sourceUrl,
+    createdByIntegrationApp: resource.createdByIntegrationApp,
     source: SOURCE_MAP[resource.sourceType], capabilities: resource.capabilities,
   };
 }

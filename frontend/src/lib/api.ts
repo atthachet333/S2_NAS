@@ -156,6 +156,11 @@ export const authApi = {
   session: () => apiFetch<SessionResponse>('/auth/session', { method: 'POST' }),
   logout: () => apiFetch<{ success: true }>('/auth/logout', { method: 'POST' }),
   changePassword: (currentPassword: string, newPassword: string) => apiFetch<{ success: true; data: { changed: boolean; loginRequired: boolean } }>('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
+  updateProfile: (displayName: string) =>
+    apiFetch<{ success: true; data: AuthUser }>('/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify({ displayName }),
+    }),
 };
 
 export interface ResourceCapabilities {
@@ -172,6 +177,9 @@ export interface ResourceDto {
   sourceType: 'MANUAL' | 'GOOGLE' | 'S2_PAYROLL' | 'S2_ERP' | 'S2_LINE_BOT' | 'EXTERNAL_UPLOAD' | 'SYSTEM';
   mimeType: string | null; extension: string | null; size: number | null;
   externalUrl: string | null; externalProvider: string | null; remark: string | null;
+  sourceSystem: string | null; sourceEntityType: string | null; sourceEntityId: string | null;
+  sourceUrl: string | null;
+  createdByIntegrationApp: { id: string; name: string; code: string } | null;
   isLocked: boolean; itemCount: number; createdAt: string; updatedAt: string;
   visibility: 'ORGANIZATION' | 'RESTRICTED';
   currentVersion: number | null;
@@ -220,7 +228,8 @@ export const resourceApi = {
   recent: (limit = 50) => apiFetch<{ success: true; data: ResourceDto[] }>(`/resources-recent?limit=${limit}`),
   breadcrumb: (id: string) => apiFetch<BreadcrumbResponse>(`/resources/${id}/breadcrumb`),
   createFolder: (input: { name: string; parentId?: string | null; ownerId?: string; remark?: string | null }) => apiFetch<ResourceResponse>('/folders', { method: 'POST', body: JSON.stringify(input) }),
-  update: (id: string, input: { name?: string; remark?: string | null }) => apiFetch<ResourceResponse>(`/resources/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  createExternal: (input: { type: 'GOOGLE_SHEET' | 'GOOGLE_DOC' | 'GOOGLE_DRIVE' | 'WEB_LINK'; name: string; parentId?: string | null; url: string; remark?: string | null }) => apiFetch<ResourceResponse>('/resources/external', { method: 'POST', body: JSON.stringify(input) }),
+  update: (id: string, input: { name?: string; remark?: string | null; externalUrl?: string }) => apiFetch<ResourceResponse>(`/resources/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
   move: (id: string, parentId: string | null) => apiFetch<ResourceResponse>(`/resources/${id}/move`, { method: 'PATCH', body: JSON.stringify({ parentId }) }),
   transferOwner: (id: string, newOwnerId: string) => apiFetch<ResourceResponse>(`/resources/${id}/owner`, { method: 'PATCH', body: JSON.stringify({ newOwnerId }) }),
   remove: (id: string) => apiFetch<{ success: true; data: { deleted: true; deletedAt: string } }>(`/resources/${id}`, { method: 'DELETE' }),
@@ -285,6 +294,11 @@ export const usersApi = {
       method: 'PATCH',
       body: JSON.stringify({ roleCodes }),
     }),
+  updateProfile: (id: string, displayName: string) =>
+    apiFetch<{ success: true; data: PublicUser }>(`/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ displayName }),
+    }),
 };
 
 
@@ -337,6 +351,17 @@ export const fileApi = {
 
 export interface OwnershipRow { user: { id: string; displayName: string; email: string }; ownedFolderCount: number }
 export const adminApi = { ownership: () => apiFetch<{ success: true; data: OwnershipRow[] }>('/admin/ownership') };
+
+export type IntegrationScope = 'resources:read'|'resources:create'|'resources:upload'|'resources:update'|'resources:download'|'resources:metadata';
+export interface IntegrationCredentialDto { id:string; label:string|null; createdAt:string; lastUsedAt:string|null; expiresAt:string|null; revokedAt:string|null }
+export interface IntegrationAppDto { id:string; name:string; code:string; description:string|null; isActive:boolean; scopes:IntegrationScope[]; lastUsedAt:string|null; createdAt:string; allowedRoot:{id:string;name:string}; credentials:IntegrationCredentialDto[]; _count:{credentials:number} }
+export const integrationsAdminApi = {
+  list:()=>apiFetch<{success:true;data:IntegrationAppDto[]}>('/admin/integrations'),
+  create:(input:{name:string;code:string;description?:string|null;allowedRootId:string;scopes:IntegrationScope[]})=>apiFetch<{success:true;data:IntegrationAppDto}>('/admin/integrations',{method:'POST',body:JSON.stringify(input)}),
+  update:(id:string,input:Partial<{name:string;description:string|null;isActive:boolean;allowedRootId:string;scopes:IntegrationScope[]}>)=>apiFetch<{success:true;data:IntegrationAppDto}>(`/admin/integrations/${id}`,{method:'PATCH',body:JSON.stringify(input)}),
+  credential:(id:string,label?:string)=>apiFetch<{success:true;data:{credentialId:string;secret:string}}>(`/admin/integrations/${id}/credentials`,{method:'POST',body:JSON.stringify({label:label||null})}),
+  revoke:(id:string,credentialId:string)=>apiFetch<{success:true;data:{revoked:boolean}}>(`/admin/integrations/${id}/credentials/${credentialId}`,{method:'DELETE'}),
+};
 
 
 /* ---------- Phase E: พื้นที่ทำงานองค์กร ---------- */

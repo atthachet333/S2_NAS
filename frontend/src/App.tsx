@@ -17,8 +17,7 @@ import AdminStoragePage from '@/pages/admin/AdminStoragePage';
 import AdminBackupPage from '@/pages/admin/AdminBackupPage';
 import AdminSettingsPage from '@/pages/admin/AdminSettingsPage';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
-import { AdminFoundationPage } from '@/pages/admin/AdminFoundationPage';
-import { Plug } from 'lucide-react';
+import AdminIntegrationsPage from '@/pages/admin/AdminIntegrationsPage';
 import AdminOwnershipPage from '@/pages/admin/AdminOwnershipPage';
 
 export default function App() {
@@ -49,7 +48,7 @@ export default function App() {
         <Route path="activity" element={<AdminActivityPage />} />
         <Route path="storage" element={<AdminStoragePage />} />
         <Route path="backup" element={<AdminBackupPage />} />
-        <Route path="integrations" element={<AdminFoundationPage title="Connected Apps" description="จุดเชื่อมต่อระบบใน S2 Ecosystem" icon={Plug} emptyTitle="ยังไม่มีระบบที่เชื่อมต่อ" emptyDescription="S2 Payroll, S2 ERP และ S2 LINE Bot ยังไม่เชื่อมต่อใน Phase นี้" />} />
+        <Route path="integrations" element={<AdminIntegrationsPage />} />
         <Route path="settings" element={<AdminSettingsPage />} />
       </Route>
     </Routes>

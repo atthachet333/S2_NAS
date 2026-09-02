@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Eye, EyeOff, KeyRound, ShieldCheck, UserCheck, UserX, X } from 'lucide-react';
+import { AlertTriangle, Eye, EyeOff, KeyRound, Pencil, ShieldCheck, UserCheck, UserX, X } from 'lucide-react';
 import { ApiError, usersApi, type PublicUser } from '@/lib/api';
 import { useToast } from '@/hooks/useToast';
 
-export type UserDialogMode = 'activate' | 'reset-password' | 'disable' | 'roles';
+export type UserDialogMode = 'activate' | 'reset-password' | 'disable' | 'roles' | 'profile';
 
 const MIN_PASSWORD_LENGTH = 12;
 
@@ -16,6 +16,7 @@ const ERROR_TEXT: Record<string, string> = {
   ROLE_NOT_FOUND: 'ไม่พบบทบาทที่เลือก',
   LAST_SUPER_ADMIN: 'ต้องเหลือผู้ดูแลสูงสุดที่เปิดใช้งานอย่างน้อยหนึ่งคน',
   CANNOT_DISABLE_SELF: 'ปิดการใช้งานบัญชีของตัวเองไม่ได้',
+  INVALID_DISPLAY_NAME: 'ชื่อที่แสดงไม่ถูกต้อง',
 };
 
 const TITLES: Record<UserDialogMode, string> = {
@@ -23,6 +24,7 @@ const TITLES: Record<UserDialogMode, string> = {
   'reset-password': 'ตั้งรหัสผ่านชั่วคราวใหม่',
   disable: 'ปิดการใช้งานบัญชี',
   roles: 'เปลี่ยนบทบาท',
+  profile: 'แก้ไขข้อมูลผู้ใช้',
 };
 
 /**
@@ -47,6 +49,7 @@ export function UserActionDialog({
   const [revealed, setRevealed] = useState(false);
   const [acknowledge, setAcknowledge] = useState(false);
   const [roleCodes, setRoleCodes] = useState<string[]>(user.roles.map((link) => link.role.code));
+  const [displayName, setDisplayName] = useState(user.displayName);
   const [error, setError] = useState<string | null>(null);
   const [owned, setOwned] = useState<{ ownedTotal: number; ownedFolders: number } | null>(null);
   const firstRef = useRef<HTMLInputElement>(null);
@@ -60,7 +63,8 @@ export function UserActionDialog({
       if (mode === 'activate') return usersApi.activate(user.id, password);
       if (mode === 'reset-password') return usersApi.resetPassword(user.id, password);
       if (mode === 'disable') return usersApi.disable(user.id, acknowledge);
-      return usersApi.changeRoles(user.id, roleCodes);
+      if (mode === 'roles') return usersApi.changeRoles(user.id, roleCodes);
+      return usersApi.updateProfile(user.id, displayName);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['admin-users'] });
@@ -75,7 +79,9 @@ export function UserActionDialog({
               ? 'ตั้งรหัสผ่านชั่วคราวใหม่แล้ว'
               : mode === 'disable'
                 ? `ปิดการใช้งาน ${user.displayName} แล้ว`
-                : 'เปลี่ยนบทบาทแล้ว',
+                : mode === 'roles'
+                  ? 'เปลี่ยนบทบาทแล้ว'
+                  : 'บันทึกข้อมูลผู้ใช้แล้ว',
       });
       // ล้างรหัสออกจากหน่วยความจำของหน้าทันทีที่ใช้เสร็จ
       setPassword('');
@@ -95,8 +101,15 @@ export function UserActionDialog({
   const needsPassword = mode === 'activate' || mode === 'reset-password';
   const passwordTooShort = needsPassword && password.length < MIN_PASSWORD_LENGTH;
 
-  const Icon =
-    mode === 'activate' ? UserCheck : mode === 'reset-password' ? KeyRound : mode === 'disable' ? UserX : ShieldCheck;
+  const Icon = mode === 'activate'
+    ? UserCheck
+    : mode === 'reset-password'
+      ? KeyRound
+      : mode === 'disable'
+        ? UserX
+        : mode === 'profile'
+          ? Pencil
+          : ShieldCheck;
 
   return (
     <div
@@ -243,6 +256,32 @@ export function UserActionDialog({
             </fieldset>
           ) : null}
 
+          {mode === 'profile' ? (
+            <>
+              <label className="block text-[11.5px] font-semibold text-navy-700">
+                ชื่อที่แสดง
+                <input
+                  ref={firstRef}
+                  className="s2-input mt-1.5 h-11 rounded-xl px-3 text-[13px]"
+                  value={displayName}
+                  onChange={(event) => {
+                    setDisplayName(event.target.value);
+                    setError(null);
+                  }}
+                  maxLength={100}
+                  required
+                />
+              </label>
+              <label className="block text-[11.5px] font-semibold text-navy-700">
+                อีเมล
+                <input className="s2-input mt-1.5 h-11 rounded-xl px-3 text-[13px]" value={user.email} readOnly disabled />
+              </label>
+              <p className="text-[11px] leading-relaxed text-navy-400">
+                อีเมลเป็นข้อมูลระบุตัวตนของบัญชีและแก้ไขไม่ได้ในหน้านี้
+              </p>
+            </>
+          ) : null}
+
           {error ? <p className="rounded-xl bg-red-50 px-3 py-2 text-[11.5px] text-red-700">{error}</p> : null}
 
           <div className="flex justify-end gap-2">
@@ -253,6 +292,7 @@ export function UserActionDialog({
                 run.isPending ||
                 passwordTooShort ||
                 (mode === 'roles' && roleCodes.length === 0) ||
+                (mode === 'profile' && !displayName.trim()) ||
                 (mode === 'disable' && owned !== null && !acknowledge)
               }
               className={mode === 'disable' ? 's2-btn border border-red-200 bg-red-600 text-white' : 's2-btn s2-btn-primary'}

@@ -1,5 +1,11 @@
 # ARCHITECTURE
 
+Connected Apps and the separated Integration API are described in [INTEGRATIONS.md](./INTEGRATIONS.md), [INTEGRATION_API.md](./INTEGRATION_API.md), and [INTEGRATION_SECURITY.md](./INTEGRATION_SECURITY.md).
+
+## F2 external-resource boundary
+
+External links remain metadata in the universal `Resource` aggregate. The backend validates and stores URLs but performs no outbound request, keeping arbitrary user URLs outside the server network boundary. Provider-specific IDs and synchronization can be added later while `Resource.id` remains the canonical S2 NAS identity.
+
 ## ภาพรวม
 
 S2 NAS แยกออกเป็นสองส่วนที่ deploy แยกกันได้

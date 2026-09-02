@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Folder } from 'lucide-react';
+import { FileText, Folder, Globe2, Link2, Sheet } from 'lucide-react';
+import type { ResourceDto } from '@/lib/api';
 import { getFileTypeStyle } from '@/lib/file-types';
 import { authorizedFetch, fileApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -32,6 +33,7 @@ export function FileTypeIcon({
   resourceId,
   showThumbnail = false,
   sizeBytes,
+  resourceType,
 }: {
   name: string;
   kind: 'file' | 'folder';
@@ -40,6 +42,7 @@ export function FileTypeIcon({
   resourceId?: string;
   showThumbnail?: boolean;
   sizeBytes?: number;
+  resourceType?: ResourceDto['type'];
 }) {
   const [thumbnail, setThumbnail] = useState<string | null>(null);
   const style = getFileTypeStyle(name, mimeType);
@@ -73,6 +76,15 @@ export function FileTypeIcon({
         <Folder className={GLYPH[size]} aria-hidden />
       </span>
     );
+  }
+
+  const external = resourceType === 'GOOGLE_SHEET' ? { Icon: Sheet, bg: 'bg-emerald-50', fg: 'text-emerald-700' }
+    : resourceType === 'GOOGLE_DOC' ? { Icon: FileText, bg: 'bg-blue-50', fg: 'text-blue-700' }
+      : resourceType === 'GOOGLE_DRIVE' ? { Icon: Globe2, bg: 'bg-amber-50', fg: 'text-amber-700' }
+        : resourceType === 'WEB_LINK' ? { Icon: Link2, bg: 'bg-violet-50', fg: 'text-violet-700' } : null;
+  if (external) {
+    const ExternalIcon = external.Icon;
+    return <span className={cn('flex shrink-0 items-center justify-center', external.bg, external.fg, BOX[size])}><ExternalIcon className={GLYPH[size]} aria-hidden /></span>;
   }
 
   if (thumbnail) {

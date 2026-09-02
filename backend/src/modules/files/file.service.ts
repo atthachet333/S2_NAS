@@ -1,4 +1,5 @@
 import type { Readable } from 'node:stream';
+import type { ResourceSourceType } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
 import { AppError, forbidden, notFound } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
@@ -32,6 +33,13 @@ export interface UploadInput {
   onNameConflict?: NameConflictPolicy;
   /** ผู้ใช้ยืนยันว่าจะอัปโหลดต่อแม้เนื้อหาซ้ำกับไฟล์ที่มีอยู่ */
   allowDuplicateContent?: boolean;
+  /** ค่า trusted ที่ใช้เฉพาะ Integration API; browser routes ไม่รับฟิลด์เหล่านี้ */
+  sourceType?: ResourceSourceType;
+  sourceSystem?: string | null;
+  integrationAppId?: string;
+  sourceEntityType?: string | null;
+  sourceEntityId?: string | null;
+  sourceUrl?: string | null;
 }
 
 export interface AuditContext {
@@ -194,7 +202,12 @@ export async function uploadFile(
             ownerId: parent?.ownerId ?? user.id,
             createdById: user.id,
             updatedById: user.id,
-            sourceType: 'MANUAL',
+            sourceType: input.sourceType ?? 'MANUAL',
+            createdByIntegrationAppId: input.integrationAppId,
+            sourceSystem: input.sourceSystem ?? null,
+            sourceEntityType: input.sourceEntityType,
+            sourceEntityId: input.sourceEntityId,
+            sourceUrl: input.sourceUrl,
             // สืบทอดนโยบายการมองเห็นจากโฟลเดอร์แม่
             visibility: parent?.visibility ?? 'ORGANIZATION',
             mimeType: mime.mimeType,
@@ -217,6 +230,7 @@ export async function uploadFile(
             checksum: stored.checksum,
             mimeType: mime.mimeType,
             createdById: user.id,
+            createdByIntegrationAppId: input.integrationAppId,
             remark: input.remark ?? null,
           },
         });
@@ -224,7 +238,8 @@ export async function uploadFile(
         await tx.activityLog.create({
           data: {
             userId: user.id,
-            action: 'RESOURCE_UPLOADED',
+            integrationAppId: input.integrationAppId,
+            action: input.integrationAppId ? 'INTEGRATION_RESOURCE_UPLOADED' : 'RESOURCE_UPLOADED',
             resourceId: resource.id,
             ipAddress: audit.ipAddress,
             userAgent: audit.userAgent?.slice(0, 500),
@@ -267,7 +282,7 @@ export async function uploadVersion(
   user: AuthUser,
   resourceId: string,
   source: Readable,
-  input: { remark?: string | null; declaredMime?: string },
+  input: { remark?: string | null; declaredMime?: string; integrationAppId?: string },
   audit: AuditContext,
 ): Promise<ReturnType<typeof toResourceDto>> {
   const resource = await loadResource(resourceId);
@@ -285,7 +300,15 @@ export async function uploadVersion(
     const head = await readHead(createReadStream(staged.tempPath, { start: 0, end: 63 }));
     const mime = resolveMimeType(head, resource.extension, input.declaredMime);
 
-    const dto = await addVersionFromStaged(user, resourceId, staged, mime.mimeType, input.remark ?? null, audit);
+    const dto = await addVersionFromStaged(
+      user,
+      resourceId,
+      staged,
+      mime.mimeType,
+      input.remark ?? null,
+      audit,
+      input.integrationAppId,
+    );
     staged = null;
     return dto;
   } finally {
@@ -305,6 +328,7 @@ async function addVersionFromStaged(
   mimeType: string,
   remark: string | null,
   audit: AuditContext,
+  integrationAppId?: string,
 ): Promise<ReturnType<typeof toResourceDto>> {
   const stored = await commitStagedFile(staged, resourceId);
 
@@ -326,6 +350,7 @@ async function addVersionFromStaged(
           checksum: stored.checksum,
           mimeType,
           createdById: user.id,
+          createdByIntegrationAppId: integrationAppId,
           remark,
         },
       });
@@ -347,6 +372,7 @@ async function addVersionFromStaged(
       await tx.activityLog.create({
         data: {
           userId: user.id,
+          integrationAppId,
           action: 'RESOURCE_VERSION_CREATED',
           resourceId,
           ipAddress: audit.ipAddress,

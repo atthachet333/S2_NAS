@@ -8,6 +8,7 @@ interface AuthContextValue {
   login(email: string, password: string): Promise<void>;
   logout(): Promise<void>;
   changePassword(currentPassword: string, newPassword: string): Promise<void>;
+  updateProfile(displayName: string): Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -136,6 +137,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAccessToken(null);
       setUser(null);
       publishAuthEvent('PASSWORD_CHANGED');
+    },
+    async updateProfile(displayName) {
+      const response = await authApi.updateProfile(displayName);
+      setUser(response.data);
     },
   }), [user, isLoading]);
 

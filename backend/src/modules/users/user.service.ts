@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import type { Prisma, UserStatus } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
-import { AppError, notFound } from '../../core/errors.js';
+import { AppError, forbidden, notFound } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
 import { assertPasswordStrength } from '../auth/password-policy.js';
 import type { AuthUser } from '../auth/auth.service.js';
@@ -16,6 +16,8 @@ import type { AuthUser } from '../auth/auth.service.js';
  */
 
 const BCRYPT_ROUNDS = 12;
+export const MAX_DISPLAY_NAME_LENGTH = 100;
+const CONTROL_CHARACTER = /\p{Cc}/u;
 
 export const userSelect = {
   id: true,
@@ -32,6 +34,28 @@ export const userSelect = {
 export interface AuditContext {
   ipAddress?: string;
   userAgent?: string;
+}
+
+/**
+ * ชื่อที่แสดงเป็นข้อความ Unicode สำหรับมนุษย์ ไม่ใช่ข้อมูลระบุตัวตนเพื่อความปลอดภัย
+ * อนุญาตชื่อซ้ำและภาษาไทย แต่ไม่รับค่าว่างหรือ control character ที่ทำให้ UI/log สับสน
+ */
+export function normalizeDisplayName(value: string): string {
+  const displayName = value.trim();
+  if (!displayName) {
+    throw new AppError('INVALID_DISPLAY_NAME', 'ชื่อที่แสดงต้องไม่เป็นค่าว่าง', 400);
+  }
+  if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
+    throw new AppError(
+      'INVALID_DISPLAY_NAME',
+      `ชื่อที่แสดงต้องยาวไม่เกิน ${MAX_DISPLAY_NAME_LENGTH} ตัวอักษร`,
+      400,
+    );
+  }
+  if (CONTROL_CHARACTER.test(displayName)) {
+    throw new AppError('INVALID_DISPLAY_NAME', 'ชื่อที่แสดงมีอักขระควบคุมที่ไม่อนุญาต', 400);
+  }
+  return displayName;
 }
 
 async function logUserEvent(
@@ -270,6 +294,9 @@ export async function changeUserRoles(
   actor: AuthUser,
   audit: AuditContext,
 ) {
+  if (!actor.permissions.includes('users:manage')) {
+    throw forbidden('ไม่มีสิทธิ์เปลี่ยนบทบาทผู้ใช้');
+  }
   const unique = [...new Set(roleCodes)];
   // ใช้ได้เฉพาะบทบาทที่มีอยู่จริงในฐานข้อมูล ไม่รับชื่อบทบาทที่พิมพ์ขึ้นมาเอง
   const roles = await prisma.role.findMany({ where: { code: { in: unique } }, select: { id: true, code: true } });
@@ -287,7 +314,55 @@ export async function changeUserRoles(
     return tx.user.update({ where: { id }, data: { tokenVersion: { increment: 1 } }, select: userSelect });
   });
 
+  await prisma.refreshToken.updateMany({
+    where: { userId: id, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+
   await logUserEvent('USER_ROLE_CHANGED', actor, id, audit, { roleCodes: unique });
   logger.info('[USER] เปลี่ยนบทบาทผู้ใช้แล้ว');
+  return user;
+}
+
+/* ------------------------------------------------------------------ */
+/* โปรไฟล์                                                            */
+/* ------------------------------------------------------------------ */
+
+/** แก้ชื่อของตัวเองได้เสมอ ส่วนการแก้ชื่อผู้อื่นต้องมี users:manage */
+export async function updateUserProfile(
+  id: string,
+  input: { displayName: string },
+  actor: AuthUser,
+  audit: AuditContext,
+) {
+  if (id !== actor.id && !actor.permissions.includes('users:manage')) {
+    throw forbidden('ไม่มีสิทธิ์แก้ไขข้อมูลผู้ใช้อื่น');
+  }
+
+  const displayName = normalizeDisplayName(input.displayName);
+  const existing = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, displayName: true },
+  });
+  if (!existing) throw notFound('USER_NOT_FOUND', 'ไม่พบผู้ใช้');
+
+  if (existing.displayName === displayName) {
+    return prisma.user.findUniqueOrThrow({ where: { id }, select: userSelect });
+  }
+
+  const user = await prisma.user.update({
+    where: { id },
+    data: { displayName },
+    select: userSelect,
+  });
+  await prisma.activityLog.create({
+    data: {
+      userId: actor.id,
+      action: 'USER_PROFILE_UPDATED',
+      ipAddress: audit.ipAddress,
+      userAgent: audit.userAgent?.slice(0, 500),
+      metadata: { userId: id, changedFields: ['displayName'] },
+    },
+  });
   return user;
 }

@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Eye, Info, Lock, MessageSquareText, Share2, ShieldCheck, Star, Tag, X } from 'lucide-react';
+import { Download, Eye, Info, Lock, MessageSquareText, Share2, ShieldCheck, SquareArrowOutUpRight, Star, Tag, X } from 'lucide-react';
 import { workspaceApi } from '@/lib/api';
 import { ActivityTimeline } from './ActivityTimeline';
 import { useWorkspaceMarks } from '@/hooks/useWorkspaceMarks';
@@ -16,6 +16,7 @@ import { VersionList } from './VersionList';
 import { downloadResource } from '@/lib/download';
 import { isPreviewable } from '@/lib/file-types';
 import { useToast } from '@/hooks/useToast';
+import { externalResourceLabel, isExternalEntry, openExternalUrl } from '@/lib/external-resources';
 
 /**
  * แผงรายละเอียด V5
@@ -41,12 +42,13 @@ export function DetailsDrawer() {
   if (!detailsOpen) return null;
 
   const isFolder = selected?.kind === 'folder';
+  const isExternal = selected ? isExternalEntry(selected) : false;
   const isFavorite = selected ? favoriteIds.has(selected.id) : false;
 
   // แท็บเวอร์ชันมีความหมายเฉพาะกับไฟล์เท่านั้น
   const tabs: Array<{ id: typeof tab; label: string }> = [
     { id: 'details', label: 'รายละเอียด' },
-    ...(isFolder ? [] : [{ id: 'versions' as const, label: 'เวอร์ชัน' }]),
+    ...(isFolder || isExternal ? [] : [{ id: 'versions' as const, label: 'เวอร์ชัน' }]),
     { id: 'access', label: 'การเข้าถึง' },
     { id: 'activity', label: 'กิจกรรม' },
   ];
@@ -58,7 +60,7 @@ export function DetailsDrawer() {
     >
       <div className="flex min-h-16 shrink-0 items-center gap-3 border-b border-line px-4">
         {selected ? (
-          <FileTypeIcon name={selected.name} kind={selected.kind} />
+          <FileTypeIcon name={selected.name} kind={selected.kind} resourceType={selected.resourceType} />
         ) : (
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-navy-50 text-navy-400">
             <Info className="h-4 w-4" aria-hidden />
@@ -118,7 +120,7 @@ export function DetailsDrawer() {
           <div className="flex-1 overflow-y-auto px-4 py-4">
             {tab === 'details' ? (
               <div className="space-y-4">
-                {!isFolder ? (
+                {!isFolder && !isExternal ? (
                   <div className="grid gap-2">
                     {isPreviewable(selected.name, selected.mimeType) ? (
                       <button type="button" className="s2-btn s2-btn-outline w-full" onClick={() => window.dispatchEvent(new CustomEvent('s2-preview-resource', { detail: { id: selected.id } }))}>
@@ -135,6 +137,11 @@ export function DetailsDrawer() {
                       </button>
                     ) : null}
                   </div>
+                ) : null}
+                {isExternal && selected.externalUrl ? (
+                  <button type="button" className="s2-btn s2-btn-primary w-full" onClick={() => openExternalUrl(selected.externalUrl!)}>
+                    <SquareArrowOutUpRight className="h-4 w-4" aria-hidden />เปิดลิงก์ในแท็บใหม่
+                  </button>
                 ) : null}
                 <div className="flex flex-wrap gap-1.5">
                   <QuickAction
@@ -181,8 +188,15 @@ export function DetailsDrawer() {
                     size="sm"
                   />
                 </Row>
-                {!isFolder && selected.uploadedBy ? (
-                  <Row label="อัปโหลดโดย">
+                {selected.createdByIntegrationApp ? (
+                  <Row label="สร้างโดย">
+                    <span className="text-right">
+                      <span className="block font-semibold text-navy-800">{selected.createdByIntegrationApp.name}</span>
+                      <span className="block text-[10px] text-navy-400">Connected App</span>
+                    </span>
+                  </Row>
+                ) : !isFolder && selected.uploadedBy ? (
+                  <Row label={isExternal ? 'สร้างโดย' : 'อัปโหลดโดย'}>
                     <OwnerIdentity
                       owner={selected.uploadedBy}
                       caption={selected.uploadedBy.email}
@@ -191,17 +205,33 @@ export function DetailsDrawer() {
                   </Row>
                 ) : null}
                 <Row label="ประเภท">
-                  {isFolder ? 'โฟลเดอร์' : getFileTypeStyle(selected.name).label}
+                  {isFolder ? 'โฟลเดอร์' : externalResourceLabel(selected.resourceType) ?? getFileTypeStyle(selected.name).label}
                 </Row>
                 <Row label="ตำแหน่ง">{selected.parentId ? 'ภายในโฟลเดอร์' : 'รากองค์กร'}</Row>
                 <Row label="ต้นทาง">{sourceLabel(selected.source)}</Row>
+                {selected.sourceEntityType || selected.sourceEntityId ? (
+                  <Row label="รายการต้นทาง">
+                    {[selected.sourceEntityType, selected.sourceEntityId].filter(Boolean).join(' · ')}
+                  </Row>
+                ) : null}
+                {selected.sourceUrl ? (
+                  <Row label="ลิงก์ต้นทาง">
+                    <a href={selected.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-brand-600 hover:underline">
+                      เปิดใน {selected.createdByIntegrationApp?.name ?? selected.sourceSystem ?? 'ระบบต้นทาง'}
+                      <SquareArrowOutUpRight className="h-3.5 w-3.5" />
+                    </a>
+                  </Row>
+                ) : null}
                 <Row label="ขนาด">
-                  {isFolder
+                  {isExternal ? '—' : isFolder
                     ? selected.itemCount === undefined
                       ? '—'
                       : `${selected.itemCount} รายการ`
                     : formatBytes(selected.sizeBytes)}
                 </Row>
+                {isExternal && selected.externalUrl ? <Row label="URL"><a href={selected.externalUrl} target="_blank" rel="noopener noreferrer" className="block max-w-44 truncate text-brand-600 hover:underline">{selected.externalUrl}</a></Row> : null}
+                {isExternal && selected.externalProvider ? <Row label="ผู้ให้บริการ">{selected.externalProvider}</Row> : null}
+                {isExternal && selected.resourceType !== 'WEB_LINK' ? <p className="rounded-xl border border-line bg-[var(--s2-surface-soft)] px-3 py-2 text-[10.5px] leading-relaxed text-navy-500">สิทธิ์ใน S2 NAS และสิทธิ์ของ Google เป็นคนละส่วนกัน</p> : null}
                 <Row label="สร้างเมื่อ" title={formatDateTime(selected.createdAt)}>
                   {formatRelativeTime(selected.createdAt)}
                 </Row>

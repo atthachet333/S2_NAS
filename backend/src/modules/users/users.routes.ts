@@ -9,19 +9,26 @@ import {
   activateUser,
   changeUserRoles,
   listUsers,
+  MAX_DISPLAY_NAME_LENGTH,
   resetTemporaryPassword,
   setUserStatus,
+  updateUserProfile,
   userSelect,
 } from './user.service.js';
 
+const displayNameSchema = z.string().trim().min(1).max(MAX_DISPLAY_NAME_LENGTH).refine(
+  (value) => !/\p{Cc}/u.test(value),
+  { message: 'ชื่อที่แสดงมีอักขระควบคุมที่ไม่อนุญาต' },
+);
+
 const createSchema = z.object({
   email: z.string().email(),
-  displayName: z.string().trim().min(1).max(191),
+  displayName: displayNameSchema,
   roleCodes: z.array(z.string().min(1)).min(1),
 });
 
 const updateSchema = z.object({
-  displayName: z.string().trim().min(1).max(191).optional(),
+  displayName: displayNameSchema.optional(),
   status: z.enum(['INVITED', 'ACTIVE', 'SUSPENDED', 'DISABLED']).optional(),
   /** ยืนยันว่ารับทราบว่าผู้ใช้รายนี้ยังดูแลทรัพยากรอยู่ และยังยืนยันจะปิดการใช้งาน */
   acknowledgeHandover: z.boolean().optional(),
@@ -78,13 +85,8 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     const input = updateSchema.parse(request.body);
     const actor = request.authUser!;
 
-    if (input.displayName) {
-      const existing = await prisma.user.findUnique({ where: { id }, select: { id: true } });
-      if (!existing) throw notFound('USER_NOT_FOUND', 'ไม่พบผู้ใช้');
-      await prisma.user.update({ where: { id }, data: { displayName: input.displayName } });
-      await prisma.activityLog.create({
-        data: { userId: actor.id, action: 'UPDATE_USER', metadata: { targetUserId: id } },
-      });
+    if (input.displayName !== undefined) {
+      await updateUserProfile(id, { displayName: input.displayName }, actor, audit(request));
     }
     if (input.roleCodes) await changeUserRoles(id, input.roleCodes, actor, audit(request));
     if (input.status) {

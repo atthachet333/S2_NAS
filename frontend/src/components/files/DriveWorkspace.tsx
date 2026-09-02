@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/useToast';
 import { useUploadQueue } from '@/hooks/useUploadQueue';
 import type { DriveEntry } from '@/lib/drive';
 import { cn } from '@/lib/utils';
+import { isExternalEntry, openExternalUrl } from '@/lib/external-resources';
 
 /**
  * พื้นที่ทำงานกับไฟล์
@@ -62,6 +63,16 @@ export function DriveWorkspace({
   };
 
   const onAction = (action: string, entry: DriveEntry | null) => {
+    if (entry && ((action === 'open' && isExternalEntry(entry)) || action === 'open-external')) {
+      if (!entry.externalUrl || !openExternalUrl(entry.externalUrl)) notify({ tone: 'error', title: 'ลิงก์ไม่ถูกต้อง' });
+      return;
+    }
+    if (action === 'copy-external-link' && entry?.externalUrl) {
+      void navigator.clipboard.writeText(entry.externalUrl)
+        .then(() => notify({ tone: 'success', title: 'คัดลอกลิงก์แล้ว' }))
+        .catch(() => notify({ tone: 'error', title: 'คัดลอกลิงก์ไม่สำเร็จ' }));
+      return;
+    }
     if (action === 'details') {
       if (entry) select(entry);
       openDetails();
@@ -69,7 +80,7 @@ export function DriveWorkspace({
     }
     if (
       onResourceAction &&
-      ['open', 'create-folder', 'create-folder-inside', 'rename', 'move', 'owner', 'trash', 'preview', 'download', 'download-zip', 'new-version'].includes(action)
+      ['open', 'create-folder', 'create-folder-inside', 'create-google-sheet', 'create-google-doc', 'create-google-drive', 'create-web-link', 'rename', 'move', 'owner', 'trash', 'preview', 'download', 'download-zip', 'new-version', 'edit-external'].includes(action)
     ) {
       onResourceAction(action, entry);
       return;

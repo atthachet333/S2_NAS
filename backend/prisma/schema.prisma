@@ -81,6 +81,7 @@ model User {
   createdVersions    ResourceVersion[]    @relation("ResourceVersionCreator")
   resourceAccess     ResourceAccess[]     @relation("ResourceAccessUser")
   grantedAccess      ResourceAccess[]     @relation("ResourceAccessCreator")
+  integrationApp     IntegrationApp?      @relation("IntegrationActor")
 
   @@index([status])
   @@index([createdAt])
@@ -88,51 +89,59 @@ model User {
 }
 
 model Resource {
-  id               String               @id @default(cuid())
-  type             ResourceType
-  name             String               @db.VarChar(191)
-  normalizedName   String               @db.VarChar(191)
-  siblingKey       String               @unique @db.VarChar(500)
-  parentId         String?
-  ownerId          String
-  createdById      String
-  updatedById      String?
-  sourceType       ResourceSourceType   @default(MANUAL)
-  mimeType         String?              @db.VarChar(191)
-  extension        String?              @db.VarChar(32)
-  size             BigInt?
-  storageKey       String?              @unique @db.VarChar(500)
-  checksum         String?              @db.VarChar(191)
-  externalUrl      String?              @db.Text
-  externalProvider String?              @db.VarChar(100)
-  remark           String?              @db.VarChar(1000)
-  isLocked         Boolean              @default(false)
+  id                        String                   @id @default(cuid())
+  type                      ResourceType
+  name                      String                   @db.VarChar(191)
+  normalizedName            String                   @db.VarChar(191)
+  siblingKey                String                   @unique @db.VarChar(500)
+  parentId                  String?
+  ownerId                   String
+  createdById               String
+  updatedById               String?
+  sourceType                ResourceSourceType       @default(MANUAL)
+  mimeType                  String?                  @db.VarChar(191)
+  extension                 String?                  @db.VarChar(32)
+  size                      BigInt?
+  storageKey                String?                  @unique @db.VarChar(500)
+  checksum                  String?                  @db.VarChar(191)
+  externalUrl               String?                  @db.Text
+  externalProvider          String?                  @db.VarChar(100)
+  sourceSystem              String?                  @db.VarChar(100)
+  sourceEntityType          String?                  @db.VarChar(100)
+  sourceEntityId            String?                  @db.VarChar(191)
+  sourceUrl                 String?                  @db.Text
+  createdByIntegrationAppId String?
+  remark                    String?                  @db.VarChar(1000)
+  isLocked                  Boolean                  @default(false)
   /// ใครล็อก เมื่อไร และเพราะอะไร - สำคัญมากกับเอกสารบัญชีที่ปิดงบแล้ว
-  lockedAt         DateTime?
-  lockedById       String?
-  lockReason       String?              @db.VarChar(500)
+  lockedAt                  DateTime?
+  lockedById                String?
+  lockReason                String?                  @db.VarChar(500)
   /// นโยบายการมองเห็น สืบทอดจากโฟลเดอร์แม่เมื่อสร้างทรัพยากรใหม่
-  visibility       ResourceVisibility   @default(ORGANIZATION)
+  visibility                ResourceVisibility       @default(ORGANIZATION)
   /// เลขเวอร์ชันปัจจุบันของไฟล์ (สะท้อนจาก ResourceVersion เพื่อให้ listing เร็ว)
-  currentVersion   Int?
-  deletedAt        DateTime?
+  currentVersion            Int?
+  deletedAt                 DateTime?
   /// ผู้ที่ย้ายทรัพยากรไปถังขยะ และตำแหน่งเดิมก่อนถูกลบ ใช้สำหรับการกู้คืน
-  deletedById      String?
-  trashedFromId    String?              @db.VarChar(191)
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  parent           Resource?            @relation("ResourceHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
-  children         Resource[]           @relation("ResourceHierarchy")
-  owner            User                 @relation("ResourceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  createdBy        User                 @relation("ResourceCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy        User?                @relation("ResourceUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
-  deletedBy        User?                @relation("ResourceDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
-  lockedBy         User?                @relation("ResourceLocker", fields: [lockedById], references: [id], onDelete: SetNull)
-  access           ResourceAccess[]
-  versions         ResourceVersion[]
-  tags             ResourceTag[]
-  favoritedBy      UserFavorite[]
-  pinnedBy         UserPinnedResource[]
+  deletedById               String?
+  trashedFromId             String?                  @db.VarChar(191)
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+  parent                    Resource?                @relation("ResourceHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children                  Resource[]               @relation("ResourceHierarchy")
+  owner                     User                     @relation("ResourceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  createdBy                 User                     @relation("ResourceCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy                 User?                    @relation("ResourceUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedBy                 User?                    @relation("ResourceDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
+  lockedBy                  User?                    @relation("ResourceLocker", fields: [lockedById], references: [id], onDelete: SetNull)
+  access                    ResourceAccess[]
+  versions                  ResourceVersion[]
+  tags                      ResourceTag[]
+  favoritedBy               UserFavorite[]
+  pinnedBy                  UserPinnedResource[]
+  createdByIntegrationApp   IntegrationApp?          @relation("IntegrationResourceCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
+  integrationScopeApps      IntegrationApp[]         @relation("IntegrationAllowedRoot")
+  integrationIdempotency    IntegrationIdempotency[]
 
   @@index([parentId])
   @@index([ownerId])
@@ -145,30 +154,35 @@ model Resource {
   @@index([visibility])
   @@index([normalizedName])
   @@index([isLocked])
+  @@index([createdByIntegrationAppId])
+  @@index([sourceSystem, sourceEntityType, sourceEntityId])
   @@map("resources")
 }
 
 /// ประวัติเวอร์ชันของไฟล์ - เป็นหลักฐานที่แก้ไขไม่ได้
 /// Resource เก็บ metadata ล่าสุดไว้เพื่อความเร็ว แต่ความจริงทางประวัติศาสตร์อยู่ที่นี่
 model ResourceVersion {
-  id            String   @id @default(cuid())
-  resourceId    String
-  versionNumber Int
-  storageKey    String   @unique @db.VarChar(500)
-  size          BigInt
-  checksum      String   @db.VarChar(191)
-  mimeType      String?  @db.VarChar(191)
-  remark        String?  @db.VarChar(1000)
-  createdById   String
-  createdAt     DateTime @default(now())
+  id                        String   @id @default(cuid())
+  resourceId                String
+  versionNumber             Int
+  storageKey                String   @unique @db.VarChar(500)
+  size                      BigInt
+  checksum                  String   @db.VarChar(191)
+  mimeType                  String?  @db.VarChar(191)
+  remark                    String?  @db.VarChar(1000)
+  createdById               String
+  createdAt                 DateTime @default(now())
+  createdByIntegrationAppId String?
 
-  resource  Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
-  createdBy User     @relation("ResourceVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  resource                Resource        @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  createdBy               User            @relation("ResourceVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdByIntegrationApp IntegrationApp? @relation("IntegrationVersionCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
 
   @@unique([resourceId, versionNumber])
   @@index([resourceId])
   @@index([checksum])
   @@index([createdById])
+  @@index([createdByIntegrationAppId])
   @@map("resource_versions")
 }
 
@@ -321,21 +335,79 @@ model RefreshToken {
 }
 
 model ActivityLog {
-  id         String   @id @default(cuid())
-  userId     String?
-  action     String   @db.VarChar(100)
-  resourceId String?  @db.VarChar(191)
-  ipAddress  String?  @db.VarChar(64)
-  userAgent  String?  @db.VarChar(500)
-  metadata   Json?
-  createdAt  DateTime @default(now())
-  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  id               String          @id @default(cuid())
+  userId           String?
+  action           String          @db.VarChar(100)
+  resourceId       String?         @db.VarChar(191)
+  ipAddress        String?         @db.VarChar(64)
+  userAgent        String?         @db.VarChar(500)
+  metadata         Json?
+  createdAt        DateTime        @default(now())
+  user             User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  integrationAppId String?
+  integrationApp   IntegrationApp? @relation(fields: [integrationAppId], references: [id], onDelete: SetNull)
 
   @@index([createdAt])
   @@index([userId, createdAt])
   @@index([resourceId, createdAt])
   @@index([action, createdAt])
+  @@index([integrationAppId, createdAt])
   @@map("activity_logs")
+}
+
+model IntegrationApp {
+  id            String                   @id @default(cuid())
+  name          String                   @db.VarChar(191)
+  code          String                   @unique @db.VarChar(64)
+  description   String?                  @db.VarChar(500)
+  isActive      Boolean                  @default(true)
+  actorUserId   String                   @unique
+  allowedRootId String
+  scopes        Json
+  lastUsedAt    DateTime?
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  actorUser     User                     @relation("IntegrationActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  allowedRoot   Resource                 @relation("IntegrationAllowedRoot", fields: [allowedRootId], references: [id], onDelete: Restrict)
+  credentials   IntegrationCredential[]
+  resources     Resource[]               @relation("IntegrationResourceCreator")
+  versions      ResourceVersion[]        @relation("IntegrationVersionCreator")
+  activityLogs  ActivityLog[]
+  idempotency   IntegrationIdempotency[]
+
+  @@index([allowedRootId])
+  @@index([isActive])
+  @@map("integration_apps")
+}
+
+model IntegrationCredential {
+  id         String         @id @default(cuid())
+  appId      String
+  secretHash String         @db.Char(64)
+  label      String?        @db.VarChar(191)
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime       @default(now())
+  app        IntegrationApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+
+  @@index([appId, revokedAt])
+  @@map("integration_credentials")
+}
+
+model IntegrationIdempotency {
+  id          String         @id @default(cuid())
+  appId       String
+  key         String         @db.VarChar(191)
+  requestHash String         @db.Char(64)
+  resourceId  String
+  createdAt   DateTime       @default(now())
+  app         IntegrationApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+  resource    Resource       @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([appId, key])
+  @@index([resourceId])
+  @@map("integration_idempotency")
 }
 
 model SystemSetting {
