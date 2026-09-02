@@ -69,7 +69,7 @@ export default function FilesPage() {
   useEffect(() => {
     const open = () => setDialog({ mode: 'create', entry: null });
     const upload = () => {
-      uploadTargetRef.current = { parentId, parentName: currentFolder?.data.name ?? 'ไฟล์ของฉัน' };
+      uploadTargetRef.current = { parentId, parentName: currentFolder?.data.name ?? 'ไดร์ฟของฉัน' };
       filePickerRef.current?.click();
     };
     const createExternal = (event: Event) => {
@@ -147,7 +147,7 @@ export default function FilesPage() {
     if (name === 'upload-here') {
       uploadTargetRef.current = entry?.kind === 'folder'
         ? { parentId: entry.id, parentName: entry.name }
-        : { parentId, parentName: folder?.name ?? 'ไฟล์ของฉัน' };
+        : { parentId, parentName: folder?.name ?? 'ไดร์ฟของฉัน' };
       filePickerRef.current?.click();
       return;
     }
@@ -200,7 +200,7 @@ export default function FilesPage() {
       {/* ---------- โซนหัวเรื่อง ---------- */}
       {folder && folderEntry ? (
         <div className="space-y-3">
-          <Breadcrumb root="ไฟล์ของฉัน" nodes={data?.breadcrumb ?? []} />
+          <Breadcrumb root="ไดร์ฟของฉัน" nodes={data?.breadcrumb ?? []} />
           <FolderHeader
             folder={folder}
             onCreateFolder={() => setDialog({ mode: 'create', entry: null })}
@@ -216,7 +216,7 @@ export default function FilesPage() {
       ) : (
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
-            <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-navy-900">ไฟล์ของฉัน</h1>
+            <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-navy-900">ไดร์ฟของฉัน</h1>
             <p className="mt-1 text-[13px] text-navy-400">
               พื้นที่จัดเก็บและทรัพยากรส่วนกลางขององค์กร
             </p>
@@ -232,7 +232,7 @@ export default function FilesPage() {
               ใหม่
             </button>
             <button type="button" className="s2-btn s2-btn-outline" onClick={() => {
-              uploadTargetRef.current = { parentId, parentName: folder?.name ?? 'ไฟล์ของฉัน' };
+              uploadTargetRef.current = { parentId, parentName: folder?.name ?? 'ไดร์ฟของฉัน' };
               filePickerRef.current?.click();
             }}>
               <Upload className="h-4 w-4" aria-hidden />
@@ -310,7 +310,7 @@ export default function FilesPage() {
             isError={isError}
             onRetry={() => void refetch()}
             onResourceAction={action}
-            uploadTarget={{ parentId, parentName: folder?.name ?? 'ไฟล์ของฉัน' }}
+            uploadTarget={{ parentId, parentName: folder?.name ?? 'ไดร์ฟของฉัน' }}
             selectedIds={selectedIds}
             onToggleSelection={(entry) => setSelectedIds((current) => {
               const next = new Set(current);
@@ -337,7 +337,7 @@ export default function FilesPage() {
         tabIndex={-1}
         onChange={(event) => {
           const files = Array.from(event.target.files ?? []);
-          const target = uploadTargetRef.current ?? { parentId, parentName: folder?.name ?? 'ไฟล์ของฉัน' };
+          const target = uploadTargetRef.current ?? { parentId, parentName: folder?.name ?? 'ไดร์ฟของฉัน' };
           if (files.length > 0) enqueue(files, target);
           uploadTargetRef.current = null;
           event.target.value = '';
@@ -389,7 +389,7 @@ export default function FilesPage() {
           type={externalDialog.type}
           entry={externalDialog.entry}
           parentId={parentId}
-          destinationName={folder?.name ?? 'ไฟล์ของฉัน'}
+          destinationName={folder?.name ?? 'ไดร์ฟของฉัน'}
           onClose={() => setExternalDialog(null)}
           onSuccess={(message) => { setExternalDialog(null); success(message); }}
         />

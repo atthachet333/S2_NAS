@@ -12,7 +12,7 @@ export default function NotFoundPage() {
         หน้าที่คุณเปิดอาจถูกย้าย หรือยังไม่เปิดใช้งานในระบบ S2 NAS
       </p>
       <Link to="/files" className="s2-btn s2-btn-primary mt-3">
-        ไปยังไฟล์ของฉัน
+        ไปยังไดร์ฟของฉัน
       </Link>
     </div>
   );

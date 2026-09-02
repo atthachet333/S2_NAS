@@ -10,7 +10,7 @@ interface NavTab {
 
 const TABS: NavTab[] = [
   { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard },
-  { label: 'ไฟล์ของฉัน', to: '/files', icon: HardDrive },
+  { label: 'ไดร์ฟของฉัน', to: '/files', icon: HardDrive },
   { label: 'แชร์กับฉัน', to: '/shared', icon: Share2 },
   { label: 'ล่าสุด', to: '/recent', icon: Clock },
   { label: 'รายการโปรด', to: '/favorites', icon: Star },

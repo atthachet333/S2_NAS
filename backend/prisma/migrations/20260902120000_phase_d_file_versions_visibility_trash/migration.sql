@@ -5,7 +5,7 @@ ALTER TABLE `resources` ADD COLUMN `currentVersion` INTEGER NULL,
     ADD COLUMN `visibility` ENUM('ORGANIZATION', 'RESTRICTED') NOT NULL DEFAULT 'ORGANIZATION';
 
 -- CreateTable
-CREATE TABLE `resource_versions` (
+CREATE TABLE IF NOT EXISTS `resource_versions` (
     `id` VARCHAR(191) NOT NULL,
     `resourceId` VARCHAR(191) NOT NULL,
     `versionNumber` INTEGER NOT NULL,

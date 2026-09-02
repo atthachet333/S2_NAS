@@ -28,7 +28,7 @@ function sourceTypeFor(code: string): ResourceSourceType {
   return code === 'S2_PAYROLL' ? 'S2_PAYROLL' : code === 'S2_ERP' ? 'S2_ERP' : code === 'S2_LINE_BOT' ? 'S2_LINE_BOT' : 'EXTERNAL_UPLOAD';
 }
 function hash(value: string) { return crypto.createHash('sha256').update(value, 'utf8').digest('hex'); }
-function siblingKey(parentId: string | null, normalizedName: string) { return `${parentId ?? 'ROOT'}:${normalizedName}`; }
+import { siblingKey } from '../resources/sibling-key.js';
 export function validateIntegrationSourceUrl(raw?: string | null): string | null {
   if (!raw) return null;
   let url: URL;
@@ -146,7 +146,7 @@ export async function createMetadata(auth: IntegrationAuth, input: { type: Resou
   if (isExternalResourceType(input.type)) { externalUrl = validateExternalResourceUrl(input.type, input.externalUrl ?? ''); externalProvider = input.type === 'GOOGLE_SHEET' ? 'GOOGLE_SHEETS' : input.type === 'GOOGLE_DOC' ? 'GOOGLE_DOCS' : input.type === 'GOOGLE_DRIVE' ? 'GOOGLE_DRIVE' : 'WEB'; }
   if (!['FOLDER','WEB_LINK','GOOGLE_SHEET','GOOGLE_DOC','GOOGLE_DRIVE'].includes(input.type)) throw badRequest('INVALID_EXTERNAL_RESOURCE_TYPE', 'ไม่รองรับชนิดทรัพยากรนี้');
   const id = await prisma.$transaction(async tx => {
-    const resource = await tx.resource.create({ data: { type: input.type, ...named, siblingKey: siblingKey(input.parentId,named.normalizedName), parentId: input.parentId, ownerId: parent.ownerId, createdById: auth.user.id, updatedById: auth.user.id, createdByIntegrationAppId: auth.app.id, sourceType: sourceTypeFor(auth.app.code), sourceSystem: auth.app.code, sourceEntityType: input.sourceEntityType?.trim() || null, sourceEntityId: input.sourceEntityId?.trim() || null, sourceUrl: validateIntegrationSourceUrl(input.sourceUrl), externalUrl, externalProvider, remark: input.remark?.trim() || null, visibility: parent.visibility } });
+    const resource = await tx.resource.create({ data: { type: input.type, ...named, siblingKey: siblingKey(input.parentId,named.normalizedName,parent.driveScope), parentId: input.parentId, ownerId: parent.ownerId, driveScope: parent.driveScope, createdById: auth.user.id, updatedById: auth.user.id, createdByIntegrationAppId: auth.app.id, sourceType: sourceTypeFor(auth.app.code), sourceSystem: auth.app.code, sourceEntityType: input.sourceEntityType?.trim() || null, sourceEntityId: input.sourceEntityId?.trim() || null, sourceUrl: validateIntegrationSourceUrl(input.sourceUrl), externalUrl, externalProvider, remark: input.remark?.trim() || null, visibility: parent.visibility } });
     if (idempotencyKey) await tx.integrationIdempotency.create({ data: { appId: auth.app.id, key: idempotencyKey, requestHash, resourceId: resource.id } });
     await tx.activityLog.create({ data: { userId: auth.user.id, integrationAppId: auth.app.id, action: 'INTEGRATION_RESOURCE_CREATED', resourceId: resource.id, metadata: { sourceEntityType: input.sourceEntityType, sourceEntityId: input.sourceEntityId } } });
     return resource.id;
@@ -163,7 +163,7 @@ export async function updateScopedResource(auth: IntegrationAuth, id: string, in
   const named=input.name===undefined?null:validateResourceName(input.name);
   let externalUrl: string|undefined;
   if(input.externalUrl!==undefined){ if(!isExternalResourceType(current.type)) throw badRequest('INVALID_EXTERNAL_RESOURCE_TYPE','ทรัพยากรนี้ไม่ใช่ลิงก์ภายนอก'); externalUrl=validateExternalResourceUrl(current.type,input.externalUrl); }
-  await prisma.$transaction(async tx=>{ await tx.resource.update({where:{id},data:{...(named?{...named,siblingKey:siblingKey(current.parentId,named.normalizedName)}:{}),remark:input.remark,externalUrl,updatedById:auth.user.id}}); await tx.activityLog.create({data:{userId:auth.user.id,integrationAppId:auth.app.id,action:'INTEGRATION_RESOURCE_UPDATED',resourceId:id}}); });
+  await prisma.$transaction(async tx=>{ await tx.resource.update({where:{id},data:{...(named?{...named,siblingKey:siblingKey(current.parentId,named.normalizedName,current.driveScope)}:{}),remark:input.remark,externalUrl,updatedById:auth.user.id}}); await tx.activityLog.create({data:{userId:auth.user.id,integrationAppId:auth.app.id,action:'INTEGRATION_RESOURCE_UPDATED',resourceId:id}}); });
   return getScopedResource(auth,id);
 }
 export function sourceTypeForApp(code: string) { return sourceTypeFor(code); }

@@ -12,10 +12,9 @@ import {
 import type { AuthUser } from '../auth/auth.service.js';
 import type { AuditContext } from './file.service.js';
 
+import { siblingKey } from '../resources/sibling-key.js';
+
 const ownerSelect = { id: true, displayName: true, email: true } as const;
-function siblingKey(parentId: string | null, normalizedName: string): string {
-  return `${parentId ?? 'ROOT'}:${normalizedName}`;
-}
 
 async function loadResource(id: string) {
   const resource = await prisma.resource.findFirst({ where: { id }, include: resourceInclude });
@@ -191,7 +190,8 @@ export async function restoreResource(
   const name = input.newName ?? resource.name;
   const { normalizedName } = validateResourceName(name);
   const collision = await prisma.resource.findFirst({
-    where: { siblingKey: siblingKey(targetParentId, normalizedName), deletedAt: null },
+    // ทรัพยากรยังคงไดร์ฟเดิมไว้ตลอดเวลาที่อยู่ในถังขยะ การกู้คืนจึงกลับไปไดร์ฟเดิมเสมอ
+    where: { siblingKey: siblingKey(targetParentId, normalizedName, resource.driveScope), deletedAt: null },
     select: { id: true, name: true },
   });
   if (collision) {
@@ -214,7 +214,7 @@ export async function restoreResource(
         parentId: targetParentId,
         name,
         normalizedName,
-        siblingKey: siblingKey(targetParentId, normalizedName),
+        siblingKey: siblingKey(targetParentId, normalizedName, resource.driveScope),
         trashedFromId: null,
         updatedById: user.id,
       },

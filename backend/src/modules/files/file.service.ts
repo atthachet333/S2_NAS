@@ -1,5 +1,5 @@
 import type { Readable } from 'node:stream';
-import type { ResourceSourceType } from '@prisma/client';
+import type { DriveScope, ResourceSourceType } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
 import { AppError, forbidden, notFound } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
@@ -18,6 +18,8 @@ import {
   toResourceDto,
   validateResourceName,
 } from '../resources/resource.service.js';
+import { siblingKey } from '../resources/sibling-key.js';
+import { assertCanCreateInSystemDrive } from '../resources/system-drive.js';
 import { resolveMimeType, sanitizeFileName } from './file-security.js';
 import type { AuthUser } from '../auth/auth.service.js';
 
@@ -29,6 +31,8 @@ export interface UploadInput {
   fileName: string;
   declaredMime?: string;
   remark?: string | null;
+  /** ใช้เฉพาะการอัปโหลดที่ระดับราก - ในโฟลเดอร์ให้ยึดไดร์ฟของโฟลเดอร์แม่เสมอ */
+  driveScope?: DriveScope;
   /** ผู้ใช้ตัดสินใจแล้วว่าจะทำอย่างไรเมื่อชื่อซ้ำ */
   onNameConflict?: NameConflictPolicy;
   /** ผู้ใช้ยืนยันว่าจะอัปโหลดต่อแม้เนื้อหาซ้ำกับไฟล์ที่มีอยู่ */
@@ -57,10 +61,6 @@ async function loadResource(id: string) {
   return resource;
 }
 
-function siblingKey(parentId: string | null, normalizedName: string): string {
-  return `${parentId ?? 'ROOT'}:${normalizedName}`;
-}
-
 /** โฟลเดอร์ปลายทางต้องมีอยู่ ยังไม่ถูกลบ และผู้ใช้ต้องมีสิทธิ์สร้างในนั้น */
 async function assertUploadTarget(parentId: string | null, user: AuthUser) {
   if (!parentId) {
@@ -74,6 +74,7 @@ async function assertUploadTarget(parentId: string | null, user: AuthUser) {
   if (parent.deletedAt) throw notFound('FOLDER_NOT_FOUND', 'ไม่พบโฟลเดอร์ปลายทาง');
   if (parent.type !== 'FOLDER') throw notFound('FOLDER_NOT_FOUND', 'ปลายทางไม่ใช่โฟลเดอร์');
   assertNotLocked(parent);
+  if (parent.driveScope === 'SYSTEM_DRIVE') assertCanCreateInSystemDrive(user);
   if (!capabilities(parent, user).canEdit) {
     throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์อัปโหลดไฟล์ในโฟลเดอร์นี้', 403);
   }
@@ -81,7 +82,7 @@ async function assertUploadTarget(parentId: string | null, user: AuthUser) {
 }
 
 /** ชื่อไฟล์ที่ไม่ชนกับพี่น้องเดิม เช่น report.pdf → report (2).pdf */
-async function findAvailableName(parentId: string | null, fileName: string): Promise<string> {
+async function findAvailableName(parentId: string | null, fileName: string, driveScope: DriveScope): Promise<string> {
   const dot = fileName.lastIndexOf('.');
   const stem = dot > 0 ? fileName.slice(0, dot) : fileName;
   const suffix = dot > 0 ? fileName.slice(dot) : '';
@@ -90,7 +91,7 @@ async function findAvailableName(parentId: string | null, fileName: string): Pro
     const candidate = `${stem} (${counter})${suffix}`;
     const normalized = validateResourceName(candidate).normalizedName;
     const taken = await prisma.resource.findFirst({
-      where: { siblingKey: siblingKey(parentId, normalized), deletedAt: null },
+      where: { siblingKey: siblingKey(parentId, normalized, driveScope), deletedAt: null },
       select: { id: true },
     });
     if (!taken) return candidate;
@@ -129,6 +130,9 @@ export async function uploadFile(
   audit: AuditContext,
 ): Promise<UploadResult> {
   const parent = await assertUploadTarget(input.parentId, user);
+  /** โฟลเดอร์แม่เป็นผู้กำหนดไดร์ฟเสมอ ผู้เรียกระบุได้เฉพาะตอนอัปโหลดที่ระดับราก */
+  const destinationDrive: DriveScope = parent?.driveScope ?? input.driveScope ?? 'MY_DRIVE';
+  if (!parent && destinationDrive === 'SYSTEM_DRIVE') assertCanCreateInSystemDrive(user);
   const { name, extension } = sanitizeFileName(input.fileName);
   const { normalizedName } = validateResourceName(name);
 
@@ -156,7 +160,7 @@ export async function uploadFile(
 
     // ชื่อซ้ำในโฟลเดอร์เดียวกัน
     const existing = await prisma.resource.findFirst({
-      where: { siblingKey: siblingKey(input.parentId, normalizedName), deletedAt: null },
+      where: { siblingKey: siblingKey(input.parentId, normalizedName, destinationDrive), deletedAt: null },
       include: resourceInclude,
     });
 
@@ -181,7 +185,7 @@ export async function uploadFile(
       }
     }
 
-    const finalName = existing ? await findAvailableName(input.parentId, name) : name;
+    const finalName = existing ? await findAvailableName(input.parentId, name, destinationDrive) : name;
     const finalNormalized = validateResourceName(finalName).normalizedName;
 
     const resourceId = crypto.randomUUID();
@@ -196,7 +200,7 @@ export async function uploadFile(
             type: 'FILE',
             name: finalName,
             normalizedName: finalNormalized,
-            siblingKey: siblingKey(input.parentId, finalNormalized),
+            siblingKey: siblingKey(input.parentId, finalNormalized, destinationDrive),
             parentId: input.parentId,
             // ความรับผิดชอบของไฟล์ผูกกับผู้ดูแลพื้นที่ ไม่ใช่ผู้อัปโหลด
             ownerId: parent?.ownerId ?? user.id,
@@ -210,6 +214,8 @@ export async function uploadFile(
             sourceUrl: input.sourceUrl,
             // สืบทอดนโยบายการมองเห็นจากโฟลเดอร์แม่
             visibility: parent?.visibility ?? 'ORGANIZATION',
+            // ไฟล์อยู่ไดร์ฟเดียวกับโฟลเดอร์ที่มันถูกอัปโหลดเข้าไปเสมอ
+            driveScope: destinationDrive,
             mimeType: mime.mimeType,
             extension,
             size: BigInt(stored.size),

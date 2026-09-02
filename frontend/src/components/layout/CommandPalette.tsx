@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 
 const baseCommands = [
-  { label: 'ไปไฟล์ของฉัน', path: '/files', icon: HardDrive },
+  { label: 'ไปไดร์ฟของฉัน', path: '/files', icon: HardDrive },
   { label: 'แชร์กับฉัน', path: '/shared', icon: Share2 },
   { label: 'ล่าสุด', path: '/recent', icon: Clock },
   { label: 'รายการโปรด', path: '/favorites', icon: Star },

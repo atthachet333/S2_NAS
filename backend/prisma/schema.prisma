@@ -48,6 +48,15 @@ enum ResourceVisibility {
   RESTRICTED
 }
 
+/// ไดร์ฟระดับบนสุดที่ทรัพยากรสังกัด
+/// MY_DRIVE     = พื้นที่ทำงานที่ผู้ใช้รับผิดชอบตามนโยบายการเข้าถึง (ข้อมูลยังเป็นของบริษัท)
+/// SYSTEM_DRIVE = ไดร์ฟกลางขององค์กรหนึ่งเดียว เช่น คู่มือบริษัท แบบฟอร์มกลาง Templates
+/// ทรัพยากรลูกสืบทอดค่านี้จากโฟลเดอร์แม่เสมอ จึงตัดสินได้จากแถวเดียวโดยไม่ต้องไล่ลำดับชั้น
+enum DriveScope {
+  MY_DRIVE
+  SYSTEM_DRIVE
+}
+
 enum ResourceAccessLevel {
   OWNER
   EDITOR
@@ -119,6 +128,8 @@ model Resource {
   lockReason                String?                  @db.VarChar(500)
   /// นโยบายการมองเห็น สืบทอดจากโฟลเดอร์แม่เมื่อสร้างทรัพยากรใหม่
   visibility                ResourceVisibility       @default(ORGANIZATION)
+  /// ไดร์ฟที่สังกัด สืบทอดจากโฟลเดอร์แม่เมื่อสร้าง/ย้ายทรัพยากร
+  driveScope                DriveScope               @default(MY_DRIVE)
   /// เลขเวอร์ชันปัจจุบันของไฟล์ (สะท้อนจาก ResourceVersion เพื่อให้ listing เร็ว)
   currentVersion            Int?
   deletedAt                 DateTime?
@@ -152,6 +163,8 @@ model Resource {
   @@index([parentId, type, deletedAt])
   @@index([checksum])
   @@index([visibility])
+  @@index([driveScope])
+  @@index([driveScope, parentId, deletedAt])
   @@index([normalizedName])
   @@index([isLocked])
   @@index([createdByIntegrationAppId])

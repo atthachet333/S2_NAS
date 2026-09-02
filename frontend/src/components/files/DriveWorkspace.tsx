@@ -171,12 +171,12 @@ export function DriveWorkspace({
           <UploadCloud className="h-8 w-8 text-brand-600" aria-hidden />
           <p className="text-[13px] text-brand-700">วางไฟล์เพื่ออัปโหลดไปยัง</p>
           <p className="max-w-[80%] truncate text-[15px] font-semibold text-brand-700">
-            “{uploadTarget?.parentName ?? 'ไฟล์ของฉัน'}”
+            “{uploadTarget?.parentName ?? 'ไดร์ฟของฉัน'}”
           </p>
         </div>
       ) : null}
 
-      {allowContextMenu ? <ContextMenu state={state} destinationName={uploadTarget?.parentName ?? 'ไฟล์ของฉัน'} onClose={close} onAction={onAction} /> : null}
+      {allowContextMenu ? <ContextMenu state={state} destinationName={uploadTarget?.parentName ?? 'ไดร์ฟของฉัน'} onClose={close} onAction={onAction} /> : null}
     </section>
   );
 }

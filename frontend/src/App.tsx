@@ -25,7 +25,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
 
-      {/* พื้นที่ไฟล์ - หน้าแรกหลังเข้าใช้งานคือ ไฟล์ของฉัน */}
+      {/* พื้นที่ไฟล์ - หน้าแรกหลังเข้าใช้งานคือ ไดร์ฟของฉัน */}
       <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />

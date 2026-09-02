@@ -1,9 +1,11 @@
-import type { Prisma, Resource, ResourceAccessLevel, ResourceType } from '@prisma/client';
+import type { DriveScope, Prisma, Resource, ResourceAccessLevel, ResourceType } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
 import { AppError, badRequest, forbidden, notFound } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
 import type { AuthUser } from '../auth/auth.service.js';
 import { externalResourceConfig, isExternalResourceType, validateExternalResourceUrl, type ExternalResourceType } from './external-resource.js';
+import { siblingKey } from './sibling-key.js';
+import { assertCanCreateInSystemDrive, assertCanMoveAcrossDrives, canViewSystemDrive } from './system-drive.js';
 
 const ownerSelect = { id: true, displayName: true, email: true } as const;
 /** นิยามความสัมพันธ์ชุดเดียวของทั้งระบบ ทุกโมดูลต้องใช้ตัวนี้
@@ -26,10 +28,6 @@ export function validateResourceName(rawName: string): { name: string; normalize
   if (/[\\/]/u.test(name) || /[\p{Cc}\p{Cf}]/u.test(name)) throw badRequest('INVALID_RESOURCE_NAME', 'ชื่อทรัพยากรมีอักขระที่ไม่อนุญาต');
   if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(name)) throw badRequest('INVALID_RESOURCE_NAME', 'ชื่อทรัพยากรเป็นชื่อสงวนของระบบ');
   return { name, normalizedName: name.normalize('NFC').toLocaleLowerCase() };
-}
-
-function siblingKey(parentId: string | null, normalizedName: string): string {
-  return `${parentId ?? 'ROOT'}:${normalizedName}`;
 }
 
 function isAdmin(user: AuthUser): boolean {
@@ -70,13 +68,19 @@ export function capabilities(resource: ResourceWithRelations, user: AuthUser) {
   const admin = isAdmin(user);
   const level = directLevel(resource, user);
   const orgVisible = isOrganizationVisible(resource);
+  /**
+   * ไดร์ฟของระบบเป็นไดร์ฟกลางขององค์กร: อ่านได้ทุกคน แต่ไม่ได้แก้ไขได้ทุกคน
+   * จึงตัดเส้นทาง "เปิดให้ทั้งองค์กรเห็น = แก้ไขได้" ออกสำหรับไดร์ฟนี้โดยเฉพาะ
+   */
+  const systemDrive = resource.driveScope === 'SYSTEM_DRIVE';
 
   const canView =
-    user.permissions.includes('resources:read') && (admin || orgVisible || level !== null);
+    user.permissions.includes('resources:read') &&
+    (admin || (systemDrive ? canViewSystemDrive(user) : orgVisible) || level !== null);
 
   const writer =
     user.permissions.includes('resources:write') &&
-    (admin || level === 'OWNER' || level === 'EDITOR' || (orgVisible && canView));
+    (admin || level === 'OWNER' || level === 'EDITOR' || (!systemDrive && orgVisible && canView));
 
   const canDelete =
     user.permissions.includes('resources:delete') && (admin || level === 'OWNER');
@@ -94,7 +98,7 @@ export function capabilities(resource: ResourceWithRelations, user: AuthUser) {
     canView &&
     (admin ||
       level === 'OWNER' ||
-      (grant ? grant.allowDownload : orgVisible));
+      (grant ? grant.allowDownload : orgVisible || systemDrive));
 
   /**
    * การจัดการสิทธิ์เป็นการตัดสินใจเชิงการควบคุม ไม่ใช่การแก้ไขเนื้อหา
@@ -167,24 +171,41 @@ function translateDuplicate(error: unknown): never {
   throw error;
 }
 
-async function createDestination(user: AuthUser, parentId?: string | null): Promise<ResourceWithRelations['visibility']> {
+/**
+ * ปลายทางของการสร้างทรัพยากรใหม่
+ *
+ * ทรัพยากรลูกสืบทอดทั้งการมองเห็นและไดร์ฟจากโฟลเดอร์แม่เสมอ ไม่เปิดให้ผู้เรียกกำหนดเอง
+ * ที่ระดับรากเท่านั้นที่ต้องระบุไดร์ฟ และการสร้างที่รากของไดร์ฟของระบบต้องผ่านด่านสิทธิ์เพิ่ม
+ */
+async function createDestination(
+  user: AuthUser,
+  parentId?: string | null,
+  requestedDrive: DriveScope = 'MY_DRIVE',
+): Promise<{ visibility: ResourceWithRelations['visibility']; driveScope: DriveScope }> {
   if (parentId) {
     const parent = await findResource(parentId);
     if (parent.type !== 'FOLDER') throw notFound('FOLDER_NOT_FOUND', 'ไม่พบโฟลเดอร์ปลายทาง');
+    if (parent.driveScope === 'SYSTEM_DRIVE') assertCanCreateInSystemDrive(user);
     await assertEdit(parent, user);
-    return parent.visibility;
+    return { visibility: parent.visibility, driveScope: parent.driveScope };
   }
   if (!user.permissions.includes('resources:write')) {
     throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์เพิ่มทรัพยากรในตำแหน่งนี้', 403);
   }
-  return 'ORGANIZATION';
+  if (requestedDrive === 'SYSTEM_DRIVE') assertCanCreateInSystemDrive(user);
+  return { visibility: 'ORGANIZATION', driveScope: requestedDrive };
 }
 
-export async function listResources(user: AuthUser, input: { parentId?: string | null; type?: ResourceType; ownerId?: string; sort: 'name' | 'updatedAt' | 'createdAt' | 'size'; direction: 'asc' | 'desc'; limit: number; cursor?: string }) {
+export async function listResources(user: AuthUser, input: { parentId?: string | null; type?: ResourceType; ownerId?: string; sort: 'name' | 'updatedAt' | 'createdAt' | 'size'; direction: 'asc' | 'desc'; limit: number; cursor?: string; driveScope?: DriveScope }) {
   if (!user.permissions.includes('resources:read')) throw forbidden('ไม่มีสิทธิ์ดูทรัพยากร');
   if (input.parentId) await assertView(await findResource(input.parentId), user);
+  /**
+   * ที่ระดับรากทั้งสองไดร์ฟใช้ parentId = null ร่วมกัน จึงต้องกรองด้วยไดร์ฟ
+   * เมื่ออยู่ในโฟลเดอร์แล้ว parentId ระบุขอบเขตชัดเจนอยู่แล้ว ไม่ต้องกรองซ้ำ
+   */
+  const driveFilter = input.parentId ? undefined : (input.driveScope ?? 'MY_DRIVE');
   const rows = await prisma.resource.findMany({
-    where: { parentId: input.parentId ?? null, deletedAt: null, type: input.type, ownerId: input.ownerId },
+    where: { parentId: input.parentId ?? null, deletedAt: null, type: input.type, ownerId: input.ownerId, driveScope: driveFilter },
     include: resourceInclude,
     orderBy: input.sort === 'name' ? { normalizedName: input.direction } : { [input.sort]: input.direction },
     take: input.limit + 1,
@@ -215,16 +236,16 @@ export async function getResource(id: string, user: AuthUser) {
   const resource = await findResource(id); await assertView(resource, user); return toResourceDto(resource, user);
 }
 
-export async function createFolder(user: AuthUser, input: { name: string; parentId?: string | null; ownerId?: string; remark?: string | null }, audit: { ipAddress?: string; userAgent?: string }) {
+export async function createFolder(user: AuthUser, input: { name: string; parentId?: string | null; ownerId?: string; remark?: string | null; driveScope?: DriveScope }, audit: { ipAddress?: string; userAgent?: string }) {
   const named = validateResourceName(input.name);
-  const inheritedVisibility = await createDestination(user, input.parentId);
+  const destination = await createDestination(user, input.parentId, input.driveScope ?? 'MY_DRIVE');
   const ownerId = input.ownerId ?? user.id;
   if (ownerId !== user.id && !isAdmin(user) && !user.permissions.includes('resources:owner:manage')) throw new AppError('OWNER_TRANSFER_DENIED', 'ไม่มีสิทธิ์กำหนดเจ้าของรายอื่น', 403);
   const owner = await prisma.user.findFirst({ where: { id: ownerId, status: 'ACTIVE' } });
   if (!owner) throw notFound('OWNER_NOT_FOUND', 'ไม่พบเจ้าของที่เปิดใช้งาน');
   try {
     const created = await prisma.$transaction(async (tx) => {
-      const resource = await tx.resource.create({ data: { type: 'FOLDER', ...named, siblingKey: siblingKey(input.parentId ?? null, named.normalizedName), parentId: input.parentId ?? null, ownerId, createdById: user.id, sourceType: 'MANUAL', visibility: inheritedVisibility, remark: input.remark ?? null } });
+      const resource = await tx.resource.create({ data: { type: 'FOLDER', ...named, siblingKey: siblingKey(input.parentId ?? null, named.normalizedName, destination.driveScope), parentId: input.parentId ?? null, ownerId, createdById: user.id, sourceType: 'MANUAL', visibility: destination.visibility, driveScope: destination.driveScope, remark: input.remark ?? null } });
       await tx.activityLog.create({ data: { userId: user.id, action: 'RESOURCE_FOLDER_CREATED', resourceId: resource.id, ipAddress: audit.ipAddress, userAgent: audit.userAgent?.slice(0, 500), metadata: { parentId: resource.parentId, ownerId } } });
       return resource.id;
     });
@@ -235,27 +256,28 @@ export async function createFolder(user: AuthUser, input: { name: string; parent
 
 export async function createExternalResource(
   user: AuthUser,
-  input: { type: ExternalResourceType; name: string; parentId?: string | null; url: string; remark?: string | null },
+  input: { type: ExternalResourceType; name: string; parentId?: string | null; url: string; remark?: string | null; driveScope?: DriveScope },
   audit: { ipAddress?: string; userAgent?: string },
 ) {
   const named = validateResourceName(input.name);
   const externalUrl = validateExternalResourceUrl(input.type, input.url);
   const { provider: externalProvider, sourceType } = externalResourceConfig(input.type);
-  const visibility = await createDestination(user, input.parentId);
+  const destination = await createDestination(user, input.parentId, input.driveScope ?? 'MY_DRIVE');
   try {
     const id = await prisma.$transaction(async (tx) => {
       const resource = await tx.resource.create({
         data: {
           type: input.type,
           ...named,
-          siblingKey: siblingKey(input.parentId ?? null, named.normalizedName),
+          siblingKey: siblingKey(input.parentId ?? null, named.normalizedName, destination.driveScope),
           parentId: input.parentId ?? null,
           ownerId: user.id,
           createdById: user.id,
           sourceType,
           externalUrl,
           externalProvider,
-          visibility,
+          visibility: destination.visibility,
+          driveScope: destination.driveScope,
           remark: input.remark?.trim() || null,
         },
       });
@@ -308,14 +330,45 @@ async function assertValidMove(resource: ResourceWithRelations, parentId: string
   }
 }
 
-export async function moveResource(id: string, user: AuthUser, parentId: string | null, audit: { ipAddress?: string; userAgent?: string }) {
+/**
+ * ทุกทรัพยากรใต้ต้นไม้ต้องอยู่ไดร์ฟเดียวกับรากที่ถูกย้ายเสมอ
+ *
+ * driveScope ถูก denormalize ไว้บนทุกแถวเพื่อให้ตัดสินสิทธิ์ได้จากแถวเดียว
+ * การย้ายข้ามไดร์ฟจึงต้องไล่ปรับทั้งกิ่ง ไม่เช่นนั้นลูกจะค้างนโยบายของไดร์ฟเดิม
+ */
+async function propagateDriveScope(tx: Prisma.TransactionClient, rootId: string, driveScope: DriveScope): Promise<number> {
+  let frontier = [rootId];
+  let touched = 0;
+  while (frontier.length > 0) {
+    const children = await tx.resource.findMany({ where: { parentId: { in: frontier } }, select: { id: true } });
+    if (children.length === 0) break;
+    const ids = children.map((child) => child.id);
+    const result = await tx.resource.updateMany({ where: { id: { in: ids } }, data: { driveScope } });
+    touched += result.count;
+    frontier = ids;
+  }
+  return touched;
+}
+
+export async function moveResource(id: string, user: AuthUser, parentId: string | null, audit: { ipAddress?: string; userAgent?: string }, targetDrive?: DriveScope) {
   const resource = await findResource(id); await assertEdit(resource, user);
-  if (parentId) await assertEdit(await findResource(parentId), user);
+  const parent = parentId ? await findResource(parentId) : null;
+  if (parent) await assertEdit(parent, user);
   await assertValidMove(resource, parentId);
+  /** ปลายทางกำหนดไดร์ฟเสมอ: ในโฟลเดอร์ใช้ของโฟลเดอร์ ที่รากใช้ไดร์ฟที่ผู้เรียกระบุ */
+  const destinationDrive: DriveScope = parent ? parent.driveScope : (targetDrive ?? resource.driveScope);
+  assertCanMoveAcrossDrives(user, resource.driveScope, destinationDrive);
+  if (destinationDrive === 'SYSTEM_DRIVE' && resource.driveScope !== 'SYSTEM_DRIVE') assertCanCreateInSystemDrive(user);
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.resource.update({ where: { id }, data: { parentId, siblingKey: siblingKey(parentId, resource.normalizedName), updatedById: user.id } });
+      await tx.resource.update({ where: { id }, data: { parentId, siblingKey: siblingKey(parentId, resource.normalizedName, destinationDrive), driveScope: destinationDrive, updatedById: user.id } });
+      const descendants = destinationDrive === resource.driveScope ? 0 : await propagateDriveScope(tx, id, destinationDrive);
       await tx.activityLog.create({ data: { userId: user.id, action: 'RESOURCE_MOVED', resourceId: id, ipAddress: audit.ipAddress, userAgent: audit.userAgent?.slice(0, 500), metadata: { previousParentId: resource.parentId, parentId } } });
+      /** การย้ายข้ามไดร์ฟเปลี่ยนขอบเขตการเข้าถึงขององค์กร จึงบันทึกแยกไว้ให้ตรวจสอบย้อนหลังได้ */
+      if (destinationDrive !== resource.driveScope) {
+        await tx.activityLog.create({ data: { userId: user.id, action: 'RESOURCE_DRIVE_CHANGED', resourceId: id, ipAddress: audit.ipAddress, userAgent: audit.userAgent?.slice(0, 500), metadata: { fromDrive: resource.driveScope, toDrive: destinationDrive, descendantsUpdated: descendants } } });
+        logger.info(`[DRIVE] "${resource.name}" moved ${resource.driveScope} -> ${destinationDrive} (${descendants} descendants)`);
+      }
     });
     return getResource(id, user);
   } catch (error) { return translateDuplicate(error); }
