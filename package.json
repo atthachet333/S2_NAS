@@ -1,0 +1,26 @@
+{
+  "name": "s2-nas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "S2 NAS - ระบบจัดเก็บเอกสารและไฟล์บนเซิร์ฟเวอร์",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "postinstall": "npm --prefix backend install && npm --prefix frontend install",
+    "dev": "concurrently --kill-others-on-fail --names \"BACKEND,FRONTEND\" --prefix-colors \"blue.bold,green.bold\" \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "start": "npm --prefix backend run start",
+    "typecheck": "npm --prefix backend run typecheck && npm --prefix frontend run typecheck",
+    "test": "npm --prefix backend run test && npm --prefix frontend run test",
+    "prisma:generate": "npm --prefix backend run prisma:generate",
+    "prisma:migrate": "npm --prefix backend run prisma:migrate",
+    "test:backend": "npm --prefix backend run test",
+    "test:frontend": "npm --prefix frontend run test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

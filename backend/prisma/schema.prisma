@@ -1,0 +1,268 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserType {
+  HUMAN
+  SERVICE
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum ResourceType {
+  FILE
+  FOLDER
+  GOOGLE_SHEET
+  GOOGLE_DOC
+  GOOGLE_DRIVE
+  WEB_LINK
+  SYSTEM_FILE
+  SHORTCUT
+}
+
+enum ResourceSourceType {
+  MANUAL
+  GOOGLE
+  S2_PAYROLL
+  S2_ERP
+  S2_LINE_BOT
+  EXTERNAL_UPLOAD
+  SYSTEM
+}
+
+/// ระดับการมองเห็นของโฟลเดอร์/ทรัพยากรในระดับองค์กร
+/// ORGANIZATION = ผู้ใช้ ACTIVE ในองค์กรเปิดดูได้ (ค่าเริ่มต้นของโฟลเดอร์ทั่วไป)
+/// RESTRICTED   = เฉพาะผู้ดูแล ผู้ได้รับสิทธิ์โดยตรง และผู้ดูแลระบบ
+enum ResourceVisibility {
+  ORGANIZATION
+  RESTRICTED
+}
+
+enum ResourceAccessLevel {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+model User {
+  id                 String            @id @default(cuid())
+  email              String            @unique @db.VarChar(191)
+  displayName        String            @db.VarChar(191)
+  passwordHash       String?           @db.VarChar(191)
+  type               UserType          @default(HUMAN)
+  status             UserStatus        @default(INVITED)
+  mustChangePassword Boolean           @default(true)
+  tokenVersion       Int               @default(0)
+  lastLoginAt        DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  roles              UserRole[]
+  refreshTokens      RefreshToken[]
+  activityLogs       ActivityLog[]
+  ownedResources     Resource[]        @relation("ResourceOwner")
+  createdResources   Resource[]        @relation("ResourceCreator")
+  updatedResources   Resource[]        @relation("ResourceUpdater")
+  deletedResources   Resource[]        @relation("ResourceDeleter")
+  createdVersions    ResourceVersion[] @relation("ResourceVersionCreator")
+  resourceAccess     ResourceAccess[]  @relation("ResourceAccessUser")
+  grantedAccess      ResourceAccess[]  @relation("ResourceAccessCreator")
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model Resource {
+  id               String             @id @default(cuid())
+  type             ResourceType
+  name             String             @db.VarChar(191)
+  normalizedName   String             @db.VarChar(191)
+  siblingKey       String             @unique @db.VarChar(500)
+  parentId         String?
+  ownerId          String
+  createdById      String
+  updatedById      String?
+  sourceType       ResourceSourceType @default(MANUAL)
+  mimeType         String?            @db.VarChar(191)
+  extension        String?            @db.VarChar(32)
+  size             BigInt?
+  storageKey       String?            @unique @db.VarChar(500)
+  checksum         String?            @db.VarChar(191)
+  externalUrl      String?            @db.Text
+  externalProvider String?            @db.VarChar(100)
+  remark           String?            @db.VarChar(1000)
+  isLocked         Boolean            @default(false)
+  /// นโยบายการมองเห็น สืบทอดจากโฟลเดอร์แม่เมื่อสร้างทรัพยากรใหม่
+  visibility       ResourceVisibility @default(ORGANIZATION)
+  /// เลขเวอร์ชันปัจจุบันของไฟล์ (สะท้อนจาก ResourceVersion เพื่อให้ listing เร็ว)
+  currentVersion   Int?
+  deletedAt        DateTime?
+  /// ผู้ที่ย้ายทรัพยากรไปถังขยะ และตำแหน่งเดิมก่อนถูกลบ ใช้สำหรับการกู้คืน
+  deletedById      String?
+  trashedFromId    String?            @db.VarChar(191)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  parent           Resource?          @relation("ResourceHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children         Resource[]         @relation("ResourceHierarchy")
+  owner            User               @relation("ResourceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  createdBy        User               @relation("ResourceCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy        User?              @relation("ResourceUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedBy        User?              @relation("ResourceDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
+  access           ResourceAccess[]
+  versions         ResourceVersion[]
+
+  @@index([parentId])
+  @@index([ownerId])
+  @@index([type])
+  @@index([sourceType])
+  @@index([deletedAt])
+  @@index([updatedAt])
+  @@index([parentId, type, deletedAt])
+  @@index([checksum])
+  @@index([visibility])
+  @@map("resources")
+}
+
+/// ประวัติเวอร์ชันของไฟล์ - เป็นหลักฐานที่แก้ไขไม่ได้
+/// Resource เก็บ metadata ล่าสุดไว้เพื่อความเร็ว แต่ความจริงทางประวัติศาสตร์อยู่ที่นี่
+model ResourceVersion {
+  id            String   @id @default(cuid())
+  resourceId    String
+  versionNumber Int
+  storageKey    String   @unique @db.VarChar(500)
+  size          BigInt
+  checksum      String   @db.VarChar(191)
+  mimeType      String?  @db.VarChar(191)
+  remark        String?  @db.VarChar(1000)
+  createdById   String
+  createdAt     DateTime @default(now())
+
+  resource  Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  createdBy User     @relation("ResourceVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([resourceId, versionNumber])
+  @@index([resourceId])
+  @@index([checksum])
+  @@index([createdById])
+  @@map("resource_versions")
+}
+
+model ResourceAccess {
+  id            String              @id @default(cuid())
+  resourceId    String
+  userId        String
+  accessLevel   ResourceAccessLevel
+  allowDownload Boolean             @default(false)
+  createdById   String
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  resource      Resource            @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  user          User                @relation("ResourceAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy     User                @relation("ResourceAccessCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([resourceId, userId])
+  @@index([resourceId])
+  @@index([userId])
+  @@map("resource_access")
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  code        String           @unique @db.VarChar(64)
+  name        String           @db.VarChar(191)
+  description String?          @db.VarChar(500)
+  isSystem    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique @db.VarChar(100)
+  name        String           @db.VarChar(191)
+  description String?          @db.VarChar(500)
+  createdAt   DateTime         @default(now())
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime   @default(now())
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique @db.Char(64)
+  userId    String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("refresh_tokens")
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String   @db.VarChar(100)
+  resourceId String?  @db.VarChar(191)
+  ipAddress  String?  @db.VarChar(64)
+  userAgent  String?  @db.VarChar(500)
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([resourceId, createdAt])
+  @@index([action, createdAt])
+  @@map("activity_logs")
+}
+
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique @db.VarChar(191)
+  value       String   @db.Text
+  description String?  @db.VarChar(500)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
