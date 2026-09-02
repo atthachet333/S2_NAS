@@ -1,0 +1,50 @@
+# ============================================================
+#  S2 NAS - Backend Environment
+#  คัดลอกไฟล์นี้เป็น .env แล้วแก้ค่าให้ตรงกับเครื่องที่ใช้งาน
+#  ห้าม commit ไฟล์ .env เข้า repository
+# ============================================================
+
+# development | production | test
+NODE_ENV=development
+
+# Backend port (ห้ามซ้ำกับ Frontend 8888)
+BACKEND_PORT=8889
+BACKEND_HOST=0.0.0.0
+
+# Frontend origin สำหรับ CORS (คั่นด้วย comma ได้)
+CORS_ORIGIN=http://localhost:8888
+
+# ------------------------------------------------------------
+# Database (MariaDB)
+# ------------------------------------------------------------
+# รูปแบบ: mysql://USER:PASSWORD@HOST:PORT/DATABASE
+DATABASE_URL="mysql://s2_nas:1234@192.168.2.135:3306/s2_nas"
+
+# ------------------------------------------------------------
+# File Storage
+# ------------------------------------------------------------
+# Production ให้ชี้ไปยัง storage ของเครื่อง Server เช่น D:\S2_NAS_STORAGE
+# Development ใช้ ./storage ได้
+S2_NAS_STORAGE_ROOT=./storage
+
+MAX_UPLOAD_SIZE_MB=100
+
+# ------------------------------------------------------------
+# Authentication (Phase 2)
+# ------------------------------------------------------------
+JWT_ACCESS_SECRET=10bcd476e1124d6118b49f00947c058b970d672d7b9bb53d9d8f12e8ccf01ff1a69b6dc6940f3477c53ab27df5e50296
+JWT_REFRESH_SECRET=c4d3af040244702a0b630ed527d1908d9d26c9b10b34c6a5434caf327667b4803480fa0d49205002dd5a4ab3df056e5c
+JWT_ACCESS_EXPIRES_IN=15m
+JWT_REFRESH_EXPIRES_IN=7d
+
+# ------------------------------------------------------------
+# Seed (Phase 2) - ห้าม hardcode รหัสผ่านใน source code
+# ------------------------------------------------------------
+SEED_ADMIN_EMAIL=admin@s2nas.local
+SEED_ADMIN_PASSWORD=Admin1234567
+
+# ------------------------------------------------------------
+# Logging
+# ------------------------------------------------------------
+# fatal | error | warn | info | debug | trace
+LOG_LEVEL=info
