@@ -2,6 +2,13 @@ import type { Prisma, ResourceSourceType, ResourceType, ResourceVisibility } fro
 import { prisma } from '../../core/prisma.js';
 import { badRequest, forbidden } from '../../core/errors.js';
 import { capabilities, resourceInclude, toResourceDto } from '../resources/resource.service.js';
+import {
+  contentMatchResourceIds,
+  matchReasonFor,
+  rankOf,
+  snippetsFor,
+  type MatchReason,
+} from '../search/content-match.js';
 import type { AuthUser } from '../auth/auth.service.js';
 
 /**
@@ -53,11 +60,24 @@ export async function searchResources(input: SearchInput, user: AuthUser) {
 
   const filters: Prisma.ResourceWhereInput[] = [{ deletedAt: null }, visibilityScope(user)];
 
+  /**
+   * รหัสของทรัพยากรที่เนื้อในเวอร์ชันปัจจุบันตรงกับคำค้น
+   *
+   * หามาก่อนแล้วนำมาผสมเป็นเงื่อนไข OR ในคำสั่งเดียวกับเงื่อนไขสิทธิ์
+   * ไม่ใช่ค้นแยกแล้วรวมผลทีหลัง - การรวมทีหลังคือจุดที่เงื่อนไขสิทธิ์มักหลุด
+   */
+  const contentIds = term ? await contentMatchResourceIds(term) : [];
+
   if (term) {
     const normalized = term.normalize('NFC').toLocaleLowerCase();
     // ค้นจากชื่อและหมายเหตุ ไม่ค้นจาก storageKey เพราะเป็นข้อมูลภายในของเซิร์ฟเวอร์
     filters.push({
-      OR: [{ normalizedName: { contains: normalized } }, { remark: { contains: term } }],
+      OR: [
+        { normalizedName: { contains: normalized } },
+        { remark: { contains: term } },
+        { tags: { some: { tag: { normalizedName: { contains: normalized } } } } },
+        ...(contentIds.length > 0 ? [{ id: { in: contentIds } }] : []),
+      ],
     });
   }
   if (input.type) filters.push({ type: input.type });
@@ -90,8 +110,34 @@ export async function searchResources(input: SearchInput, user: AuthUser) {
   // ตรวจสิทธิ์ซ้ำอีกชั้น กันกรณีเงื่อนไข WHERE กับ capabilities() หลุดจากกันในอนาคต
   const visible = page.filter((row) => capabilities(row, user).canView);
 
+  /**
+   * ตัวอย่างข้อความถูกดึงหลังการกรองสิทธิ์เสร็จแล้วเท่านั้น
+   * เนื้อในเอกสารที่ผู้ใช้ไม่มีสิทธิ์เห็นจึงไม่มีทางถูกอ่านขึ้นมาเพื่อทำ DTO
+   */
+  const contentSet = new Set(contentIds);
+  const snippetTargets = visible.filter((row) => contentSet.has(row.id)).map((row) => row.id);
+  const snippets = term && snippetTargets.length > 0 ? await snippetsFor(snippetTargets, term) : new Map<string, string>();
+
+  const items = visible.map((row) => {
+    const tags = row.tags.map((link) => link.tag.name);
+    const reason: MatchReason | null = term
+      ? matchReasonFor({ name: row.name, remark: row.remark, tags, term, hasContentMatch: contentSet.has(row.id) })
+      : null;
+
+    return {
+      ...toResourceDto(row, user),
+      /** บอกผู้ใช้ว่าทำไมผลลัพธ์นี้ถึงขึ้นมา - การค้นหาที่อธิบายตัวเองได้คือการค้นหาที่เชื่อถือได้ */
+      matchReason: reason,
+      contentSnippet: reason === 'CONTENT' ? snippets.get(row.id) ?? null : null,
+      _rank: rankOf({ name: row.name, term, reason }),
+    };
+  });
+
+  // เรียงตามความชัดเจนของการตรงกัน แล้วคงลำดับเดิมของฐานข้อมูลไว้ภายในกลุ่มเดียวกัน
+  if (term) items.sort((a, b) => a._rank - b._rank);
+
   return {
-    items: visible.map((row) => toResourceDto(row, user)),
+    items: items.map(({ _rank, ...item }) => item),
     nextCursor: rows.length > input.limit ? page[page.length - 1]?.id ?? null : null,
     total: await prisma.resource.count({ where }),
   };

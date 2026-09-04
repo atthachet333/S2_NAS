@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
+import path from "node:path";
 import crypto from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import "dotenv/config";
@@ -14,8 +16,10 @@ const databaseName = suppliedSmokeUrl
 const disposableUrl = suppliedSmokeUrl ? new URL(suppliedSmokeUrl) : new URL(sourceUrl);
 disposableUrl.pathname = `/${databaseName}`;
 
-if (!/^s2_nas_migration_smoke_[a-z0-9_]+$/.test(databaseName)) {
-  throw new Error("Smoke database name must start with s2_nas_migration_smoke_");
+// Some deployments only grant the app account CREATE on the "test_" namespace,
+// so a disposable database there is allowed too. Both prefixes are unmistakably throwaway.
+if (!/^(test_)?s2_nas_migration_smoke_[a-z0-9_]+$/.test(databaseName)) {
+  throw new Error("Smoke database name must start with s2_nas_migration_smoke_ or test_s2_nas_migration_smoke_");
 }
 if (disposableUrl.toString() === new URL(sourceUrl).toString()) {
   throw new Error("Refusing to use DATABASE_URL itself as the disposable database");
@@ -30,10 +34,22 @@ const admin = adminUrl
 const smoke = new PrismaClient({ datasources: { db: { url: disposableUrl.toString() } } });
 let createdDatabase = false;
 
+/** Prisma CLI entrypoint resolved from this package, not from PATH */
+const prismaEntrypoint = path.join(
+  path.dirname(createRequire(import.meta.url).resolve("prisma/package.json")),
+  "build",
+  "index.js",
+);
+
 function prisma(args) {
+  // Run Prisma's JS entrypoint with the current Node binary rather than the npx
+  // shim. Node refuses to spawn .cmd files directly on Windows since the 2024
+  // command-injection fix, and using `shell: true` instead would place the
+  // database URL - password included - on a shell command line where other
+  // processes can read it. This avoids both problems.
   const result = spawnSync(
-    process.platform === "win32" ? "npx.cmd" : "npx",
-    ["prisma", ...args],
+    process.execPath,
+    [prismaEntrypoint, ...args],
     {
       cwd: process.cwd(),
       env: { ...process.env, DATABASE_URL: disposableUrl.toString() },
@@ -41,8 +57,16 @@ function prisma(args) {
       stdio: "pipe",
     },
   );
-  process.stdout.write(result.stdout);
-  process.stderr.write(result.stderr);
+  // spawnSync leaves stdout/stderr undefined when the process could not be launched
+  // at all (missing binary, blocked exec). Writing undefined throws and hides the
+  // real cause, so surface the launch failure instead.
+  if (result.error) {
+    process.stderr.write(`Failed to run npx prisma ${args.join(" ")}: ${result.error.message}\n`);
+    process.exitCode = 1;
+    return { ...result, status: 1 };
+  }
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
   if (result.status !== 0) process.exitCode = result.status ?? 1;
   return result;
 }

@@ -46,3 +46,21 @@ A resource that cannot be viewed returns `RESOURCE_NOT_FOUND`, not `403`, so exi
 A grant can only target an `ACTIVE` account. An `INVITED` account has no password and cannot sign in, so a grant to it would be an access rule nobody can exercise — and one that quietly becomes live the day the account is activated. Activate first, then share. See [USER_MANAGEMENT.md](USER_MANAGEMENT.md).
 
 Existing grants held by an account that is later disabled are kept and shown in the access list marked ปิดใช้งาน, so they can be cleaned up deliberately rather than disappearing silently.
+
+## Sharing with external users (F10)
+
+A grant can target an `EXTERNAL` account — a client — as well as an internal colleague. The share dialog separates the two groups (บุคลากรภายใน / ลูกค้า ผู้ใช้งานภายนอก) and labels every external account ภายนอก, because picking the wrong group means opening a document to someone outside the company. Defaulting to the narrowest level (ดูอย่างเดียว) when an external account is picked is deliberate for the same reason.
+
+`SERVICE` accounts cannot be share targets at all. An integration gets its reach from its own configured scope, not from a grant.
+
+External grants are audited as `EXTERNAL_ACCESS_GRANTED` / `EXTERNAL_ACCESS_REVOKED`, separate from the internal codes, so "which documents were opened to outsiders" is answerable straight from the log.
+
+What a client can actually do with a grant is decided by external policy, never by the level name. See [CLIENT_PORTAL.md](CLIENT_PORTAL.md).
+
+## Grant expiry
+
+`ResourceAccess.expiresAt` (`null` = never) stores an absolute instant. The UI translates 7 / 30 / 90 days or a custom date into a real timestamp before sending; the server never stores "a number of days", because the reference point becomes ambiguous the moment the grant is edited later. The cap is 730 days — meaning to grant forever must be stated as ไม่หมดอายุ, not disguised as a very distant date.
+
+Every permission check compares against the current time, so an expired grant is refused immediately with the existing token, and `/shared` drops it on the next request. The row stays in the database for audit; the access list shows it as หมดอายุแล้ว so an administrator can see it was once given.
+
+Revocation is immediate for the same reason: permissions are never cached in the access token.

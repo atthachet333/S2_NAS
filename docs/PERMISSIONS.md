@@ -34,3 +34,11 @@ Two guards cannot be bypassed by any permission, because they protect the system
 - an admin cannot disable their own account (`CANNOT_DISABLE_SELF`)
 
 Activation, password reset, role change, and deactivation all increment `tokenVersion` and revoke refresh tokens, so a permission or credential change takes effect on existing sessions immediately instead of at the next token expiry.
+
+## Account type outranks permissions (F10)
+
+Permissions answer "what may this person do"; account type answers "which half of the system is this person in". The second question is settled first.
+
+`requireInternal` runs before every internal route and rejects `EXTERNAL` accounts outright. `requirePermission` is built on top of it, so no permission code can ever admit a client to an internal endpoint. `requireExternal` guards /api/portal and rejects internal and service accounts symmetrically.
+
+Clients hold no permission codes at all. Their reach comes from `ResourceAccess` rows, and what those rows let them do is fixed by external policy — read, and upload where explicitly allowed. See [CLIENT_PORTAL.md](CLIENT_PORTAL.md).

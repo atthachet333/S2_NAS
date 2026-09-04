@@ -56,7 +56,7 @@ export function nextMenuIndex(current: number, key: string, count: number): numb
 export const EMPTY_WORKSPACE_ACTIONS = [
   { id: 'create-folder', label: 'สร้างโฟลเดอร์', disabled: false },
   { id: 'upload-here', label: 'อัปโหลดไฟล์', disabled: false },
-  { id: 'upload-folder', label: 'อัปโหลดโฟลเดอร์', disabled: true },
+  { id: 'upload-folder', label: 'อัปโหลดโฟลเดอร์', disabled: false },
   { id: 'google-sheet', label: 'เพิ่ม Google Sheet', disabled: false },
   { id: 'google-doc', label: 'เพิ่ม Google Doc', disabled: false },
   { id: 'google-drive', label: 'เพิ่ม Google Drive', disabled: false },

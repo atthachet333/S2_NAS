@@ -28,6 +28,9 @@ export function DriveWorkspace({
   uploadTarget,
   selectedIds = new Set<string>(),
   onToggleSelection,
+  onToggleSelectAll,
+  destinationSegments,
+  driveLabel = 'ไดร์ฟของฉัน',
 }: {
   entries: DriveEntry[];
   isLoading?: boolean;
@@ -42,6 +45,12 @@ export function DriveWorkspace({
   uploadTarget?: { parentId: string | null; parentName: string };
   selectedIds?: Set<string>;
   onToggleSelection?: (entry: DriveEntry) => void;
+  /** "เลือกทั้งหมด" ครอบเฉพาะรายการที่โหลดมาแล้วเท่านั้น */
+  onToggleSelectAll?: (shouldSelectAll: boolean) => void;
+  /** เส้นทางเชิงตรรกะใต้ไดร์ฟ สำหรับคอลัมน์ "ปลายทาง" */
+  destinationSegments?: string[];
+  /** ชื่อไดร์ฟที่กำลังอยู่ - ใช้เป็นค่าสำรองของข้อความปลายทาง ห้ามเดาเป็นไดร์ฟของฉันเสมอ */
+  driveLabel?: string;
 }) {
   const { viewMode, selected, select, openDetails } = useDriveUi();
   const { notify } = useToast();
@@ -85,8 +94,8 @@ export function DriveWorkspace({
       onResourceAction(action, entry);
       return;
     }
-    if (action === 'upload-here') {
-      onResourceAction?.('upload-here', entry);
+    if (action === 'upload-here' || action === 'upload-folder') {
+      onResourceAction?.(action, entry);
       return;
     }
     notify({
@@ -163,6 +172,8 @@ export function DriveWorkspace({
           onKeyboardContextMenu={openForEntry}
           selectedIds={selectedIds}
           onToggleSelection={onToggleSelection}
+          onToggleSelectAll={onToggleSelectAll}
+          destinationSegments={destinationSegments}
         />
       )}
 
@@ -171,12 +182,12 @@ export function DriveWorkspace({
           <UploadCloud className="h-8 w-8 text-brand-600" aria-hidden />
           <p className="text-[13px] text-brand-700">วางไฟล์เพื่ออัปโหลดไปยัง</p>
           <p className="max-w-[80%] truncate text-[15px] font-semibold text-brand-700">
-            “{uploadTarget?.parentName ?? 'ไดร์ฟของฉัน'}”
+            “{uploadTarget?.parentName ?? driveLabel}”
           </p>
         </div>
       ) : null}
 
-      {allowContextMenu ? <ContextMenu state={state} destinationName={uploadTarget?.parentName ?? 'ไดร์ฟของฉัน'} onClose={close} onAction={onAction} /> : null}
+      {allowContextMenu ? <ContextMenu state={state} destinationName={uploadTarget?.parentName ?? driveLabel} onClose={close} onAction={onAction} /> : null}
     </section>
   );
 }

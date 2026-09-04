@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -8,6 +8,9 @@ import { BrandLogo } from '@/components/layout/BrandLogo';
 import { ServerStatus } from '@/components/layout/ServerStatus';
 import { ThemeControl } from '@/components/layout/ThemeControl';
 import { useAuth } from '@/hooks/useAuth';
+import { api } from '@/lib/api';
+import { googleLoginMessage, startGoogleLogin } from '@/lib/google-login';
+import { homePathFor } from '@/lib/portal';
 import { useToast } from '@/hooks/useToast';
 
 const schema = z.object({ email: z.string().min(1, 'กรุณากรอกอีเมล').email('รูปแบบอีเมลไม่ถูกต้อง'), password: z.string().min(1, 'กรุณากรอกรหัสผ่าน') });
@@ -23,11 +26,32 @@ const benefits = [
 export default function LoginPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [googleStarting, setGoogleStarting] = useState(false);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
   const { user, isLoading, login } = useAuth();
   const { notify } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginForm>({ resolver: zodResolver(schema) });
+
+  /**
+   * ปุ่ม Google แสดงเฉพาะเมื่อเซิร์ฟเวอร์ตั้งค่าไว้แล้ว
+   * ปุ่มที่กดแล้วพาไปหน้าผิดพลาดทันทีแย่กว่าการไม่มีปุ่มเลย
+   */
+  useEffect(() => {
+    let active = true;
+    void api
+      .googleConfig()
+      .then((response) => { if (active) setGoogleEnabled(response.data.enabled); })
+      .catch(() => { if (active) setGoogleEnabled(false); });
+    return () => { active = false; };
+  }, []);
+
+  /** ปลายทางหลังเข้าสู่ระบบ - ใช้ร่วมกันทั้งรหัสผ่านและ Google (backend ตรวจซ้ำอีกชั้น) */
+  const from = (location.state as { from?: string } | null)?.from;
+
+  /** ความล้มเหลวจากขั้นตอน Google กลับมาเป็นรหัสใน query string */
+  const googleNotice = googleLoginMessage(new URLSearchParams(location.search).get('google'));
   const onSubmit = handleSubmit(async (values) => {
     // react-hook-form กัน submit ซ้ำผ่าน isSubmitting อยู่แล้ว
     // เพิ่มการ์ดอีกชั้นเผื่อกรณีกด Enter รัว ๆ ระหว่างคำขอกำลังทำงาน
@@ -35,18 +59,23 @@ export default function LoginPage() {
 
     setNotice(null);
     try {
-      await login(values.email, values.password);
+      const session = await login(values.email, values.password);
       notify({
         tone: 'success',
         title: 'เข้าสู่ระบบสำเร็จ',
         description: 'ยินดีต้อนรับกลับสู่ S2 NAS',
       });
-      navigate((location.state as { from?: string } | null)?.from ?? '/dashboard', { replace: true });
+      /**
+       * ปลายทางขึ้นกับชนิดของบัญชี ไม่ใช่ค่า from ที่ติดมากับการถูกเด้งออกจากหน้าเดิม
+       * ลูกค้าไปที่พื้นที่เอกสาร บุคลากรภายในไปที่หน้าทำงานภายใน
+       */
+      navigate(homePathFor(session, from), { replace: true });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'เข้าสู่ระบบไม่สำเร็จ');
     }
   });
-  if (!isLoading && user) return <Navigate to="/dashboard" replace />;
+  // เข้าสู่ระบบอยู่แล้ว - ส่งไปหน้าแรกของฝั่งที่ผู้ใช้สังกัด
+  if (!isLoading && user) return <Navigate to={homePathFor(user, from)} replace />;
 
   return <main className="relative min-h-screen overflow-hidden bg-canvas">
     <div className="pointer-events-none absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_14%_18%,color-mix(in_srgb,var(--s2-primary)_16%,transparent),transparent_28%),radial-gradient(circle_at_86%_78%,color-mix(in_srgb,var(--s2-primary)_9%,transparent),transparent_30%)]" />
@@ -88,9 +117,69 @@ export default function LoginPage() {
             </button>
             {notice ? <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-[11.5px] leading-relaxed text-red-700">{notice}</div> : null}
           </form>
+
+          {googleEnabled ? (
+            <>
+              <div className="my-4 flex items-center gap-3" aria-hidden>
+                <span className="h-px flex-1 bg-[var(--s2-card-border)]" />
+                <span className="text-[10.5px] text-navy-400">หรือ</span>
+                <span className="h-px flex-1 bg-[var(--s2-card-border)]" />
+              </div>
+
+              {/*
+                ทางเลือกรอง ไม่ใช่ทางหลัก - ใช้ปุ่มแบบ outline เพื่อไม่ให้กลบการเข้าสู่ระบบด้วยรหัสผ่าน
+
+                สั่งเปลี่ยนหน้าทั้งหน้าเอง ไม่ใช้ <a href> เพราะปุ่มนี้ re-render ตัวเองตอนคลิก
+                (เปลี่ยนเป็นสถานะกำลังโหลด) ซึ่งทำให้การนำทางเริ่มต้นของลิงก์ถูกยกเลิกได้
+              */}
+              <button
+                type="button"
+                disabled={googleStarting}
+                onClick={() => {
+                  if (googleStarting) return;
+                  setGoogleStarting(true);
+                  startGoogleLogin(from);
+                }}
+                className="s2-btn s2-btn-outline h-11 w-full justify-center rounded-xl text-[13px] disabled:opacity-60"
+              >
+                {googleStarting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    กำลังพาไปที่ Google…
+                  </>
+                ) : (
+                  <>
+                    <GoogleMark />
+                    เข้าสู่ระบบด้วย Google
+                  </>
+                )}
+              </button>
+            </>
+          ) : null}
+
+          {googleNotice ? (
+            <div
+              role="alert"
+              className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-[11.5px] leading-relaxed text-red-700"
+            >
+              {googleNotice}
+            </div>
+          ) : null}
           <div className="mt-6 flex items-center gap-2 border-t border-line pt-5 text-[10.5px] text-navy-400"><Check className="h-3.5 w-3.5 text-emerald-600" />การเชื่อมต่อได้รับการตรวจสอบโดย S2 NAS</div>
         </div>
       </section>
     </div>
   </main>;
+}
+
+/** โลโก้ Google แบบ inline - ไม่โหลดจากภายนอกเพื่อไม่ให้หน้าเข้าสู่ระบบพึ่งเครือข่ายอื่น */
+function GoogleMark() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 18 18" aria-hidden focusable="false">
+      <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.91c1.7-1.57 2.69-3.88 2.69-6.62Z" />
+      <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.91-2.26c-.81.54-1.84.86-3.05.86-2.35 0-4.34-1.58-5.05-3.71H.96v2.33A9 9 0 0 0 9 18Z" />
+      <path fill="#FBBC05" d="M3.95 10.71a5.41 5.41 0 0 1 0-3.42V4.96H.96a9 9 0 0 0 0 8.08l2.99-2.33Z" />
+      <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.96l2.99 2.33C4.66 5.16 6.65 3.58 9 3.58Z" />
+    </svg>
+  );
 }

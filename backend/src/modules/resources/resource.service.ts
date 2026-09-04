@@ -6,6 +6,7 @@ import type { AuthUser } from '../auth/auth.service.js';
 import { externalResourceConfig, isExternalResourceType, validateExternalResourceUrl, type ExternalResourceType } from './external-resource.js';
 import { siblingKey } from './sibling-key.js';
 import { assertCanCreateInSystemDrive, assertCanMoveAcrossDrives, canViewSystemDrive } from './system-drive.js';
+import { isExternalUser, isGrantActive } from '../portal/portal-policy.js';
 
 const ownerSelect = { id: true, displayName: true, email: true } as const;
 /** นิยามความสัมพันธ์ชุดเดียวของทั้งระบบ ทุกโมดูลต้องใช้ตัวนี้
@@ -16,7 +17,7 @@ export const resourceInclude = {
   createdByIntegrationApp: { select: { id: true, name: true, code: true } },
   lockedBy: { select: ownerSelect },
   tags: { include: { tag: { select: { id: true, name: true } } } },
-  access: { select: { userId: true, accessLevel: true, allowDownload: true } },
+  access: { select: { userId: true, accessLevel: true, allowDownload: true, expiresAt: true } },
   _count: { select: { children: { where: { deletedAt: null } } } },
 } as const;
 
@@ -34,9 +35,20 @@ function isAdmin(user: AuthUser): boolean {
   return user.roles.includes('SUPER_ADMIN') || user.roles.includes('ADMIN');
 }
 
+/**
+ * สิทธิ์รายบุคคลที่ยังมีผลอยู่จริง
+ *
+ * แถวที่หมดอายุแล้วยังอยู่ในฐานข้อมูลเพื่อการตรวจสอบย้อนหลัง แต่ต้องไม่ให้สิทธิ์อีกต่อไป
+ * การกรองทำที่นี่จุดเดียว ทุกด่านที่เรียก capabilities จึงได้ผลตรงกันโดยอัตโนมัติ
+ */
+export function activeGrantFor(resource: ResourceWithRelations, userId: string, now: Date = new Date()) {
+  const grant = resource.access.find((item) => item.userId === userId);
+  return isGrantActive(grant, now) ? grant : undefined;
+}
+
 function directLevel(resource: ResourceWithRelations, user: AuthUser): ResourceAccessLevel | null {
   if (resource.ownerId === user.id) return 'OWNER';
-  return resource.access.find((item) => item.userId === user.id)?.accessLevel ?? null;
+  return activeGrantFor(resource, user.id)?.accessLevel ?? null;
 }
 
 /**
@@ -50,6 +62,13 @@ function directLevel(resource: ResourceWithRelations, user: AuthUser): ResourceA
 function isOrganizationVisible(resource: ResourceWithRelations): boolean {
   return resource.visibility === 'ORGANIZATION';
 }
+
+/** ชุดความสามารถว่างเปล่า - ใช้กับบัญชีที่ไม่มีสิทธิ์บนเส้นทางภายในเลย */
+const DENY_ALL = {
+  canView: false, canEdit: false, canRename: false, canMove: false, canDelete: false,
+  canShare: false, canLock: false, canDownload: false, canUploadVersion: false,
+  canTransferOwner: false,
+} as const;
 
 /**
  * ทรัพยากรที่ถูกล็อกต้องแจ้งเหตุผลที่แท้จริง
@@ -65,6 +84,15 @@ export function assertNotLocked(resource: { isLocked: boolean; lockReason: strin
 }
 
 export function capabilities(resource: ResourceWithRelations, user: AuthUser) {
+  /**
+   * ผู้ใช้ภายนอกไม่มีความสามารถใด ๆ บนเส้นทางภายใน
+   *
+   * พื้นที่ลูกค้ามีด่านตรวจของตัวเองใน modules/portal ที่คำนวณสิทธิ์จากการแชร์โดยตรง
+   * ตรงนี้เป็นชั้นป้องกันสุดท้าย เผื่อมีเส้นทางภายในที่หลุดมาถึงโดยไม่ผ่าน requireInternal
+   * ผลลัพธ์คือ "มองไม่เห็น" ไม่ใช่ "เห็นแต่กดไม่ได้" ทรัพยากรจึงไม่รั่วออกไปแม้แต่ชื่อ
+   */
+  if (isExternalUser(user)) return DENY_ALL;
+
   const admin = isAdmin(user);
   const level = directLevel(resource, user);
   const orgVisible = isOrganizationVisible(resource);
@@ -92,7 +120,7 @@ export function capabilities(resource: ResourceWithRelations, user: AuthUser) {
    * ผู้ที่ถูกกำหนดเป็น VIEWER พร้อม allowDownload = false จึงเปิดดูได้ แต่ดาวน์โหลดไม่ได้
    * แม้โฟลเดอร์จะเป็น ORGANIZATION ก็ตาม เพราะนั่นคือเจตนาของการจำกัดรายคน
    */
-  const grant = resource.access.find((item) => item.userId === user.id);
+  const grant = activeGrantFor(resource, user.id);
   const canDownload =
     resource.type === 'FILE' &&
     canView &&
@@ -106,11 +134,15 @@ export function capabilities(resource: ResourceWithRelations, user: AuthUser) {
    * ผู้แก้ไข (EDITOR) ไม่ได้สิทธิ์นี้โดยอัตโนมัติ
    */
   const canShare =
-    admin || resource.ownerId === user.id || user.permissions.includes('resources:share');
+    admin ||
+    resource.ownerId === user.id ||
+    (!systemDrive && user.permissions.includes('resources:share'));
 
   /** การล็อกใช้เกณฑ์เดียวกับการจัดการสิทธิ์ แต่แยก permission ของตัวเอง */
   const canLock =
-    admin || resource.ownerId === user.id || user.permissions.includes('resources:lock');
+    admin ||
+    resource.ownerId === user.id ||
+    (!systemDrive && user.permissions.includes('resources:lock'));
 
   return {
     canView,
@@ -123,7 +155,8 @@ export function capabilities(resource: ResourceWithRelations, user: AuthUser) {
     canDownload,
     /** อัปโหลดเวอร์ชันใหม่ถือเป็นการแก้ไขเนื้อหา จึงใช้เกณฑ์เดียวกับการแก้ไข */
     canUploadVersion: resource.type === 'FILE' && writer && !resource.isLocked,
-    canTransferOwner: admin || level === 'OWNER' || user.permissions.includes('resources:owner:manage'),
+    canTransferOwner:
+      admin || level === 'OWNER' || (!systemDrive && user.permissions.includes('resources:owner:manage')),
   };
 }
 
@@ -138,6 +171,7 @@ export function toResourceDto(resource: ResourceWithRelations, user: AuthUser) {
     createdByIntegrationApp: resource.createdByIntegrationApp,
     remark: resource.remark, isLocked: resource.isLocked, itemCount: resource._count.children,
     visibility: resource.visibility, currentVersion: resource.currentVersion,
+    driveScope: resource.driveScope,
     tags: resource.tags.map((link) => ({ id: link.tag.id, name: link.tag.name })),
     lockedAt: resource.lockedAt, lockReason: resource.lockReason,
     lockedBy: resource.lockedBy ?? null,

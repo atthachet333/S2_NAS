@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import type { DriveRoot } from '@/lib/drive-labels';
+import { selectableDriveRoots } from '@/lib/folder-picker';
+import { isSameLocation } from '@/lib/folder-picker';
 import { FolderPlus, PenLine, FolderInput, UserRoundCog, Trash2, X } from 'lucide-react';
 import { ApiError, fileApi, resourceApi } from '@/lib/api';
 import type { DriveEntry } from '@/lib/drive';
@@ -10,6 +14,8 @@ export type ResourceDialogMode = 'create' | 'rename' | 'move' | 'owner' | 'delet
 const ERROR_MESSAGES: Record<string, string> = {
   FOLDER_NAME_EXISTS: 'มีโฟลเดอร์ชื่อนี้อยู่แล้ว', INVALID_RESOURCE_NAME: 'ชื่อโฟลเดอร์ไม่ถูกต้อง',
   INVALID_MOVE: 'ไม่สามารถย้ายโฟลเดอร์ไปยังตำแหน่งนี้ได้', RESOURCE_ACCESS_DENIED: 'คุณไม่มีสิทธิ์ดำเนินการนี้',
+  CROSS_DRIVE_MOVE_DENIED: 'การย้ายทรัพยากรข้ามไดร์ฟสงวนไว้สำหรับผู้ดูแลระบบ',
+  SYSTEM_DRIVE_WRITE_DENIED: 'คุณไม่มีสิทธิ์เพิ่มทรัพยากรในไดร์ฟของระบบ',
   OWNER_NOT_FOUND: 'ไม่พบผู้ใช้ที่เปิดใช้งาน เลือกผู้ดูแลรายอื่นแล้วลองใหม่',
   FOLDER_NOT_EMPTY: 'โฟลเดอร์นี้ยังมีรายการอยู่ ต้องย้ายหรือลบรายการภายในก่อน',
   OWNER_TRANSFER_DENIED: 'คุณไม่มีสิทธิ์เปลี่ยนผู้ดูแลของโฟลเดอร์นี้',
@@ -18,15 +24,28 @@ const ERROR_MESSAGES: Record<string, string> = {
   VALIDATION_ERROR: 'ข้อมูลที่กรอกไม่ถูกต้อง',
 };
 
-export function ResourceDialog({ mode, entry, parentId, onClose, onSuccess }: { mode: ResourceDialogMode; entry: DriveEntry | null; parentId: string | null; onClose: () => void; onSuccess: (message: string) => void }) {
+export function ResourceDialog({ mode, entry, parentId, driveRoot = 'MY_DRIVE', onClose, onSuccess }: { mode: ResourceDialogMode; entry: DriveEntry | null; parentId: string | null; driveRoot?: DriveRoot; onClose: () => void; onSuccess: (message: string) => void }) {
   const { user } = useAuth();
   const [name, setName] = useState(entry?.name ?? '');
   const [ownerId, setOwnerId] = useState(entry?.ownerId ?? user?.id ?? '');
   const [destinationId, setDestinationId] = useState<string | null>(entry?.parentId ?? parentId);
+  /**
+   * ไดร์ฟต้นทางของทรัพยากรที่กำลังย้าย ไม่ใช่ไดร์ฟของหน้าที่เปิดกล่องนี้
+   * ทั้งสองค่าตรงกันเกือบตลอด แต่รายการที่มาจากหน้ารวม (ล่าสุด/รายการโปรด) อาจต่างกันได้
+   */
+  const sourceDriveRoot: DriveRoot = entry?.driveRoot ?? driveRoot;
+  const [destinationDrive, setDestinationDrive] = useState<DriveRoot>(sourceDriveRoot);
+  const allowedDriveRoots = selectableDriveRoots(user, sourceDriveRoot);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const firstRef = useRef<HTMLInputElement>(null);
   const canReadUsers = Boolean(user?.permissions.includes('users:read'));
+  /** เส้นทางของตำแหน่งปัจจุบัน ใช้แสดง "ตำแหน่งปัจจุบัน" เป็นเส้นทางเชิงตรรกะ ไม่ใช่ path จริง */
+  const { data: currentCrumbs } = useQuery({
+    queryKey: ['resource-dialog-crumbs', entry?.parentId],
+    queryFn: () => resourceApi.breadcrumb(entry!.parentId!),
+    enabled: mode === 'move' && Boolean(entry?.parentId),
+  });
   useEffect(() => { firstRef.current?.focus(); }, []);
   const isFile = entry?.kind === 'file';
   const noun = isFile ? 'ไฟล์' : 'โฟลเดอร์';
@@ -39,12 +58,22 @@ export function ResourceDialog({ mode, entry, parentId, onClose, onSuccess }: { 
   } as const;
   const icons = { create: FolderPlus, rename: PenLine, move: FolderInput, owner: UserRoundCog, delete: Trash2 } as const;
   const Icon = icons[mode];
+  /** ปลายทางเดียวกับตำแหน่งเดิม = ไม่มีอะไรให้ย้าย จึงปิดปุ่มยืนยันไว้ */
+  const moveUnchanged = isSameLocation(
+    { driveRoot: sourceDriveRoot, parentId: entry?.parentId ?? null },
+    { driveRoot: destinationDrive, parentId: destinationId },
+  );
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setError(null); setSubmitting(true);
     try {
-      if (mode === 'create') await resourceApi.createFolder({ name, parentId, ...(canReadUsers && ownerId !== user?.id ? { ownerId } : {}) });
+      // ที่ระดับรากต้องบอกไดร์ฟเสมอ ในโฟลเดอร์ backend จะสืบทอดจากโฟลเดอร์แม่เอง
+      if (mode === 'create') await resourceApi.createFolder({ name, parentId, ...(parentId ? {} : { driveScope: driveRoot }), ...(canReadUsers && ownerId !== user?.id ? { ownerId } : {}) });
       if (mode === 'rename' && entry) await resourceApi.update(entry.id, { name });
-      if (mode === 'move' && entry) await resourceApi.move(entry.id, destinationId);
+      /**
+       * ไดร์ฟปลายทางส่งไปเฉพาะตอนวางไว้ที่ราก ถ้าวางในโฟลเดอร์ backend จะสืบทอดจากโฟลเดอร์แม่เอง
+       * และเป็นผู้ไล่ปรับ driveScope ของลูกหลานทั้งกิ่ง - หน้าจอไม่ทำซ้ำตรรกะนั้น
+       */
+      if (mode === 'move' && entry) await resourceApi.move(entry.id, destinationId, destinationId ? undefined : destinationDrive);
       if (mode === 'owner' && entry) await resourceApi.transferOwner(entry.id, ownerId);
       // ใช้เส้นทางถังขยะของ Phase D เพื่อให้บันทึกตำแหน่งเดิม ผู้ลบ และลูกหลานครบ
       if (mode === 'delete' && entry) await fileApi.moveToTrash(entry.id);
@@ -78,7 +107,19 @@ export function ResourceDialog({ mode, entry, parentId, onClose, onSuccess }: { 
             </div>
           </div>
         ) : null}
-        {mode === 'move' ? <FolderPicker value={destinationId} onChange={setDestinationId} excludeId={entry?.id} currentParentId={entry?.parentId ?? null} /> : null}
+        {mode === 'move' ? (
+          <FolderPicker
+            value={destinationId}
+            onChange={setDestinationId}
+            driveRoot={destinationDrive}
+            onDriveRootChange={setDestinationDrive}
+            selectableDriveRoots={allowedDriveRoots}
+            excludeId={entry?.id}
+            currentParentId={entry?.parentId ?? null}
+            currentDriveRoot={sourceDriveRoot}
+            currentLocationSegments={(currentCrumbs?.data ?? []).map((node) => node.name)}
+          />
+        ) : null}
         {mode === 'delete' ? (
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-[12px] leading-relaxed text-amber-700">
             {isFile
@@ -87,7 +128,7 @@ export function ResourceDialog({ mode, entry, parentId, onClose, onSuccess }: { 
           </p>
         ) : null}
         {error ? <p className="rounded-xl bg-red-50 px-3 py-2 text-[11.5px] text-red-700">{error}</p> : null}
-        <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={onClose} className="s2-btn s2-btn-ghost">ยกเลิก</button><button type="submit" disabled={submitting || ((mode === 'create' || mode === 'rename') && !name.trim())} className={mode === 'delete' ? 's2-btn border border-red-200 bg-red-50 text-red-700' : 's2-btn s2-btn-primary'}>{submitting ? 'กำลังดำเนินการ…' : mode === 'move' ? 'ย้ายมาที่นี่' : mode === 'create' ? 'สร้างโฟลเดอร์' : mode === 'owner' ? 'เปลี่ยนผู้ดูแล' : mode === 'delete' ? `ย้าย${noun}ไปถังขยะ` : 'บันทึก'}</button></div>
+        <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={onClose} className="s2-btn s2-btn-ghost">ยกเลิก</button><button type="submit" disabled={submitting || ((mode === 'create' || mode === 'rename') && !name.trim()) || (mode === 'move' && moveUnchanged)} className={mode === 'delete' ? 's2-btn border border-red-200 bg-red-50 text-red-700' : 's2-btn s2-btn-primary'}>{submitting ? 'กำลังดำเนินการ…' : mode === 'move' ? 'ย้ายมาที่นี่' : mode === 'create' ? 'สร้างโฟลเดอร์' : mode === 'owner' ? 'เปลี่ยนผู้ดูแล' : mode === 'delete' ? `ย้าย${noun}ไปถังขยะ` : 'บันทึก'}</button></div>
       </form>
     </section>
   </div>;

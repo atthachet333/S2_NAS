@@ -9,6 +9,8 @@ export interface UploadItem {
   parentName: string;
   state: UploadState;
   progress: number;
+  /** เวลาที่แถวนี้อัปโหลดสำเร็จ ใช้นับอายุของแถวนั้นเอง ไม่ใช่ของทั้งกลุ่ม */
+  succeededAt?: number;
   errorCode?: string;
   errorMessage?: string;
   decision?:
@@ -29,6 +31,9 @@ export interface UploadQueueValue {
   cancel(id: string): void;
   resolveDecision(id: string, choice: 'NEW_VERSION' | 'KEEP_BOTH' | 'ALLOW_DUPLICATE' | 'CANCEL'): void;
   clearFinished(): void;
+  /** หยุด/เดินหน้าการเก็บกวาดอัตโนมัติชั่วคราว ระหว่างที่ผู้ใช้กำลังใช้งานแผงอยู่ */
+  pauseAutoDismiss(): void;
+  resumeAutoDismiss(): void;
   openPanel(): void;
   closePanel(): void;
 }

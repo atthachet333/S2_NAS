@@ -1,4 +1,5 @@
 import { type ReactNode } from 'react';
+import { driveRootLabel } from '@/lib/drive-labels';
 import { useQuery } from '@tanstack/react-query';
 import { Download, Eye, Info, Lock, MessageSquareText, Share2, ShieldCheck, SquareArrowOutUpRight, Star, Tag, X } from 'lucide-react';
 import { workspaceApi } from '@/lib/api';
@@ -207,7 +208,7 @@ export function DetailsDrawer() {
                 <Row label="ประเภท">
                   {isFolder ? 'โฟลเดอร์' : externalResourceLabel(selected.resourceType) ?? getFileTypeStyle(selected.name).label}
                 </Row>
-                <Row label="ตำแหน่ง">{selected.parentId ? 'ภายในโฟลเดอร์' : 'รากองค์กร'}</Row>
+                <Row label="ตำแหน่ง">{selected.parentId ? 'ภายในโฟลเดอร์' : driveRootLabel(selected.driveRoot)}</Row>
                 <Row label="ต้นทาง">{sourceLabel(selected.source)}</Row>
                 {selected.sourceEntityType || selected.sourceEntityId ? (
                   <Row label="รายการต้นทาง">

@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import type { Prisma, UserStatus } from '@prisma/client';
+import type { Prisma, UserStatus, UserType } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
 import { AppError, forbidden, notFound } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
@@ -24,6 +24,7 @@ export const userSelect = {
   email: true,
   displayName: true,
   type: true,
+  organizationName: true,
   status: true,
   mustChangePassword: true,
   lastLoginAt: true,
@@ -85,12 +86,15 @@ export interface ListUsersInput {
   q?: string;
   status?: UserStatus;
   roleCode?: string;
+  /** แยกรายชื่อบุคลากรภายในออกจากลูกค้า - หน้าจัดการทั้งสองใช้เส้นทางเดียวกัน */
+  type?: UserType;
   limit: number;
   cursor?: string;
 }
 
 export async function listUsers(input: ListUsersInput) {
   const where: Prisma.UserWhereInput = {
+    ...(input.type ? { type: input.type } : {}),
     ...(input.status ? { status: input.status } : {}),
     ...(input.roleCode ? { roles: { some: { role: { code: input.roleCode } } } } : {}),
     ...(input.q
@@ -329,6 +333,44 @@ export async function changeUserRoles(
 /* ------------------------------------------------------------------ */
 
 /** แก้ชื่อของตัวเองได้เสมอ ส่วนการแก้ชื่อผู้อื่นต้องมี users:manage */
+/**
+ * ตั้งชื่อบริษัทให้บัญชีลูกค้า
+ *
+ * เป็นข้อมูลประกอบสำหรับหน้าจัดการเท่านั้น ไม่ใช่ขอบเขตสิทธิ์
+ * ลูกค้าสองรายที่อยู่บริษัทเดียวกันก็ยังเห็นเฉพาะสิ่งที่ถูกแชร์ให้ตัวเองอยู่ดี
+ *
+ * บัญชีภายในไม่มีชื่อบริษัท เพราะสังกัดองค์กรนี้อยู่แล้ว การเก็บไว้จะทำให้รายชื่อกำกวม
+ */
+export async function setOrganizationName(
+  id: string,
+  organizationName: string | null,
+  actor: AuthUser,
+  audit: AuditContext,
+) {
+  if (!actor.permissions.includes('users:manage')) {
+    throw forbidden('ไม่มีสิทธิ์แก้ไขข้อมูลผู้ใช้');
+  }
+
+  const existing = await prisma.user.findUnique({ where: { id }, select: { id: true, type: true } });
+  if (!existing) throw notFound('USER_NOT_FOUND', 'ไม่พบผู้ใช้');
+  if (existing.type !== 'EXTERNAL') {
+    throw new AppError('ORGANIZATION_NOT_APPLICABLE', 'ชื่อบริษัทใช้ได้เฉพาะบัญชีลูกค้า', 400);
+  }
+
+  const value = organizationName === null ? null : normalizeDisplayName(organizationName);
+  const user = await prisma.user.update({ where: { id }, data: { organizationName: value }, select: userSelect });
+  await prisma.activityLog.create({
+    data: {
+      userId: actor.id,
+      action: 'USER_PROFILE_UPDATED',
+      ipAddress: audit.ipAddress,
+      userAgent: audit.userAgent?.slice(0, 500),
+      metadata: { userId: id, changedFields: ['organizationName'] },
+    },
+  });
+  return user;
+}
+
 export async function updateUserProfile(
   id: string,
   input: { displayName: string },

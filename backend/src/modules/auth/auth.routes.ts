@@ -5,6 +5,17 @@ import { prisma } from '../../core/prisma.js';
 import { authenticate } from './auth.guard.js';
 import { changePassword, login, revokeRefreshToken, rotateRefreshToken } from './auth.service.js';
 import { MAX_DISPLAY_NAME_LENGTH, updateUserProfile } from '../users/user.service.js';
+import { AppError } from '../../core/errors.js';
+import {
+  consumeState,
+  createAuthorizationRequest,
+  landingPathFor,
+  exchangeCodeForIdToken,
+  isGoogleConfigured,
+  safeReturnTo,
+  verifyIdToken,
+} from './google-oauth.js';
+import { loginWithGoogleIdentity } from './google-identity.service.js';
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1).max(200) });
 const passwordSchema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(12).max(200) });
@@ -61,6 +72,81 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       // cookie หมดอายุ ถูกเพิกถอน หรือไม่ถูกต้อง: ล้างทิ้งแล้วถือว่ายังไม่ได้เข้าสู่ระบบ
       reply.clearCookie(cookieName, cookieOptions);
       return { success: true, data: { authenticated: false } };
+    }
+  });
+
+  /* ---------------- เข้าสู่ระบบด้วย Google ---------------- */
+
+  /**
+   * บอกหน้าเว็บว่าปุ่ม Google ควรแสดงหรือไม่
+   * ส่งออกเฉพาะข้อมูลสาธารณะ - ไม่มี client id หรือ secret อยู่ในคำตอบนี้
+   */
+  app.get('/auth/google/config', async () => ({
+    success: true,
+    data: { enabled: isGoogleConfigured() },
+  }));
+
+  /** เริ่มขั้นตอน - สร้าง state/nonce/PKCE แล้วพาไป Google */
+  app.get('/auth/google/start', async (request, reply) => {
+    const query = z.object({ returnTo: z.string().optional() }).parse(request.query);
+    const authorization = createAuthorizationRequest(query.returnTo);
+    return reply.redirect(authorization.url, 302);
+  });
+
+  /**
+   * ปลายทางที่ Google ส่งผู้ใช้กลับมา
+   *
+   * ทุกความล้มเหลวจบที่หน้าเข้าสู่ระบบพร้อมรหัสที่ปลอดภัย ไม่ส่ง payload ดิบของ Google ต่อ
+   * และไม่เปิดเผยว่าอีเมลนั้นมีอยู่ในระบบหรือไม่มากไปกว่าที่ผู้ใช้ควรรู้
+   */
+  app.get('/auth/google/callback', async (request, reply) => {
+    const query = z
+      .object({
+        code: z.string().optional(),
+        state: z.string().optional(),
+        error: z.string().optional(),
+      })
+      .parse(request.query);
+
+    const failure = (reason: string): void => {
+      void reply.redirect(`${env.S2_NAS_APP_ORIGIN}/login?google=${encodeURIComponent(reason)}`, 302);
+    };
+
+    // ผู้ใช้กดยกเลิกที่หน้า Google หรือ Google แจ้ง error กลับมา
+    if (query.error || !query.code) {
+      return failure('GOOGLE_AUTH_FAILED');
+    }
+
+    let pendingLogin;
+    try {
+      pendingLogin = consumeState(query.state);
+    } catch (error) {
+      return failure(error instanceof AppError ? error.code : 'GOOGLE_AUTH_FAILED');
+    }
+
+    try {
+      const idToken = await exchangeCodeForIdToken(query.code, pendingLogin.codeVerifier);
+      const identity = await verifyIdToken(idToken, pendingLogin.nonce);
+      const session = await loginWithGoogleIdentity(identity, {
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'],
+      });
+
+      // session เดียวกับการเข้าสู่ระบบด้วยรหัสผ่านทุกประการ
+      reply.setCookie(cookieName, session.refreshToken, {
+        ...cookieOptions,
+        maxAge: session.refreshMaxAgeSeconds,
+      });
+      /**
+       * ปลายทางหลังเข้าสู่ระบบขึ้นกับชนิดของบัญชี ไม่ใช่ค่าที่ติดมากับคำขอ
+       * ผู้ใช้ภายนอกไปที่พื้นที่เอกสารสำหรับลูกค้าเสมอ แม้จะมี returnTo ชี้ไปที่หน้าภายในก็ตาม
+       */
+      return reply.redirect(
+        `${env.S2_NAS_APP_ORIGIN}${landingPathFor(session.user, pendingLogin.returnTo)}`,
+        302,
+      );
+    } catch (error) {
+      return failure(error instanceof AppError ? error.code : 'GOOGLE_AUTH_FAILED');
     }
   });
 

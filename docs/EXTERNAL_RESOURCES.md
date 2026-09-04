@@ -2,6 +2,8 @@
 
 Phase F2 stores Google Sheet, Google Doc, Google Drive, and ordinary web links as normal `Resource` rows. The S2 NAS `Resource.id` remains the identity used by hierarchy, ownership, search, tags, favorites, pins, sharing, lock, activity, and trash.
 
+Since F8 they can be created in either drive. The destination follows the same server-side `driveScope` rules as any other resource, so one created from the System Drive stays there and displays `ไดร์ฟของระบบ / …`. `GOOGLE_DRIVE` remains a URL-backed record — it is not Google Drive OAuth or sync.
+
 ## URL-only model
 
 - `type` identifies `GOOGLE_SHEET`, `GOOGLE_DOC`, `GOOGLE_DRIVE`, or `WEB_LINK`.

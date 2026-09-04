@@ -6,8 +6,9 @@ import { DriveWorkspace } from '@/components/files/DriveWorkspace';
 import { PreviewModal } from '@/components/files/PreviewModal';
 import { EmptyState } from '@/components/ui/States';
 import { PageTitle } from '@/components/ui/PageTitle';
-import { workspaceApi } from '@/lib/api';
+import { workspaceApi, type SearchHitDto } from '@/lib/api';
 import { applyMarks, toDriveEntry, type DriveEntry } from '@/lib/drive';
+import { matchReasonLabel, splitSnippet } from '@/lib/search-content';
 import { useWorkspaceMarks } from '@/hooks/useWorkspaceMarks';
 import { useWorkspaceActions } from '@/hooks/useWorkspaceActions';
 import { useDriveUi } from '@/hooks/useDriveUi';
@@ -241,6 +242,8 @@ export default function SearchPage() {
             </p>
           ) : null}
 
+          <ContentMatches hits={results.data?.data.items ?? []} term={term} />
+
           <DriveWorkspace
             entries={entries}
             isLoading={results.isPending}
@@ -288,5 +291,51 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {label}
       <span className="mt-1 block">{children}</span>
     </label>
+  );
+}
+
+/**
+ * ผลลัพธ์ที่ตรงเพราะ "เนื้อในเอกสาร"
+ *
+ * แยกออกมาเป็นแถบของตัวเองเหนือตารางปกติ แทนที่จะยัดตัวอย่างข้อความลงในตาราง
+ * เพราะการค้นเจอจากเนื้อในต้องอธิบายตัวเอง ผู้ใช้ที่ค้นคำที่ไม่ปรากฏในชื่อไฟล์เลย
+ * ต้องเห็นทันทีว่าทำไมไฟล์นี้ถึงขึ้นมา มิฉะนั้นจะคิดว่าการค้นหาพัง
+ *
+ * ตัวอย่างข้อความถูกวาดเป็นชิ้น ๆ ผ่านการผูกค่าของ React
+ * ไม่มีการแทรก HTML จากเนื้อหาที่ผู้ใช้อัปโหลดเข้ามาที่ใดเลย
+ */
+function ContentMatches({ hits, term }: { hits: SearchHitDto[]; term: string }) {
+  const matches = hits.filter((hit) => hit.matchReason === 'CONTENT' && hit.contentSnippet);
+  if (matches.length === 0) return null;
+
+  return (
+    <section className="s2-surface overflow-hidden">
+      <p className="border-b border-line px-4 py-2 text-[11.5px] font-medium text-navy-600">
+        พบคำค้นในเนื้อหาเอกสาร ({matches.length})
+      </p>
+      <ul className="divide-y divide-line">
+        {matches.map((hit) => (
+          <li key={hit.id} className="px-4 py-2.5">
+            <p className="flex flex-wrap items-center gap-1.5">
+              <span className="truncate text-[12.5px] font-medium text-navy-800">{hit.name}</span>
+              <span className="rounded-md border border-line px-1.5 py-0.5 text-[10px] text-navy-500">
+                {matchReasonLabel(hit.matchReason)}
+              </span>
+            </p>
+            <p className="mt-1 rounded-lg bg-[var(--s2-surface-soft)] px-2 py-1 text-[11px] leading-relaxed text-navy-500">
+              {splitSnippet(hit.contentSnippet!, term).map((part, index) =>
+                part.highlight ? (
+                  <mark key={index} className="rounded bg-amber-100 px-0.5 text-navy-900">
+                    {part.text}
+                  </mark>
+                ) : (
+                  <span key={index}>{part.text}</span>
+                ),
+              )}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

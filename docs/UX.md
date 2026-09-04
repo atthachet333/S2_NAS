@@ -47,7 +47,8 @@ Sidebar ถาวร
 Header (แบรนด์ · ค้นหา · + ใหม่ · สถานะเซิร์ฟเวอร์ · แจ้งเตือน · ผู้ใช้)
 │
 ├── Top navigation
-│   ├── ไฟล์ของฉัน      /files, /files/:folderId   ← หน้าแรก
+│   ├── ไดร์ฟของฉัน     /files, /files/:folderId   ← หน้าแรก
+│   ├── ไดร์ฟของระบบ    /system-drive, /system-drive/:folderId
 │   ├── แชร์กับฉัน       /shared
 │   ├── ล่าสุด          /recent
 │   ├── รายการโปรด      /favorites

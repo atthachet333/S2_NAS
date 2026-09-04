@@ -1,10 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { authenticate } from '../auth/auth.guard.js';
+import { requireInternal } from '../auth/auth.guard.js';
 import { AppError, badRequest } from '../../core/errors.js';
 import { env } from '../../config/env.js';
 import { createStoredFileStream, statStoredFile } from '../../core/file-storage.js';
 import {
+  effectiveUploadBytes,
   getManagedStorageBytes,
   listVersions,
   logDownload,
@@ -111,7 +112,7 @@ export async function sendFile(
 
 export async function fileRoutes(app: FastifyInstance): Promise<void> {
   /* ---------------- อัปโหลดไฟล์ใหม่ ---------------- */
-  app.post('/resources/upload', { preHandler: authenticate }, async (request, reply) => {
+  app.post('/resources/upload', { preHandler: requireInternal }, async (request, reply) => {
     const part = await request.file();
     if (!part) throw badRequest('FILE_MISSING', 'ไม่พบไฟล์ที่อัปโหลด');
 
@@ -122,6 +123,8 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     };
 
     const parentId = readField('parentId') ?? null;
+    /** ไดร์ฟปลายทางมีผลเฉพาะการอัปโหลดที่ระดับราก ในโฟลเดอร์จะสืบทอดจากโฟลเดอร์แม่เสมอ */
+    const driveScope = readField('driveScope') === 'SYSTEM_DRIVE' ? ('SYSTEM_DRIVE' as const) : undefined;
     const onNameConflict = readField('onNameConflict') as NameConflictPolicy | undefined;
     const allowDuplicateContent = readField('allowDuplicateContent') === 'true';
 
@@ -130,6 +133,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       part.file,
       {
         parentId,
+        ...(driveScope ? { driveScope } : {}),
         fileName: part.filename,
         declaredMime: part.mimetype,
         remark: readField('remark') ?? null,
@@ -143,7 +147,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /* ---------------- อัปโหลดเวอร์ชันใหม่ ---------------- */
-  app.post('/resources/:id/versions', { preHandler: authenticate }, async (request, reply) => {
+  app.post('/resources/:id/versions', { preHandler: requireInternal }, async (request, reply) => {
     const part = await request.file();
     if (!part) throw badRequest('FILE_MISSING', 'ไม่พบไฟล์ที่อัปโหลด');
 
@@ -165,13 +169,13 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /* ---------------- ประวัติเวอร์ชัน ---------------- */
-  app.get('/resources/:id/versions', { preHandler: authenticate }, async (request) => ({
+  app.get('/resources/:id/versions', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await listVersions(idParams.parse(request.params).id, request.authUser!),
   }));
 
   /* ---------------- แสดงตัวอย่าง (inline) ---------------- */
-  app.get('/resources/:id/content', { preHandler: authenticate }, async (request, reply) => {
+  app.get('/resources/:id/content', { preHandler: requireInternal }, async (request, reply) => {
     const query = z.object({ version: z.coerce.number().int().positive().optional() }).parse(request.query);
     const content = await resolveContent(idParams.parse(request.params).id, request.authUser!, {
       ...(query.version === undefined ? {} : { versionNumber: query.version }),
@@ -180,7 +184,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /* ---------------- ดาวน์โหลด ---------------- */
-  app.get('/resources/:id/download', { preHandler: authenticate }, async (request, reply) => {
+  app.get('/resources/:id/download', { preHandler: requireInternal }, async (request, reply) => {
     const query = z.object({ version: z.coerce.number().int().positive().optional() }).parse(request.query);
     const content = await resolveContent(idParams.parse(request.params).id, request.authUser!, {
       requireDownload: true,
@@ -207,27 +211,27 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     return reply;
   };
 
-  app.get('/resources/:id/download-zip', { preHandler: authenticate }, async (request, reply) =>
+  app.get('/resources/:id/download-zip', { preHandler: requireInternal }, async (request, reply) =>
     sendZip(request, reply, [idParams.parse(request.params).id], true),
   );
 
-  app.post('/resources/download-zip', { preHandler: authenticate }, async (request, reply) => {
+  app.post('/resources/download-zip', { preHandler: requireInternal }, async (request, reply) => {
     const body = z.object({ resourceIds: z.array(z.string().min(1)).min(1).max(env.S2_NAS_ZIP_MAX_RESOURCES) }).parse(request.body);
     return sendZip(request, reply, body.resourceIds, false);
   });
 
   /* ---------------- ถังขยะ ---------------- */
-  app.get('/trash', { preHandler: authenticate }, async (request) => ({
+  app.get('/trash', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await listTrash(request.authUser!),
   }));
 
-  app.post('/resources/:id/trash', { preHandler: authenticate }, async (request) => ({
+  app.post('/resources/:id/trash', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await trashResource(idParams.parse(request.params).id, request.authUser!, audit(request)),
   }));
 
-  app.post('/resources/:id/restore', { preHandler: authenticate }, async (request) => {
+  app.post('/resources/:id/restore', { preHandler: requireInternal }, async (request) => {
     const body = z
       .object({ targetParentId: z.string().nullable().optional(), newName: z.string().min(1).optional() })
       .parse(request.body ?? {});
@@ -237,22 +241,23 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get('/resources/:id/permanent-delete-preview', { preHandler: authenticate }, async (request) => ({
+  app.get('/resources/:id/permanent-delete-preview', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await describePermanentDelete(idParams.parse(request.params).id, request.authUser!),
   }));
 
-  app.delete('/resources/:id/permanent', { preHandler: authenticate }, async (request) => ({
+  app.delete('/resources/:id/permanent', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await permanentlyDelete(idParams.parse(request.params).id, request.authUser!, audit(request)),
   }));
 
   /* ---------------- ข้อมูลพื้นที่ที่ S2 NAS ดูแล ---------------- */
-  app.get('/system/managed-storage', { preHandler: authenticate }, async () => ({
+  app.get('/system/managed-storage', { preHandler: requireInternal }, async () => ({
     success: true,
     data: {
       managedBytes: await getManagedStorageBytes(),
-      maxUploadBytes: env.MAX_UPLOAD_SIZE_BYTES,
+      // ค่าที่มีผลจริง ไม่ใช่ค่าตอน start server เพียงอย่างเดียว
+      maxUploadBytes: await effectiveUploadBytes(),
     },
   }));
 }

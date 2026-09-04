@@ -12,7 +12,10 @@ import { cn, formatBytes } from '@/lib/utils';
  * ไม่มีการเขียนทับไฟล์เดิมโดยไม่ถาม
  */
 export function UploadPanel() {
-  const { items, isPanelOpen, closePanel, retry, remove, cancel, resolveDecision, clearFinished } = useUploadQueue();
+  const {
+    items, isPanelOpen, closePanel, retry, remove, cancel, resolveDecision, clearFinished,
+    pauseAutoDismiss, resumeAutoDismiss,
+  } = useUploadQueue();
 
   if (!isPanelOpen || items.length === 0) return null;
 
@@ -23,7 +26,17 @@ export function UploadPanel() {
     <section
       role="region"
       aria-label="คิวการอัปโหลด"
-      className="fixed inset-x-0 bottom-0 z-[var(--z-dialog)] mx-auto w-full max-w-[440px] sm:inset-x-auto sm:right-5 sm:bottom-5"
+      /**
+       * ระหว่างที่ผู้ใช้ชี้หรือโฟกัสอยู่ในแผง ให้เลื่อนการเก็บกวาดออกไปก่อน
+       * แถวที่กำลังจะอ่านหรือกำลังจะกดต้องไม่หายไปใต้มือ
+       */
+      onMouseEnter={pauseAutoDismiss}
+      onMouseLeave={resumeAutoDismiss}
+      onFocusCapture={pauseAutoDismiss}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) resumeAutoDismiss();
+      }}
+      className="fixed inset-x-0 bottom-0 z-[var(--z-upload)] mx-auto w-full max-w-[440px] sm:inset-x-auto sm:right-5 sm:bottom-5"
     >
       <div className="s2-menu overflow-hidden rounded-t-2xl p-0 sm:rounded-2xl">
         <header className="flex items-center gap-2 border-b border-line px-4 py-3">
@@ -50,7 +63,7 @@ export function UploadPanel() {
 
         <ul className="max-h-[46vh] overflow-y-auto">
           {items.map((item) => (
-            <li key={item.id} className="border-b border-line px-4 py-3 last:border-0">
+            <li key={item.id} data-upload-id={item.id} className="border-b border-line px-4 py-3 last:border-0">
               <Row item={item} onRetry={retry} onRemove={remove} onCancel={cancel} onDecide={resolveDecision} />
             </li>
           ))}

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../core/prisma.js';
 import { notFound } from '../../core/errors.js';
 import { requirePermission } from '../auth/auth.guard.js';
+import { clientPortalSummary } from '../portal/portal.service.js';
 import { normalizeEmail } from '../../config/seed-users.js';
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from '../auth/password-policy.js';
 import {
@@ -11,6 +12,7 @@ import {
   listUsers,
   MAX_DISPLAY_NAME_LENGTH,
   resetTemporaryPassword,
+  setOrganizationName,
   setUserStatus,
   updateUserProfile,
   userSelect,
@@ -21,14 +23,40 @@ const displayNameSchema = z.string().trim().min(1).max(MAX_DISPLAY_NAME_LENGTH).
   { message: 'ชื่อที่แสดงมีอักขระควบคุมที่ไม่อนุญาต' },
 );
 
-const createSchema = z.object({
-  email: z.string().email(),
-  displayName: displayNameSchema,
-  roleCodes: z.array(z.string().min(1)).min(1),
-});
+/** ชื่อบริษัทของลูกค้า - ข้อความสำหรับมนุษย์ ไม่ใช่ขอบเขตสิทธิ์ */
+const organizationSchema = z.string().trim().min(1).max(191).refine(
+  (value) => !/\p{Cc}/u.test(value),
+  { message: 'ชื่อบริษัทมีอักขระควบคุมที่ไม่อนุญาต' },
+);
+
+/**
+ * การสร้างบัญชี
+ *
+ * บัญชีภายในต้องมีบทบาทอย่างน้อยหนึ่งอย่างเสมอ เพราะสิทธิ์ภายในมาจากบทบาท
+ * ส่วนบัญชีลูกค้าไม่ต้องมีบทบาทใดเลย และไม่ควรมีด้วย
+ * สิทธิ์ของลูกค้ามาจากการแชร์รายทรัพยากรเท่านั้น การให้บทบาทภายในกับลูกค้า
+ * ไม่ได้เพิ่มสิทธิ์ให้จริง (นโยบายภายนอกปิดไว้หมด) แต่ทำให้รายชื่อผู้ใช้อ่านแล้วเข้าใจผิด
+ */
+const createSchema = z
+  .object({
+    email: z.string().email(),
+    displayName: displayNameSchema,
+    type: z.enum(['INTERNAL', 'EXTERNAL']).default('INTERNAL'),
+    organizationName: organizationSchema.nullish(),
+    roleCodes: z.array(z.string().min(1)).default([]),
+  })
+  .superRefine((value, ctx) => {
+    if (value.type === 'INTERNAL' && value.roleCodes.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['roleCodes'], message: 'บัญชีภายในต้องมีบทบาทอย่างน้อยหนึ่งอย่าง' });
+    }
+    if (value.type === 'EXTERNAL' && value.roleCodes.length > 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['roleCodes'], message: 'บัญชีลูกค้าไม่รับบทบาทภายใน' });
+    }
+  });
 
 const updateSchema = z.object({
   displayName: displayNameSchema.optional(),
+  organizationName: organizationSchema.nullish(),
   status: z.enum(['INVITED', 'ACTIVE', 'SUSPENDED', 'DISABLED']).optional(),
   /** ยืนยันว่ารับทราบว่าผู้ใช้รายนี้ยังดูแลทรัพยากรอยู่ และยังยืนยันจะปิดการใช้งาน */
   acknowledgeHandover: z.boolean().optional(),
@@ -53,6 +81,7 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
         q: z.string().trim().max(191).optional(),
         status: z.enum(['INVITED', 'ACTIVE', 'SUSPENDED', 'DISABLED']).optional(),
         roleCode: z.string().min(1).max(64).optional(),
+        type: z.enum(['INTERNAL', 'EXTERNAL', 'SERVICE']).optional(),
         limit: z.coerce.number().int().min(1).max(100).default(50),
         cursor: z.string().min(1).optional(),
       })
@@ -68,13 +97,24 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
       data: {
         email: normalizeEmail(input.email),
         displayName: input.displayName,
+        type: input.type,
+        // ชื่อบริษัทเป็นของบัญชีลูกค้าเท่านั้น บุคลากรภายในสังกัดองค์กรนี้อยู่แล้ว
+        organizationName: input.type === 'EXTERNAL' ? input.organizationName ?? null : null,
+        /**
+         * บัญชีใหม่เริ่มที่ INVITED เสมอ ทั้งภายในและลูกค้า
+         * ต้องมีผู้ดูแลตั้งรหัสผ่านชั่วคราวก่อนจึงเข้าใช้งานได้ - ไม่มีการสมัครเองจากภายนอก
+         */
         status: 'INVITED',
         roles: { create: roles.map((role) => ({ roleId: role.id })) },
       },
       select: userSelect,
     });
     await prisma.activityLog.create({
-      data: { userId: request.authUser!.id, action: 'CREATE_USER', metadata: { targetUserId: user.id } },
+      data: {
+        userId: request.authUser!.id,
+        action: 'CREATE_USER',
+        metadata: { targetUserId: user.id, userType: input.type },
+      },
     });
     return reply.status(201).send({ success: true, data: user });
   });
@@ -87,6 +127,9 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
 
     if (input.displayName !== undefined) {
       await updateUserProfile(id, { displayName: input.displayName }, actor, audit(request));
+    }
+    if (input.organizationName !== undefined) {
+      await setOrganizationName(id, input.organizationName, actor, audit(request));
     }
     if (input.roleCodes) await changeUserRoles(id, input.roleCodes, actor, audit(request));
     if (input.status) {
@@ -156,6 +199,19 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
         audit(request),
       ),
     };
+  });
+
+  /**
+   * สรุปว่าลูกค้ารายนี้เข้าถึงเอกสารอะไรได้บ้าง
+   *
+   * อยู่ใต้ users เพราะเป็นมุมมองของ "ผู้ใช้คนหนึ่ง" ไม่ใช่ของพื้นที่ลูกค้า
+   * ด่านจึงเป็นสิทธิ์จัดการผู้ใช้ตามปกติ และเป็นเส้นทางภายในเต็มรูปแบบ
+   */
+  app.get('/users/:id/portal-access', { preHandler: requirePermission('users:manage') }, async (request) => {
+    const { id } = idParams.parse(request.params);
+    const user = await prisma.user.findUnique({ where: { id }, select: { id: true, type: true } });
+    if (!user) throw notFound('USER_NOT_FOUND', 'ไม่พบผู้ใช้');
+    return { success: true, data: await clientPortalSummary(user.id) };
   });
 
   app.get('/roles', { preHandler: requirePermission('roles:read') }, async () => ({

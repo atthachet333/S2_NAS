@@ -10,6 +10,13 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string;
+  /**
+   * ชนิดของบัญชี - INTERNAL | EXTERNAL | SERVICE
+   *
+   * อยู่ใน AuthUser เพราะเป็นข้อมูลที่ทุกด่านตรวจสิทธิ์ต้องใช้
+   * การต้องไปถามฐานข้อมูลซ้ำในแต่ละด่านจะเปิดช่องให้บางเส้นทางลืมถาม
+   */
+  type: string;
   status: string;
   mustChangePassword: boolean;
   roles: string[];
@@ -40,6 +47,7 @@ function toAuthUser(user: Awaited<ReturnType<typeof findAuthUser>>): AuthUser {
     id: user.id,
     email: user.email,
     displayName: user.displayName,
+    type: user.type,
     status: user.status,
     mustChangePassword: user.mustChangePassword,
     roles: user.roles.map((item) => item.role.code),
@@ -67,6 +75,21 @@ async function issueSession(userId: string, tokenVersion: number) {
   const expiresAt = new Date(Date.now() + refreshMaxAgeSeconds * 1000);
   await prisma.refreshToken.create({ data: { userId, tokenHash: hashToken(refreshToken), expiresAt } });
   return { accessToken: await issueAccessToken(userId, tokenVersion), refreshToken, refreshMaxAgeSeconds };
+}
+
+/**
+ * ออก session ให้ผู้ใช้ที่ยืนยันตัวตนแล้ว
+ *
+ * ใช้ร่วมกันระหว่างการเข้าสู่ระบบด้วยรหัสผ่านและด้วย Google
+ * เพื่อให้ cookie, การหมุน refresh token, การเพิกถอน และ bootstrap เป็นเส้นทางเดียวกันทั้งหมด
+ * ไม่มีระบบ session ที่สองสำหรับผู้ให้บริการภายนอก
+ */
+export async function issueSessionForUser(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, include: userInclude });
+  if (!user || user.status !== 'ACTIVE') throw unauthorized();
+  const session = await issueSession(user.id, user.tokenVersion);
+  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+  return { user: toAuthUser(user), ...session };
 }
 
 export async function login(email: string, password: string) {

@@ -1,6 +1,7 @@
 import type { DriveScope } from '@prisma/client';
 import { AppError } from '../../core/errors.js';
 import type { AuthUser } from '../auth/auth.service.js';
+import { isExternalUser } from '../portal/portal-policy.js';
 
 /**
  * นโยบายไดร์ฟของระบบ (ไดร์ฟกลางขององค์กร)
@@ -23,10 +24,12 @@ export const SYSTEM_DRIVE_CREATE_PERMISSION = 'system-drive:write';
 /**
  * ผู้ใช้ภายในที่ ACTIVE ทุกคนเห็นไดร์ฟของระบบได้
  *
- * บัญชีภายนอก/ลูกค้าในอนาคตต้องไม่ได้รับสิทธิ์นี้โดยอัตโนมัติ - ดู docs/SYSTEM_DRIVE.md
- * ปัจจุบันระบบยังไม่มีชนิดบัญชีภายนอก จึงยึดตาม UserType.HUMAN + สิทธิ์ resources:read
+ * บัญชีลูกค้า (UserType.EXTERNAL) ไม่ได้รับสิทธิ์นี้ไม่ว่าจะถือบทบาทใด - ดู docs/SYSTEM_DRIVE.md
+ * ลูกค้าเห็นได้เฉพาะโฟลเดอร์ในไดร์ฟของระบบที่ถูกแชร์ให้โดยตรง และเห็นผ่าน /portal เท่านั้น
+ * ไม่เคยเห็นตัวไดร์ฟหรือรายการระดับรากของมันเลย
  */
 export function canViewSystemDrive(user: AuthUser): boolean {
+  if (isExternalUser(user)) return false;
   return user.permissions.includes('resources:read');
 }
 

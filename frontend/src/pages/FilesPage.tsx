@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, FileArchive, Plus, Trash2, Upload, X } from 'lucide-react';
+import { Download, FileArchive, Trash2, Upload, X } from 'lucide-react';
 import { Breadcrumb } from '@/components/files/Breadcrumb';
 import { DriveWorkspace } from '@/components/files/DriveWorkspace';
 import { FileToolbar, type SortKey } from '@/components/files/FileToolbar';
 import { FolderHeader } from '@/components/files/FolderHeader';
 import { ResourceDialog, type ResourceDialogMode } from '@/components/files/ResourceDialog';
 import { WorkspaceOnboarding } from '@/components/files/WorkspaceOnboarding';
-import { fileApi, resourceApi } from '@/lib/api';
+import { ApiError, fileApi, resourceApi } from '@/lib/api';
 import { useDriveUi } from '@/hooks/useDriveUi';
 import { useToast } from '@/hooks/useToast';
 import { applyMarks, listDrive, toDriveEntry, type DriveEntry } from '@/lib/drive';
@@ -22,6 +22,11 @@ import { isPreviewable } from '@/lib/file-types';
 import { selectionDownloadMode } from '@/lib/interaction-policy';
 import { ExternalResourceDialog } from '@/components/files/ExternalResourceDialog';
 import { isExternalEntry, openExternalUrl, type ExternalResourceType } from '@/lib/external-resources';
+import { DRIVE_ROOT_PATH, driveRootLabel, type DriveRoot } from '@/lib/drive-labels';
+import { canCreateInSystemDrive } from '@/lib/system-drive';
+import { useAuth } from '@/hooks/useAuth';
+import { NewMenu } from '@/components/layout/NewMenu';
+import { describePlan, groupByDirectory, planFolderUpload } from '@/lib/folder-upload';
 
 const SORT_API: Record<SortKey, { sort: string; direction: 'asc' | 'desc' }> = {
   'name-asc': { sort: 'name', direction: 'asc' },
@@ -30,9 +35,23 @@ const SORT_API: Record<SortKey, { sort: string; direction: 'asc' | 'desc' }> = {
   'size-desc': { sort: 'size', direction: 'desc' },
 };
 
-export default function FilesPage() {
+/**
+ * หน้าไดร์ฟ ใช้ร่วมกันทั้ง "ไดร์ฟของฉัน" และ "ไดร์ฟของระบบ"
+ *
+ * สองไดร์ฟใช้โครงสร้างและการทำงานชุดเดียวกันทุกอย่าง ต่างกันแค่ขอบเขตข้อมูลและนโยบายการเขียน
+ * จึงไม่คัดลอกหน้าออกเป็นสองไฟล์ เพราะจะทำให้พฤติกรรมสองไดร์ฟค่อย ๆ เพี้ยนออกจากกัน
+ */
+export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: DriveRoot } = {}) {
   const { folderId } = useParams<{ folderId?: string }>();
   const parentId = folderId ?? null;
+  const { user } = useAuth();
+  const driveLabel = driveRootLabel(driveRoot);
+  const drivePath = DRIVE_ROOT_PATH[driveRoot];
+  /**
+   * ไดร์ฟของระบบเป็นไดร์ฟกลาง: อ่านได้ทั้งองค์กร แต่เพิ่มของเข้าไปได้เฉพาะผู้ที่ได้รับสิทธิ์
+   * ที่นี่ซ่อนปุ่มเพื่อไม่ให้ผู้ใช้กดแล้วเจอ error เฉย ๆ ส่วนด่านจริงอยู่ที่ backend
+   */
+  const canAddAtRoot = driveRoot === 'SYSTEM_DRIVE' ? canCreateInSystemDrive(user) : true;
   const [sort, setSort] = useState<SortKey>('name-asc');
   const [dialog, setDialog] = useState<{ mode: ResourceDialogMode; entry: DriveEntry | null; targetParentId?: string | null } | null>(null);
   const [externalDialog, setExternalDialog] = useState<{ type: ExternalResourceType; entry?: DriveEntry | null } | null>(null);
@@ -48,6 +67,7 @@ export default function FilesPage() {
   const [bulkTrashPending, setBulkTrashPending] = useState(false);
   const filePickerRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef<{ parentId: string | null; parentName: string } | null>(null);
+  const folderPickerRef = useRef<HTMLInputElement>(null);
   const versionPickerRef = useRef<HTMLInputElement>(null);
   const versionTargetRef = useRef<DriveEntry | null>(null);
   const navigate = useNavigate();
@@ -56,8 +76,8 @@ export default function FilesPage() {
   const apiSort = SORT_API[sort];
 
   const { data, isPending, isError, refetch } = useQuery({
-    queryKey: ['drive', 'files', parentId ?? 'root', sort],
-    queryFn: () => listDrive('files', folderId, apiSort.sort, apiSort.direction),
+    queryKey: ['drive', 'files', driveRoot, parentId ?? 'root', sort],
+    queryFn: () => listDrive('files', folderId, apiSort.sort, apiSort.direction, driveRoot),
   });
 
   const { data: currentFolder } = useQuery({
@@ -69,7 +89,7 @@ export default function FilesPage() {
   useEffect(() => {
     const open = () => setDialog({ mode: 'create', entry: null });
     const upload = () => {
-      uploadTargetRef.current = { parentId, parentName: currentFolder?.data.name ?? 'ไดร์ฟของฉัน' };
+      uploadTargetRef.current = { parentId, parentName: currentFolder?.data.name ?? driveLabel };
       filePickerRef.current?.click();
     };
     const createExternal = (event: Event) => {
@@ -78,13 +98,19 @@ export default function FilesPage() {
     };
     window.addEventListener('s2-create-folder', open);
     window.addEventListener('s2-upload-file', upload);
+    const uploadFolder = () => {
+      uploadTargetRef.current = { parentId, parentName: currentFolder?.data.name ?? driveLabel };
+      folderPickerRef.current?.click();
+    };
+    window.addEventListener('s2-upload-folder', uploadFolder);
     window.addEventListener('s2-create-external', createExternal);
     return () => {
+      window.removeEventListener('s2-upload-folder', uploadFolder);
       window.removeEventListener('s2-create-folder', open);
       window.removeEventListener('s2-upload-file', upload);
       window.removeEventListener('s2-create-external', createExternal);
     };
-  }, [parentId, currentFolder?.data.name]);
+  }, [parentId, currentFolder?.data.name, driveLabel]);
 
   const action = (name: string, entry: DriveEntry | null) => {
     // รายการโปรด ปักหมุด แท็ก หมายเหตุ สิทธิ์ ล็อก และประวัติ ใช้ตัวจัดการกลางร่วมกับหน้าอื่น
@@ -103,7 +129,7 @@ export default function FilesPage() {
       return;
     }
     if (name === 'open' && entry?.kind === 'folder') {
-      navigate(`/files/${entry.id}`);
+      navigate(`${drivePath}/${entry.id}`);
       return;
     }
     // เปิดไฟล์: ดูตัวอย่างถ้ารองรับ ถ้าไม่รองรับให้เปิดรายละเอียดแทน ไม่ดาวน์โหลดเองโดยไม่บอก
@@ -144,10 +170,17 @@ export default function FilesPage() {
       setDialog({ mode: 'create', entry: null, targetParentId: entry.id });
       return;
     }
+    if (name === 'upload-folder') {
+      uploadTargetRef.current = entry?.kind === 'folder'
+        ? { parentId: entry.id, parentName: entry.name }
+        : { parentId, parentName: folder?.name ?? driveLabel };
+      folderPickerRef.current?.click();
+      return;
+    }
     if (name === 'upload-here') {
       uploadTargetRef.current = entry?.kind === 'folder'
         ? { parentId: entry.id, parentName: entry.name }
-        : { parentId, parentName: folder?.name ?? 'ไดร์ฟของฉัน' };
+        : { parentId, parentName: folder?.name ?? driveLabel };
       filePickerRef.current?.click();
       return;
     }
@@ -168,9 +201,103 @@ export default function FilesPage() {
   const folder = currentFolder?.data;
   const folderEntry = folder ? toDriveEntry(folder) : null;
   const entries = applyMarks(data?.entries ?? [], favoriteIds, pinnedIds);
+  const breadcrumbSegments = (data?.breadcrumb ?? []).map((node) => node.name);
   const selectedEntries = entries.filter((entry) => selectedIds.has(entry.id));
   const selectedDownloadMode = selectionDownloadMode(selectedEntries);
-  const canCreateHere = folder ? folder.capabilities.canEdit : true;
+  const canCreateHere = folder ? folder.capabilities.canEdit : canAddAtRoot;
+
+  /**
+   * ทางเข้าเดียวของการเลือกไฟล์และโฟลเดอร์
+   * ตั้งปลายทางไว้ก่อนเปิดตัวเลือกเสมอ เพื่อไม่ให้ไฟล์ไปโผล่ผิดไดร์ฟ
+   */
+  const openFilePicker = (target?: { parentId: string | null; parentName: string }) => {
+    uploadTargetRef.current = target ?? { parentId, parentName: folder?.name ?? driveLabel };
+    filePickerRef.current?.click();
+  };
+  const openFolderPicker = (target?: { parentId: string | null; parentName: string }) => {
+    uploadTargetRef.current = target ?? { parentId, parentName: folder?.name ?? driveLabel };
+    folderPickerRef.current?.click();
+  };
+
+  /**
+   * อัปโหลดทั้งโฟลเดอร์
+   *
+   * สร้างโครงสร้างโฟลเดอร์ที่ปลายทางก่อน แล้วจึงส่งไฟล์เข้าคิวอัปโหลดเดิมทั้งหมด
+   * ไม่มีตัวอัปโหลดชุดที่สอง - ความคืบหน้า checksum ไฟล์ซ้ำ ชื่อซ้ำ และเวอร์ชัน
+   * ยังเดินผ่านเส้นทางเดียวกับการอัปโหลดไฟล์ปกติ
+   *
+   * โฟลเดอร์ที่มีอยู่แล้วถูกนำมาใช้ซ้ำ ไม่สร้างซ้อน เพราะการอัปโหลดโฟลเดอร์เดิมอีกครั้ง
+   * ควรเติมไฟล์เข้าไปในที่เดิม ไม่ใช่สร้าง "ชื่อ (2)" ขึ้นมาใหม่ทั้งต้นไม้
+   */
+  const uploadFolderTree = async (
+    files: File[],
+    target: { parentId: string | null; parentName: string },
+  ): Promise<void> => {
+    const plan = planFolderUpload(files);
+
+    if (plan.rejected.length > 0) {
+      notify({
+        tone: plan.files.length > 0 ? 'info' : 'error',
+        title: plan.files.length > 0 ? 'ข้ามบางรายการที่ชื่อไม่ถูกต้อง' : 'อัปโหลดโฟลเดอร์ไม่ได้',
+        description: plan.rejected[0]?.reason,
+      });
+    }
+    if (plan.files.length === 0) return;
+
+    // เส้นทางสัมพัทธ์ -> id ของโฟลเดอร์ปลายทาง เริ่มจากรากที่ผู้ใช้เลือกไว้
+    const folderIds = new Map<string, string | null>([['', target.parentId]]);
+
+    try {
+      for (const branch of plan.directories) {
+        const parentKey = branch.slice(0, -1).join('/');
+        const name = branch.at(-1)!;
+        const parentOfBranch = folderIds.get(parentKey) ?? target.parentId;
+
+        try {
+          const created = await resourceApi.createFolder({
+            name,
+            parentId: parentOfBranch,
+            ...(parentOfBranch ? {} : { driveScope: driveRoot }),
+          });
+          folderIds.set(branch.join('/'), created.data.id);
+        } catch (error) {
+          // ชื่อซ้ำแปลว่าโฟลเดอร์นั้นมีอยู่แล้ว ใช้ของเดิมต่อ
+          if (!(error instanceof ApiError) || error.code !== 'FOLDER_NAME_EXISTS') throw error;
+          const params = new URLSearchParams({ type: 'FOLDER', sort: 'name', direction: 'asc', limit: '100' });
+          if (parentOfBranch) params.set('parentId', parentOfBranch);
+          else params.set('driveScope', driveRoot);
+          const siblings = await resourceApi.list(params);
+          const existing = siblings.data.items.find((item) => item.name === name);
+          if (!existing) throw error;
+          folderIds.set(branch.join('/'), existing.id);
+        }
+      }
+    } catch (error) {
+      notify({
+        tone: 'error',
+        title: error instanceof ApiError ? error.message : 'สร้างโครงสร้างโฟลเดอร์ไม่สำเร็จ',
+      });
+      return;
+    }
+
+    for (const [key, group] of groupByDirectory(plan.files)) {
+      const destinationId = folderIds.get(key) ?? target.parentId;
+      const destinationName = key === '' ? target.parentName : key.split('/').at(-1)!;
+      enqueue(group, { parentId: destinationId, parentName: destinationName });
+    }
+
+    notify({ tone: 'success', title: 'เริ่มอัปโหลดโฟลเดอร์แล้ว', description: describePlan(plan) });
+    void queryClient.invalidateQueries({ queryKey: ['drive'] });
+  };
+
+  const newMenu = (
+    <NewMenu
+      onCreateFolder={() => setDialog({ mode: 'create', entry: null })}
+      onCreateExternal={(type) => setExternalDialog({ type })}
+      onUploadFile={() => openFilePicker()}
+      onUploadFolder={() => openFolderPicker()}
+    />
+  );
 
   const focusId = searchParams.get('focus');
   useEffect(() => {
@@ -200,9 +327,10 @@ export default function FilesPage() {
       {/* ---------- โซนหัวเรื่อง ---------- */}
       {folder && folderEntry ? (
         <div className="space-y-3">
-          <Breadcrumb root="ไดร์ฟของฉัน" nodes={data?.breadcrumb ?? []} />
+          <Breadcrumb root={driveLabel} rootTo={drivePath} nodes={data?.breadcrumb ?? []} />
           <FolderHeader
             folder={folder}
+            newMenu={newMenu}
             onCreateFolder={() => setDialog({ mode: 'create', entry: null })}
             onRename={() => setDialog({ mode: 'rename', entry: folderEntry })}
             onMove={() => setDialog({ mode: 'move', entry: folderEntry })}
@@ -216,29 +344,24 @@ export default function FilesPage() {
       ) : (
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
-            <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-navy-900">ไดร์ฟของฉัน</h1>
+            <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-navy-900">{driveLabel}</h1>
             <p className="mt-1 text-[13px] text-navy-400">
-              พื้นที่จัดเก็บและทรัพยากรส่วนกลางขององค์กร
+              {driveRoot === 'SYSTEM_DRIVE'
+                ? 'ไดร์ฟกลางขององค์กร ทุกคนเปิดดูและดาวน์โหลดได้ แต่เพิ่มหรือแก้ไขได้เฉพาะผู้ที่ได้รับสิทธิ์'
+                : 'พื้นที่ทำงานและความรับผิดชอบของคุณ ข้อมูลยังเป็นกรรมสิทธิ์ขององค์กร'}
             </p>
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="s2-btn s2-btn-primary"
-              onClick={() => setDialog({ mode: 'create', entry: null })}
-            >
-              <Plus className="h-4 w-4" aria-hidden />
-              ใหม่
-            </button>
-            <button type="button" className="s2-btn s2-btn-outline" onClick={() => {
-              uploadTargetRef.current = { parentId, parentName: folder?.name ?? 'ไดร์ฟของฉัน' };
-              filePickerRef.current?.click();
-            }}>
-              <Upload className="h-4 w-4" aria-hidden />
-              อัปโหลด
-            </button>
-          </div>
+          {canAddAtRoot ? (
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {/* + ใหม่ เปิดเมนูทุกชนิด ไม่พาไปสร้างโฟลเดอร์ทันที */}
+              {newMenu}
+              <button type="button" className="s2-btn s2-btn-outline" onClick={() => openFilePicker()}>
+                <Upload className="h-4 w-4" aria-hidden />
+                อัปโหลด
+              </button>
+            </div>
+          ) : null}
         </header>
       )}
 
@@ -310,16 +433,24 @@ export default function FilesPage() {
             isError={isError}
             onRetry={() => void refetch()}
             onResourceAction={action}
-            uploadTarget={{ parentId, parentName: folder?.name ?? 'ไดร์ฟของฉัน' }}
+            uploadTarget={{ parentId, parentName: folder?.name ?? driveLabel }}
+            allowUpload={canCreateHere}
+            driveLabel={driveLabel}
+            destinationSegments={breadcrumbSegments}
             selectedIds={selectedIds}
             onToggleSelection={(entry) => setSelectedIds((current) => {
               const next = new Set(current);
               if (next.has(entry.id)) next.delete(entry.id); else next.add(entry.id);
               return next;
             })}
+            onToggleSelectAll={(shouldSelectAll) =>
+              setSelectedIds(shouldSelectAll ? new Set(entries.map((entry) => entry.id)) : new Set())
+            }
             emptyState={
               <WorkspaceOnboarding
                 canCreate={canCreateHere}
+                driveRoot={driveRoot}
+                newMenu={canCreateHere ? newMenu : undefined}
                 onCreateFolder={() => setDialog({ mode: 'create', entry: null })}
               />
             }
@@ -337,10 +468,30 @@ export default function FilesPage() {
         tabIndex={-1}
         onChange={(event) => {
           const files = Array.from(event.target.files ?? []);
-          const target = uploadTargetRef.current ?? { parentId, parentName: folder?.name ?? 'ไดร์ฟของฉัน' };
+          const target = uploadTargetRef.current ?? { parentId, parentName: folder?.name ?? driveLabel };
           if (files.length > 0) enqueue(files, target);
           uploadTargetRef.current = null;
           event.target.value = '';
+        }}
+      />
+      {/*
+        ตัวเลือกโฟลเดอร์: เบราว์เซอร์ส่ง webkitRelativePath มากับทุกไฟล์
+        โครงสร้างถูกสร้างขึ้นใหม่ที่ปลายทางก่อน แล้วจึงส่งไฟล์เข้าคิวอัปโหลดเดิม
+      */}
+      <input
+        ref={folderPickerRef}
+        type="file"
+        multiple
+        className="hidden"
+        aria-hidden
+        tabIndex={-1}
+        {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          const target = uploadTargetRef.current ?? { parentId, parentName: folder?.name ?? driveLabel };
+          uploadTargetRef.current = null;
+          event.target.value = '';
+          if (files.length > 0) void uploadFolderTree(files, target);
         }}
       />
       <input
@@ -379,6 +530,7 @@ export default function FilesPage() {
           mode={dialog.mode}
           entry={dialog.entry}
           parentId={dialog.targetParentId !== undefined ? dialog.targetParentId : parentId}
+          driveRoot={driveRoot}
           onClose={() => setDialog(null)}
           onSuccess={success}
         />
@@ -389,7 +541,8 @@ export default function FilesPage() {
           type={externalDialog.type}
           entry={externalDialog.entry}
           parentId={parentId}
-          destinationName={folder?.name ?? 'ไดร์ฟของฉัน'}
+          driveRoot={driveRoot}
+          destinationName={folder?.name ?? driveLabel}
           onClose={() => setExternalDialog(null)}
           onSuccess={(message) => { setExternalDialog(null); success(message); }}
         />

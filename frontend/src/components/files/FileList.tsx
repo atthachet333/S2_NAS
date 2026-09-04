@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Lock, MoreVertical } from 'lucide-react';
 import type { DriveEntry } from '@/lib/drive';
 import { FileTypeIcon } from './FileTypeIcon';
@@ -6,23 +7,56 @@ import { cn, formatBytes, formatDateTime, formatRelativeTime } from '@/lib/utils
 import { ResourceSourceBadge, sourceLabel } from './ResourceSourceBadge';
 import { OwnerChip } from './OwnerIdentity';
 import { externalResourceLabel, isExternalEntry } from '@/lib/external-resources';
+import { STANDARD_COLUMN_LABEL, destinationLabel, selectAllState, uploaderLabel } from '@/lib/resource-table';
 
 export interface ListColumn {
-  key: 'owner' | 'source' | 'modified' | 'size' | 'type' | 'sharedBy' | 'permission' | 'sharedAt' | 'deletedBy' | 'deletedAt';
+  key:
+    | 'owner'
+    | 'uploader'
+    | 'responsible'
+    | 'destination'
+    | 'uploadedAt'
+    | 'source'
+    | 'modified'
+    | 'size'
+    | 'type'
+    | 'sharedBy'
+    | 'permission'
+    | 'sharedAt'
+    | 'deletedBy'
+    | 'deletedAt';
   label: string;
 }
 
+/**
+ * ตารางทรัพยากรมาตรฐานของ S2 NAS
+ *
+ * ลำดับคอลัมน์อ่านจากซ้ายไปขวาตามคำถามที่ผู้ใช้ถามจริง:
+ * นี่คือไฟล์อะไร ใครเอาเข้ามา ใครดูแล มาจากไหน อยู่ที่ไหน เข้ามาเมื่อไร แก้ล่าสุดเมื่อไร ใหญ่แค่ไหน
+ */
 const DEFAULT_COLUMNS: ListColumn[] = [
-  { key: 'owner', label: 'เจ้าของ' },
-  { key: 'source', label: 'ต้นทาง' },
-  { key: 'modified', label: 'แก้ไขล่าสุด' },
-  { key: 'size', label: 'ขนาด' },
+  { key: 'uploader', label: STANDARD_COLUMN_LABEL.uploader },
+  { key: 'responsible', label: STANDARD_COLUMN_LABEL.responsible },
+  { key: 'source', label: STANDARD_COLUMN_LABEL.source },
+  { key: 'destination', label: STANDARD_COLUMN_LABEL.destination },
+  { key: 'uploadedAt', label: STANDARD_COLUMN_LABEL.uploadedAt },
+  { key: 'modified', label: STANDARD_COLUMN_LABEL.modified },
+  { key: 'size', label: STANDARD_COLUMN_LABEL.size },
 ];
 
-function cellValue(entry: DriveEntry, key: ListColumn['key']): string {
+export { DEFAULT_COLUMNS as STANDARD_COLUMNS };
+
+function cellValue(entry: DriveEntry, key: ListColumn['key'], destinationSegments: string[]): string {
   switch (key) {
     case 'owner':
+    case 'responsible':
       return entry.ownerName;
+    case 'uploader':
+      return uploaderLabel(entry);
+    case 'destination':
+      return destinationLabel(entry, destinationSegments);
+    case 'uploadedAt':
+      return formatDateTime(entry.createdAt);
     case 'modified':
       return formatRelativeTime(entry.modifiedAt);
     case 'source':
@@ -57,6 +91,8 @@ export function FileList({
   onKeyboardContextMenu,
   selectedIds = new Set<string>(),
   onToggleSelection,
+  onToggleSelectAll,
+  destinationSegments = [],
 }: {
   entries: DriveEntry[];
   columns?: ListColumn[];
@@ -67,15 +103,49 @@ export function FileList({
   onKeyboardContextMenu: (entry: DriveEntry, anchor: HTMLElement) => void;
   selectedIds?: Set<string>;
   onToggleSelection?: (entry: DriveEntry) => void;
+  /** เลือกทั้งหมด = เฉพาะรายการที่โหลดมาแล้วบนหน้านี้เท่านั้น ไม่เผลอเลือกหน้าที่ยังไม่เห็น */
+  onToggleSelectAll?: (shouldSelectAll: boolean) => void;
+  /** ส่วนของเส้นทางเชิงตรรกะใต้ไดร์ฟ ใช้ประกอบคอลัมน์ "ปลายทาง" */
+  destinationSegments?: string[];
 }) {
+  /**
+   * สถานะของช่อง "เลือกทั้งหมด" มีสามแบบ: ยังไม่เลือก เลือกครบ และเลือกบางส่วน
+   * indeterminate ตั้งผ่าน DOM ได้ทางเดียว React ไม่มี prop ให้
+   */
+  const headerState = selectAllState(entries.map((entry) => entry.id), selectedIds);
+  const allSelected = headerState === 'checked';
+  const someSelected = headerState === 'indeterminate';
+  const selectAllRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected;
+  }, [someSelected]);
+
   return (
     <div className="overflow-x-auto rounded-2xl border border-[var(--s2-card-border)] bg-[var(--s2-layer-card)]">
-      <table className="w-full min-w-[640px] border-collapse text-left">
+      <table className="w-full min-w-[1040px] border-collapse text-left">
         <thead>
           <tr className="border-b border-line text-[11px] uppercase tracking-wide text-navy-400">
-            {onToggleSelection ? <th scope="col" className="w-10 px-3 py-2.5"><span className="sr-only">เลือก</span></th> : null}
+            {onToggleSelection ? (
+              <th scope="col" className="w-10 px-3 py-2.5">
+                {onToggleSelectAll ? (
+                  <input
+                    ref={selectAllRef}
+                    type="checkbox"
+                    checked={allSelected}
+                    disabled={entries.length === 0}
+                    onChange={() => onToggleSelectAll(!allSelected)}
+                    onClick={(event) => event.stopPropagation()}
+                    aria-label={`เลือกทุกรายการที่แสดงอยู่ (${entries.length} รายการ)`}
+                    className="h-4 w-4 accent-[var(--s2-primary)]"
+                  />
+                ) : (
+                  <span className="sr-only">เลือก</span>
+                )}
+              </th>
+            ) : null}
             <th scope="col" className="px-4 py-2.5 font-medium">
-              ชื่อ
+              ชื่อไฟล์
             </th>
             {columns.map((column) => (
               <th key={column.key} scope="col" className="px-4 py-2.5 font-medium">
@@ -134,10 +204,10 @@ export function FileList({
                 <td key={column.key} className="whitespace-nowrap px-4 py-3 text-[12px] text-navy-500">
                   {column.key === 'source' ? (
                     <span className="flex items-center gap-1"><ResourceSourceBadge source={entry.source} />{isExternalEntry(entry) ? <span className="rounded-md border border-line px-1.5 py-0.5 text-[10px] text-navy-500">{externalResourceLabel(entry.resourceType)}</span> : null}</span>
-                  ) : column.key === 'owner' ? (
+                  ) : column.key === 'owner' || column.key === 'responsible' ? (
                     <OwnerChip owner={{ displayName: entry.ownerName, email: entry.ownerEmail }} />
                   ) : (
-                    cellValue(entry, column.key)
+                    cellValue(entry, column.key, destinationSegments)
                   )}
                 </td>
               ))}

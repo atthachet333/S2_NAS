@@ -1,6 +1,7 @@
 import {
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -11,6 +12,7 @@ import { uploadFile, uploadNewVersion, UploadError } from '@/lib/upload';
 import { uploadErrorText } from '@/lib/error-text';
 import { useToast } from './useToast';
 import { UploadQueueContext, type UploadItem, type UploadQueueValue } from './uploadQueueContext';
+import { UPLOAD_SWEEP_INTERVAL_MS, sweepUploadQueue } from '@/lib/upload-queue-policy';
 
 export type { UploadItem, UploadState } from './uploadQueueContext';
 
@@ -20,6 +22,8 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [isPanelOpen, setPanelOpen] = useState(false);
   const controllers = useRef(new Map<string, AbortController>());
+  /** ผู้ใช้กำลังชี้/โฟกัสอยู่ในแผง - เลื่อนการเก็บกวาดออกไปก่อน */
+  const interacting = useRef(false);
   const queryClient = useQueryClient();
   const { notify } = useToast();
 
@@ -62,7 +66,7 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
           await uploadFile(options);
         }
 
-        patch(item.id, { state: 'SUCCESS', progress: 100 });
+        patch(item.id, { state: 'SUCCESS', progress: 100, succeededAt: Date.now() });
         refreshViews();
       } catch (error) {
         if (!(error instanceof UploadError)) {
@@ -108,6 +112,35 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
     },
     [patch, refreshViews],
   );
+
+  /**
+   * เก็บกวาดแถวที่อัปโหลดสำเร็จและหมดอายุแล้ว
+   *
+   * ใช้ตัวจับเวลาตัวเดียวกวาดทั้งคิว ไม่ใช่ตัวจับเวลาต่อแถว
+   * จึงเป็นไปไม่ได้ที่แถวหนึ่งจะมีตัวจับเวลาซ้อนกันหลายตัว แม้จะ re-render กี่ครั้งก็ตาม
+   * อายุยังคงเป็นของแต่ละแถวเอง เพราะคำนวณจาก succeededAt ของแถวนั้น
+   */
+  useEffect(() => {
+    const sweep = () => {
+      // ระหว่างที่ผู้ใช้กำลังใช้งานแผงอยู่ ให้เลื่อนออกไปก่อน ไม่ลบของหายไปใต้มือ
+      if (interacting.current) return;
+
+      setItems((current) => {
+        const focusedId =
+          typeof document === 'undefined'
+            ? null
+            : (document.activeElement?.closest('[data-upload-id]') as HTMLElement | null)?.dataset.uploadId ?? null;
+
+        const { remaining, dismissed, shouldClosePanel } = sweepUploadQueue(current, Date.now(), focusedId);
+        if (dismissed.length === 0) return current;
+        if (shouldClosePanel) setPanelOpen(false);
+        return remaining;
+      });
+    };
+
+    const timer = setInterval(sweep, UPLOAD_SWEEP_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   /** อัปโหลดทีละไฟล์ตามลำดับ เพื่อให้ความคืบหน้าอ่านง่ายและไม่ถล่มเซิร์ฟเวอร์ */
   const drain = useCallback(
@@ -213,6 +246,8 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
           current.filter((item) => item.state === 'UPLOADING' || item.state === 'QUEUED' || item.state === 'NEEDS_DECISION'),
         );
       },
+      pauseAutoDismiss: () => { interacting.current = true; },
+      resumeAutoDismiss: () => { interacting.current = false; },
       openPanel: () => setPanelOpen(true),
       closePanel: () => setPanelOpen(false),
     }),

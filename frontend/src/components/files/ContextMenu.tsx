@@ -161,7 +161,7 @@ export function ContextMenu({
           <MenuItem icon={<FolderPlus className="h-4 w-4" />} label="สร้างโฟลเดอร์" onSelect={run('create-folder')} />
           <MenuSeparator />
           <MenuItem icon={<Upload className="h-4 w-4" />} label="อัปโหลดไฟล์" onSelect={run('upload-here')} />
-          <MenuItem icon={<FolderUp className="h-4 w-4" />} label="อัปโหลดโฟลเดอร์" shortcut="เร็ว ๆ นี้" disabled />
+          <MenuItem icon={<FolderUp className="h-4 w-4" />} label="อัปโหลดโฟลเดอร์" onSelect={run('upload-folder')} />
           <MenuSeparator />
           <MenuItem icon={<Sheet className="h-4 w-4" />} label="เพิ่ม Google Sheet" onSelect={run('create-google-sheet')} />
           <MenuItem icon={<FileText className="h-4 w-4" />} label="เพิ่ม Google Doc" onSelect={run('create-google-doc')} />

@@ -1,11 +1,11 @@
 import { ZipArchive } from 'archiver';
 import type { Prisma } from '@prisma/client';
-import { env } from '../../config/env.js';
 import { AppError, badRequest, notFound } from '../../core/errors.js';
 import { createStoredFileStream, statStoredFile } from '../../core/file-storage.js';
 import { prisma } from '../../core/prisma.js';
 import type { AuthUser } from '../auth/auth.service.js';
 import { capabilities, resourceInclude, validateResourceName } from '../resources/resource.service.js';
+import { getSetting } from '../system/settings.service.js';
 import type { AuditContext } from './file.service.js';
 
 const include = resourceInclude;
@@ -39,10 +39,20 @@ function assertZipAccess(resource: ZipResource, user: AuthUser): void {
   }
 }
 
-export function assertZipLimits(
-  entries: ZipPlanEntry[],
-  limits = { maxResources: env.S2_NAS_ZIP_MAX_RESOURCES, maxBytes: env.S2_NAS_ZIP_MAX_BYTES },
-): number {
+export interface ZipLimits {
+  maxResources: number;
+  maxBytes: number;
+}
+
+export async function effectiveZipLimits(): Promise<ZipLimits> {
+  const [maxResources, maxBytes] = await Promise.all([
+    getSetting('ZIP_MAX_RESOURCES'),
+    getSetting('ZIP_MAX_BYTES'),
+  ]);
+  return { maxResources, maxBytes };
+}
+
+export function assertZipLimits(entries: ZipPlanEntry[], limits: ZipLimits): number {
   if (entries.length > limits.maxResources) {
     throw new AppError('ZIP_TOO_LARGE', 'รายการที่เลือกมีขนาดใหญ่เกินกว่าจะดาวน์โหลดเป็น ZIP ได้', 413);
   }
@@ -86,6 +96,7 @@ async function appendTree(
   root: ZipResource,
   archivePath: string,
   user: AuthUser,
+  limits: ZipLimits,
   entries: ZipPlanEntry[],
   seenIds: Set<string>,
 ): Promise<void> {
@@ -98,13 +109,13 @@ async function appendTree(
     const size = Number(root.size);
     if (!Number.isSafeInteger(size) || size < 0) throw new AppError('FILE_METADATA_INVALID', 'ข้อมูลขนาดไฟล์ไม่ถูกต้อง', 500);
     entries.push({ resourceId: root.id, archivePath, storageKey: root.storageKey, size, directory: false });
-    assertZipLimits(entries);
+    assertZipLimits(entries, limits);
     return;
   }
 
   if (root.type !== 'FOLDER') throw badRequest('ZIP_UNSUPPORTED_RESOURCE', 'ZIP รองรับเฉพาะไฟล์และโฟลเดอร์');
   entries.push({ resourceId: root.id, archivePath: `${archivePath}/`, storageKey: null, size: 0, directory: true });
-  assertZipLimits(entries);
+  assertZipLimits(entries, limits);
 
   const children = await prisma.resource.findMany({
     where: { parentId: root.id, deletedAt: null },
@@ -112,14 +123,15 @@ async function appendTree(
     orderBy: { normalizedName: 'asc' },
   });
   for (const child of children) {
-    await appendTree(child, `${archivePath}/${safeArchiveSegment(child.name)}`, user, entries, seenIds);
+    await appendTree(child, `${archivePath}/${safeArchiveSegment(child.name)}`, user, limits, entries, seenIds);
   }
 }
 
 export async function createZipPlan(resourceIds: string[], user: AuthUser, folderOnly = false): Promise<ZipPlan> {
   const uniqueIds = [...new Set(resourceIds)];
   if (uniqueIds.length === 0) throw badRequest('RESOURCE_IDS_REQUIRED', 'กรุณาเลือกรายการอย่างน้อยหนึ่งรายการ');
-  if (uniqueIds.length > env.S2_NAS_ZIP_MAX_RESOURCES) {
+  const limits = await effectiveZipLimits();
+  if (uniqueIds.length > limits.maxResources) {
     throw new AppError('ZIP_TOO_LARGE', 'รายการที่เลือกมีขนาดใหญ่เกินกว่าจะดาวน์โหลดเป็น ZIP ได้', 413);
   }
 
@@ -132,10 +144,10 @@ export async function createZipPlan(resourceIds: string[], user: AuthUser, folde
   const entries: ZipPlanEntry[] = [];
   const seenIds = new Set<string>();
   for (const root of deduped) {
-    await appendTree(root, safeArchiveSegment(root.name), user, entries, seenIds);
+    await appendTree(root, safeArchiveSegment(root.name), user, limits, entries, seenIds);
   }
 
-  const totalBytes = assertZipLimits(entries);
+  const totalBytes = assertZipLimits(entries, limits);
   const fileName = folderOnly
     ? `${safeArchiveSegment(deduped[0]!.name)}.zip`
     : `S2-NAS-Download-${new Date().toISOString().slice(0, 10)}.zip`;

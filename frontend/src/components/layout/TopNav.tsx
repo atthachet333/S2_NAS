@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
-import { Clock, HardDrive, LayoutDashboard, Share2, Star, Trash2, type LucideIcon } from 'lucide-react';
+import { Clock, HardDrive, LayoutDashboard, Server, Share2, Star, Trash2, type LucideIcon } from 'lucide-react';
+import { MY_DRIVE_LABEL, SYSTEM_DRIVE_LABEL } from '@/lib/drive-labels';
 import { cn } from '@/lib/utils';
 
 interface NavTab {
@@ -10,7 +11,8 @@ interface NavTab {
 
 const TABS: NavTab[] = [
   { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard },
-  { label: 'ไดร์ฟของฉัน', to: '/files', icon: HardDrive },
+  { label: MY_DRIVE_LABEL, to: '/files', icon: HardDrive },
+  { label: SYSTEM_DRIVE_LABEL, to: '/system-drive', icon: Server },
   { label: 'แชร์กับฉัน', to: '/shared', icon: Share2 },
   { label: 'ล่าสุด', to: '/recent', icon: Clock },
   { label: 'รายการโปรด', to: '/favorites', icon: Star },

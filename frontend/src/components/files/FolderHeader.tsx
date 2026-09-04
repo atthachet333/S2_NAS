@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { FolderOpen, Info, Lock, PenLine, Plus, UserRoundCog, FolderInput } from 'lucide-react';
 import type { ResourceDto } from '@/lib/api';
 import { OwnerAvatar, ownerLabel } from './OwnerIdentity';
@@ -14,6 +15,7 @@ import { formatDateTime, formatRelativeTime } from '@/lib/utils';
 export function FolderHeader({
   folder,
   onCreateFolder,
+  newMenu,
   onRename,
   onMove,
   onTransferOwner,
@@ -21,6 +23,8 @@ export function FolderHeader({
 }: {
   folder: ResourceDto;
   onCreateFolder: () => void;
+  /** เมนูสร้างทรัพยากรที่รู้ปลายทางไดร์ฟ - ส่งเข้ามาจากหน้าที่ใช้งาน */
+  newMenu?: ReactNode;
   onRename: () => void;
   onMove: () => void;
   onTransferOwner: () => void;
@@ -71,12 +75,13 @@ export function FolderHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-        {capabilities.canEdit ? (
-          <button type="button" className="s2-btn s2-btn-primary" onClick={onCreateFolder}>
+        {/* เมนูสร้างทรัพยากรถูกส่งเข้ามาจากหน้าที่รู้ว่าอยู่ไดร์ฟไหน ที่นี่ไม่ตัดสินปลายทางเอง */}
+        {capabilities.canEdit ? (newMenu ?? (
+          <button type="button" className="s2-btn s2-btn-outline" onClick={onCreateFolder}>
             <Plus className="h-4 w-4" aria-hidden />
             ใหม่
           </button>
-        ) : null}
+        )) : null}
         {capabilities.canRename ? (
           <button type="button" className="s2-btn s2-btn-outline" onClick={onRename}>
             <PenLine className="h-4 w-4" aria-hidden />

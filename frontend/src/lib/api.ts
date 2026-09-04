@@ -1,3 +1,5 @@
+import type { BackupDto, BackupReadiness, LockStatus, RehearsalResult, RehearsalSchedule, RestorePrecheckResult, RestoreStageResult, RetentionRunResult, ScheduleStatus, VerificationResult } from './backup';
+import type { SettingView } from './system-settings';
 /**
  * API client กลาง
  * เรียกผ่าน /api ซึ่ง Vite proxy ไปที่ backend http://localhost:8889
@@ -124,12 +126,69 @@ export const api = {
   health: () => apiFetch<HealthResponse>('/health'),
   storage: () => apiFetch<StorageResponse>('/system/storage'),
   systemInfo: () => apiFetch<SystemInfoResponse>('/system/info'),
+  /** ปุ่ม Google ควรแสดงหรือไม่ - ไม่มี client id หรือความลับใด ๆ ในคำตอบนี้ */
+  googleConfig: () => apiFetch<{ success: true; data: { enabled: boolean } }>('/auth/google/config'),
+};
+
+/** ค่าตั้งค่าการทำงานของระบบ - เฉพาะผู้ที่มีสิทธิ์ system:settings:manage */
+export const systemSettingsApi = {
+  list: () => apiFetch<{ success: true; data: SettingView[] }>('/admin/settings'),
+  update: (values: Record<string, number>) =>
+    apiFetch<{ success: true; data: SettingView[] }>('/admin/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(values),
+    }),
+  reset: (key: string) =>
+    apiFetch<{ success: true; data: SettingView[] }>(`/admin/settings/${key}`, { method: 'DELETE' }),
+};
+
+/** งานสำรอง/กู้คืน - เฉพาะผู้ที่มีสิทธิ์ system:backup:manage */
+export const backupApi = {
+  readiness: () => apiFetch<{ success: true; data: BackupReadiness }>('/admin/backups/readiness'),
+  list: () => apiFetch<{ success: true; data: BackupDto[] }>('/admin/backups'),
+  get: (id: string) => apiFetch<{ success: true; data: BackupDto }>(`/admin/backups/${id}`),
+  create: () => apiFetch<{ success: true; data: BackupDto }>('/admin/backups', { method: 'POST' }),
+  verify: (id: string) =>
+    apiFetch<{ success: true; data: VerificationResult }>(`/admin/backups/${id}/verify`, { method: 'POST' }),
+  restorePrecheck: (id: string) =>
+    apiFetch<{ success: true; data: RestorePrecheckResult }>(`/admin/backups/${id}/restore-precheck`, { method: 'POST' }),
+  restoreStage: (id: string) =>
+    apiFetch<{ success: true; data: RestoreStageResult }>(`/admin/backups/${id}/restore-stage`, { method: 'POST' }),
+  discardStage: (id: string) =>
+    apiFetch<{ success: true; data: { discarded: true } }>(`/admin/backups/${id}/restore-stage`, { method: 'DELETE' }),
+  remove: (id: string) =>
+    apiFetch<{ success: true; data: { deleted: true } }>(`/admin/backups/${id}`, { method: 'DELETE' }),
+  schedule: () => apiFetch<{ success: true; data: ScheduleStatus }>('/admin/backups/schedule'),
+  updateSchedule: (input: Record<string, number | boolean | string>) =>
+    apiFetch<{ success: true; data: ScheduleStatus }>('/admin/backups/schedule', {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+  runNow: () => apiFetch<{ success: true; data: BackupDto }>('/admin/backups/run-now', { method: 'POST' }),
+  runRetention: () =>
+    apiFetch<{ success: true; data: RetentionRunResult }>('/admin/backups/retention', { method: 'POST' }),
+  offsite: (id: string) =>
+    apiFetch<{ success: true; data: { ok: boolean; problems: string[] } }>(`/admin/backups/${id}/offsite`, { method: 'POST' }),
+  offsiteRetry: (id: string) =>
+    apiFetch<{ success: true; data: { ok: boolean; problems: string[] } }>(`/admin/backups/${id}/offsite-retry`, { method: 'POST' }),
+  rehearsal: () => apiFetch<{ success: true; data: RehearsalSchedule }>('/admin/backups/rehearsal'),
+  updateRehearsal: (input: Record<string, number | boolean | string>) =>
+    apiFetch<{ success: true; data: RehearsalSchedule }>('/admin/backups/rehearsal', {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+  runRehearsal: () =>
+    apiFetch<{ success: true; data: RehearsalResult | null }>('/admin/backups/rehearsal/run-now', { method: 'POST' }),
+  rehearsals: () => apiFetch<{ success: true; data: RehearsalResult[] }>('/admin/backups/rehearsals'),
+  lock: () => apiFetch<{ success: true; data: LockStatus }>('/admin/backups/lock'),
 };
 
 export interface AuthUser {
   id: string;
   email: string;
   displayName: string;
+  /** INTERNAL | EXTERNAL | SERVICE - ตัวกำหนดว่าผู้ใช้อยู่ฝั่งไหนของระบบ */
+  type: string;
   status: string;
   mustChangePassword: boolean;
   roles: string[];
@@ -182,6 +241,8 @@ export interface ResourceDto {
   createdByIntegrationApp: { id: string; name: string; code: string } | null;
   isLocked: boolean; itemCount: number; createdAt: string; updatedAt: string;
   visibility: 'ORGANIZATION' | 'RESTRICTED';
+  /** ไดร์ฟที่ทรัพยากรนี้สังกัด - ตัดสินนโยบายการเขียนได้จากแถวเดียว */
+  driveScope: 'MY_DRIVE' | 'SYSTEM_DRIVE';
   currentVersion: number | null;
   /** ผู้อัปโหลดตามประวัติ ไม่ใช่เจ้าของไฟล์ */
   uploadedBy: { id: string; displayName: string; email: string } | null;
@@ -206,9 +267,12 @@ export interface ResourceVersionDto {
 }
 
 export interface TrashEntryDto extends ResourceDto {
+  /** เวลาที่รายการนี้จะถูกลบถาวรอัตโนมัติ (null = ปิดการเก็บกวาดตามอายุ) */
+  expiresAt: string | null;
   deletedAt: string | null;
   deletedBy: { id: string; displayName: string; email: string } | null;
-  originalLocation: string;
+  /** null = รากของไดร์ฟ หน้าจอเป็นผู้เติมชื่อไดร์ฟจาก drive-labels */
+  originalLocation: string | null;
   originalParentId: string | null;
 }
 
@@ -227,10 +291,10 @@ export const resourceApi = {
   get: (id: string) => apiFetch<ResourceResponse>(`/resources/${id}`),
   recent: (limit = 50) => apiFetch<{ success: true; data: ResourceDto[] }>(`/resources-recent?limit=${limit}`),
   breadcrumb: (id: string) => apiFetch<BreadcrumbResponse>(`/resources/${id}/breadcrumb`),
-  createFolder: (input: { name: string; parentId?: string | null; ownerId?: string; remark?: string | null }) => apiFetch<ResourceResponse>('/folders', { method: 'POST', body: JSON.stringify(input) }),
-  createExternal: (input: { type: 'GOOGLE_SHEET' | 'GOOGLE_DOC' | 'GOOGLE_DRIVE' | 'WEB_LINK'; name: string; parentId?: string | null; url: string; remark?: string | null }) => apiFetch<ResourceResponse>('/resources/external', { method: 'POST', body: JSON.stringify(input) }),
+  createFolder: (input: { name: string; parentId?: string | null; ownerId?: string; remark?: string | null; driveScope?: 'MY_DRIVE' | 'SYSTEM_DRIVE' }) => apiFetch<ResourceResponse>('/folders', { method: 'POST', body: JSON.stringify(input) }),
+  createExternal: (input: { type: 'GOOGLE_SHEET' | 'GOOGLE_DOC' | 'GOOGLE_DRIVE' | 'WEB_LINK'; name: string; parentId?: string | null; url: string; remark?: string | null; driveScope?: 'MY_DRIVE' | 'SYSTEM_DRIVE' }) => apiFetch<ResourceResponse>('/resources/external', { method: 'POST', body: JSON.stringify(input) }),
   update: (id: string, input: { name?: string; remark?: string | null; externalUrl?: string }) => apiFetch<ResourceResponse>(`/resources/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
-  move: (id: string, parentId: string | null) => apiFetch<ResourceResponse>(`/resources/${id}/move`, { method: 'PATCH', body: JSON.stringify({ parentId }) }),
+  move: (id: string, parentId: string | null, driveScope?: 'MY_DRIVE' | 'SYSTEM_DRIVE') => apiFetch<ResourceResponse>(`/resources/${id}/move`, { method: 'PATCH', body: JSON.stringify({ parentId, ...(driveScope ? { driveScope } : {}) }) }),
   transferOwner: (id: string, newOwnerId: string) => apiFetch<ResourceResponse>(`/resources/${id}/owner`, { method: 'PATCH', body: JSON.stringify({ newOwnerId }) }),
   remove: (id: string) => apiFetch<{ success: true; data: { deleted: true; deletedAt: string } }>(`/resources/${id}`, { method: 'DELETE' }),
 };
@@ -244,6 +308,8 @@ export interface PublicUser {
   email: string;
   displayName: string;
   type: string;
+  /** ชื่อบริษัทของลูกค้า - บัญชีภายในเป็น null เสมอ */
+  organizationName: string | null;
   status: UserStatus;
   mustChangePassword: boolean;
   lastLoginAt: string | null;
@@ -257,6 +323,8 @@ export interface UserListFilter {
   q?: string;
   status?: UserStatus;
   roleCode?: string;
+  /** แยกรายชื่อบุคลากรภายในออกจากลูกค้า - หน้าจัดการทั้งสองใช้เส้นทางเดียวกัน */
+  type?: 'INTERNAL' | 'EXTERNAL' | 'SERVICE';
   limit?: number;
   cursor?: string;
 }
@@ -267,6 +335,7 @@ export const usersApi = {
     if (filter.q) params.set('q', filter.q);
     if (filter.status) params.set('status', filter.status);
     if (filter.roleCode) params.set('roleCode', filter.roleCode);
+    if (filter.type) params.set('type', filter.type);
     params.set('limit', String(filter.limit ?? 50));
     if (filter.cursor) params.set('cursor', filter.cursor);
     return apiFetch<{ success: true; data: UserPage }>(`/users?${params.toString()}`);
@@ -299,6 +368,34 @@ export const usersApi = {
       method: 'PATCH',
       body: JSON.stringify({ displayName }),
     }),
+
+  /** "ลูกค้ารายนี้เข้าถึงอะไรได้บ้าง" - มุมมองของผู้ดูแล ไม่ใช่ของพื้นที่ลูกค้า */
+  clientPortalAccess: (userId: string) =>
+    apiFetch<Ok<ClientPortalSummary>>(`/users/${userId}/portal-access`),
+
+  /**
+   * สร้างบัญชี
+   *
+   * บัญชีลูกค้าไม่รับบทบาทภายใน สิทธิ์ของลูกค้ามาจากการแชร์รายทรัพยากรเท่านั้น
+   * ทุกบัญชีเริ่มที่ INVITED - ต้องมีผู้ดูแลตั้งรหัสผ่านชั่วคราวก่อนจึงใช้งานได้
+   */
+  create: (input: {
+    email: string;
+    displayName: string;
+    type: 'INTERNAL' | 'EXTERNAL';
+    organizationName?: string | null;
+    roleCodes: string[];
+  }) =>
+    apiFetch<{ success: true; data: PublicUser }>('/users', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  setOrganization: (id: string, organizationName: string | null) =>
+    apiFetch<{ success: true; data: PublicUser }>(`/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ organizationName }),
+    }),
 };
 
 
@@ -324,7 +421,7 @@ export const dashboardApi = {
 
 export const fileApi = {
   versions: (id: string) => apiFetch<{ success: true; data: ResourceVersionDto[] }>(`/resources/${id}/versions`),
-  trash: () => apiFetch<{ success: true; data: TrashEntryDto[] }>('/trash'),
+  trash: () => apiFetch<{ success: true; data: { items: TrashEntryDto[]; retentionDays: number } }>('/trash'),
   moveToTrash: (id: string) => apiFetch<{ success: true; data: { trashed: true; affected: number } }>(`/resources/${id}/trash`, { method: 'POST' }),
   restore: (id: string, body: { targetParentId?: string | null; newName?: string } = {}) =>
     apiFetch<ResourceResponse>(`/resources/${id}/restore`, { method: 'POST', body: JSON.stringify(body) }),
@@ -370,9 +467,20 @@ export interface TagDto { id: string; name: string }
 
 export interface AccessGrantDto {
   userId: string;
-  user: { id: string; displayName: string; email: string };
+  user: {
+    id: string;
+    displayName: string;
+    email: string;
+    /** INTERNAL | EXTERNAL - ตัวตนของผู้รับสิทธิ์ต้องไม่กำกวมในหน้าจัดการ */
+    userType: string;
+    organizationName: string | null;
+  };
   accessLevel: 'EDITOR' | 'VIEWER';
   allowDownload: boolean;
+  /** null = ไม่หมดอายุ */
+  expiresAt: string | null;
+  /** สิทธิ์ที่หมดอายุยังอยู่ในรายการเพื่อการตรวจสอบ แต่ไม่มีผลแล้ว */
+  isExpired: boolean;
   userStatus: string;
 }
 
@@ -389,8 +497,16 @@ export interface SharedResourceDto extends ResourceDto {
   sharedAt: string;
 }
 
+/** ข้อมูลเพิ่มเติมที่มีเฉพาะในผลการค้นหา */
+export interface SearchHitDto extends ResourceDto {
+  /** NAME | TAG | REMARK | CONTENT - บอกว่าทำไมผลลัพธ์นี้ถึงขึ้นมา */
+  matchReason: string | null;
+  /** ข้อความล้วนรอบคำค้น มีเฉพาะเมื่อตรงเพราะเนื้อในเอกสาร */
+  contentSnippet: string | null;
+}
+
 export interface SearchResultDto {
-  items: ResourceDto[];
+  items: SearchHitDto[];
   nextCursor: string | null;
   total: number;
 }
@@ -468,12 +584,23 @@ export const workspaceApi = {
 
   /* การแชร์ภายใน */
   access: (id: string) => apiFetch<Ok<AccessListDto>>(`/resources/${id}/access`),
-  grantAccess: (id: string, input: { userId: string; accessLevel: 'EDITOR' | 'VIEWER'; allowDownload: boolean }) =>
-    apiFetch<Ok<AccessListDto>>(`/resources/${id}/access`, { method: 'POST', body: JSON.stringify(input) }),
+  grantAccess: (
+    id: string,
+    input: {
+      userId: string;
+      accessLevel: 'EDITOR' | 'VIEWER';
+      allowDownload: boolean;
+      /** เวลาสัมบูรณ์ (ISO) หรือ null เมื่อไม่หมดอายุ - หน้าจอเป็นผู้แปลตัวเลือกเป็นวันที่ */
+      expiresAt?: string | null;
+    },
+  ) => apiFetch<Ok<AccessListDto>>(`/resources/${id}/access`, { method: 'POST', body: JSON.stringify(input) }),
   revokeAccess: (id: string, userId: string) =>
     apiFetch<Ok<AccessListDto>>(`/resources/${id}/access/${userId}`, { method: 'DELETE' }),
   sharedWithMe: () => apiFetch<Ok<SharedResourceDto[]>>('/shared'),
-  shareTargets: (q: string) => apiFetch<Ok<Array<{ id: string; displayName: string; email: string }>>>(`/share-targets?q=${encodeURIComponent(q)}`),
+  shareTargets: (q: string, scope?: 'INTERNAL' | 'EXTERNAL') =>
+    apiFetch<Ok<ShareTargetDto[]>>(
+      `/share-targets?q=${encodeURIComponent(q)}${scope ? `&scope=${scope}` : ''}`,
+    ),
 
   /* ค้นหา */
   search: (params: URLSearchParams) => apiFetch<Ok<SearchResultDto>>(`/search?${params.toString()}`),
@@ -495,4 +622,148 @@ export const workspaceApi = {
       body: JSON.stringify({ fromUserId, toUserId }),
     }),
   offboardingCheck: (userId: string) => apiFetch<Ok<OffboardingCheckDto>>(`/users/${userId}/offboarding-check`),
+
+};
+
+/* ---------- ผู้รับสิทธิ์ ---------- */
+
+export interface ShareTargetDto {
+  id: string;
+  displayName: string;
+  email: string;
+  userType: string;
+  organizationName: string | null;
+}
+
+/* ---------- พื้นที่เอกสารสำหรับลูกค้า ---------- */
+
+/**
+ * ข้อมูลที่ลูกค้าเห็น - จงใจแคบกว่า ResourceDto ของฝั่งภายในมาก
+ * ไม่มีผู้ดูแล ไม่มีนโยบายการมองเห็น ไม่มีไดร์ฟ ไม่มีเลขเวอร์ชัน
+ */
+export interface PortalResourceDto {
+  id: string;
+  type: string;
+  name: string;
+  /** มีเฉพาะในผลการค้นหา - เส้นทางจากรากที่ถูกแชร์ให้ลงมาถึงรายการนี้ */
+  path?: Array<{ id: string; name: string }>;
+  /** มีเฉพาะในผลการค้นหา - ป้ายบอกว่าตรงกับชื่อไฟล์หรือเนื้อหาเอกสาร */
+  matchLabel?: string;
+  /** ข้อความล้วนรอบคำค้น มีเฉพาะเมื่อตรงเพราะเนื้อในเอกสาร */
+  contentSnippet?: string | null;
+  mimeType: string | null;
+  extension: string | null;
+  size: number | null;
+  externalUrl: string | null;
+  sourceLabel: string | null;
+  itemCount: number;
+  uploadedAt: string;
+  uploadedBy: string | null;
+  capabilities: {
+    canView: boolean;
+    canDownload: boolean;
+    canUpload: boolean;
+    canRename: boolean;
+    canMove: boolean;
+    canDelete: boolean;
+    canShare: boolean;
+  };
+}
+
+export interface PortalHomeDto {
+  shared: PortalResourceDto[];
+  recentUploads: PortalResourceDto[];
+  uploadFolders: PortalResourceDto[];
+}
+
+export interface PortalFolderDto {
+  folder: PortalResourceDto;
+  breadcrumb: Array<{ id: string; name: string }>;
+  items: PortalResourceDto[];
+}
+
+/**
+ * เวอร์ชันที่ลูกค้าเห็น - อ่านอย่างเดียว
+ *
+ * ที่อยู่ของเวอร์ชันคือ "เลขลำดับภายในไฟล์" ไม่ใช่รหัสของแถวเวอร์ชัน
+ * จึงไม่มีรหัสระดับระบบให้เดา และเลขนี้มีความหมายเฉพาะเมื่อคู่กับไฟล์ที่เข้าถึงได้แล้ว
+ */
+/** หนึ่งรายการในประวัติการอัปโหลดของลูกค้า */
+export interface UploadHistoryItem {
+  id: string;
+  name: string;
+  mimeType: string | null;
+  extension: string | null;
+  size: number | null;
+  uploadedAt: string;
+  /** AVAILABLE | MANAGED_BY_STAFF | UNAVAILABLE */
+  state: string;
+  stateLabel: string;
+  /** null เมื่อไฟล์อยู่นอกขอบเขตที่ลูกค้าเข้าถึงได้ - ตำแหน่งภายในไม่ถูกเปิดเผย */
+  destination: Array<{ id: string; name: string }> | null;
+  canPreview: boolean;
+  canDownload: boolean;
+}
+
+export interface UploadHistoryPage {
+  items: UploadHistoryItem[];
+  nextCursor: string | null;
+  total: number;
+}
+
+export interface PortalVersionDto {
+  versionNumber: number;
+  createdAt: string;
+  size: number;
+  uploadedBy: string | null;
+  isCurrent: boolean;
+  canDownload: boolean;
+}
+
+/** สรุปสิทธิ์ของลูกค้าหนึ่งราย สำหรับหน้าผู้ดูแล */
+export interface ClientGrantDto {
+  resourceId: string;
+  resourceName: string;
+  resourceType: string;
+  role: 'VIEWER' | 'CONTRIBUTOR';
+  allowDownload: boolean;
+  expiresAt: string | null;
+  isExpired: boolean;
+  sharedAt: string;
+}
+
+export interface ClientPortalSummary {
+  googleLinked: boolean;
+  activeGrants: number;
+  grants: ClientGrantDto[];
+}
+
+/**
+ * เส้นทางของลูกค้าแยกจาก API ภายในทั้งชุด
+ * ไม่มีฟังก์ชันใดที่ลบ เปลี่ยนชื่อ ย้าย หรือแชร์ต่อ - ไม่ใช่เพราะซ่อนไว้ แต่เพราะไม่มีอยู่จริง
+ */
+export const portalApi = {
+  home: () => apiFetch<Ok<PortalHomeDto>>('/portal/resources'),
+  folder: (id: string) => apiFetch<Ok<PortalFolderDto>>(`/portal/folders/${id}`),
+  resource: (id: string) =>
+    apiFetch<Ok<{ resource: PortalResourceDto; breadcrumb: Array<{ id: string; name: string }> }>>(
+      `/portal/resources/${id}`,
+    ),
+  search: (q: string) => apiFetch<Ok<PortalResourceDto[]>>(`/portal/search?q=${encodeURIComponent(q)}`),
+  versions: (id: string) => apiFetch<Ok<PortalVersionDto[]>>(`/portal/resources/${id}/versions`),
+  uploads: (filter: { q?: string; extension?: string; limit?: number; cursor?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (filter.q) params.set('q', filter.q);
+    if (filter.extension) params.set('extension', filter.extension);
+    params.set('limit', String(filter.limit ?? 25));
+    if (filter.cursor) params.set('cursor', filter.cursor);
+    return apiFetch<Ok<UploadHistoryPage>>(`/portal/uploads?${params.toString()}`);
+  },
+  uploadTypes: () => apiFetch<Ok<string[]>>('/portal/uploads/types'),
+  contentUrl: (id: string) => `/api/portal/resources/${id}/content`,
+  downloadUrl: (id: string) => `/api/portal/resources/${id}/download`,
+  versionContentUrl: (id: string, versionNumber: number) =>
+    `/api/portal/resources/${id}/versions/${versionNumber}/content`,
+  versionDownloadUrl: (id: string, versionNumber: number) =>
+    `/api/portal/resources/${id}/versions/${versionNumber}/download`,
 };

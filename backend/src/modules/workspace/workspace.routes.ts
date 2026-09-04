@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { authenticate } from '../auth/auth.guard.js';
+import { requireInternal } from '../auth/auth.guard.js';
 import {
   addFavorite,
   addTagToResource,
@@ -34,44 +34,44 @@ const audit = (request: FastifyRequest) => ({
 
 export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
   /* ---------------- รายการโปรด ---------------- */
-  app.get('/favorites', { preHandler: authenticate }, async (request) => ({
+  app.get('/favorites', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await listFavorites(request.authUser!),
   }));
 
-  app.post('/resources/:id/favorite', { preHandler: authenticate }, async (request) => ({
+  app.post('/resources/:id/favorite', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await addFavorite(idParams.parse(request.params).id, request.authUser!),
   }));
 
-  app.delete('/resources/:id/favorite', { preHandler: authenticate }, async (request) => ({
+  app.delete('/resources/:id/favorite', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await removeFavorite(idParams.parse(request.params).id, request.authUser!),
   }));
 
   /* ---------------- ปักหมุด ---------------- */
-  app.get('/pins', { preHandler: authenticate }, async (request) => ({
+  app.get('/pins', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await listPins(request.authUser!),
   }));
 
-  app.post('/resources/:id/pin', { preHandler: authenticate }, async (request) => ({
+  app.post('/resources/:id/pin', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await pinResource(idParams.parse(request.params).id, request.authUser!),
   }));
 
-  app.delete('/resources/:id/pin', { preHandler: authenticate }, async (request) => ({
+  app.delete('/resources/:id/pin', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await unpinResource(idParams.parse(request.params).id, request.authUser!),
   }));
 
   /* ---------------- แท็ก ---------------- */
-  app.get('/tags', { preHandler: authenticate }, async (request) => {
+  app.get('/tags', { preHandler: requireInternal }, async (request) => {
     const query = z.object({ q: z.string().optional() }).parse(request.query);
     return { success: true, data: await listTags(request.authUser!, query.q) };
   });
 
-  app.post('/resources/:id/tags', { preHandler: authenticate }, async (request) => {
+  app.post('/resources/:id/tags', { preHandler: requireInternal }, async (request) => {
     const body = z.object({ name: z.string().min(1).max(64) }).parse(request.body);
     return {
       success: true,
@@ -79,7 +79,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.delete('/resources/:id/tags/:tagId', { preHandler: authenticate }, async (request) => {
+  app.delete('/resources/:id/tags/:tagId', { preHandler: requireInternal }, async (request) => {
     const params = z.object({ id: z.string().min(1), tagId: z.string().min(1) }).parse(request.params);
     return {
       success: true,
@@ -88,7 +88,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /* ---------------- หมายเหตุ ---------------- */
-  app.patch('/resources/:id/remark', { preHandler: authenticate }, async (request) => {
+  app.patch('/resources/:id/remark', { preHandler: requireInternal }, async (request) => {
     const body = z.object({ remark: z.string().max(1000).nullable() }).parse(request.body);
     return {
       success: true,
@@ -97,7 +97,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /* ---------------- ล็อก ---------------- */
-  app.post('/resources/:id/lock', { preHandler: authenticate }, async (request) => {
+  app.post('/resources/:id/lock', { preHandler: requireInternal }, async (request) => {
     const body = z.object({ reason: z.string().max(500).nullable().optional() }).parse(request.body ?? {});
     return {
       success: true,
@@ -110,23 +110,28 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.delete('/resources/:id/lock', { preHandler: authenticate }, async (request) => ({
+  app.delete('/resources/:id/lock', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await unlockResource(idParams.parse(request.params).id, request.authUser!, audit(request)),
   }));
 
   /* ---------------- การแชร์ภายในองค์กร ---------------- */
-  app.get('/resources/:id/access', { preHandler: authenticate }, async (request) => ({
+  app.get('/resources/:id/access', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await listAccess(idParams.parse(request.params).id, request.authUser!),
   }));
 
-  app.post('/resources/:id/access', { preHandler: authenticate }, async (request) => {
+  app.post('/resources/:id/access', { preHandler: requireInternal }, async (request) => {
     const body = z
       .object({
         userId: z.string().min(1),
         accessLevel: z.enum(['EDITOR', 'VIEWER']),
         allowDownload: z.boolean().default(true),
+        /**
+         * เวลาสัมบูรณ์เสมอ หน้าจอเป็นผู้แปลตัวเลือก "7 วัน / 30 วัน / 90 วัน" เป็นวันที่จริง
+         * เซิร์ฟเวอร์ไม่เก็บ "จำนวนวัน" เพราะจุดอ้างอิงจะกำกวมทันทีที่มีการแก้ไขสิทธิ์ภายหลัง
+         */
+        expiresAt: z.coerce.date().nullish(),
       })
       .parse(request.body);
     return {
@@ -135,7 +140,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.delete('/resources/:id/access/:userId', { preHandler: authenticate }, async (request) => {
+  app.delete('/resources/:id/access/:userId', { preHandler: requireInternal }, async (request) => {
     const params = z.object({ id: z.string().min(1), userId: z.string().min(1) }).parse(request.params);
     return {
       success: true,
@@ -143,19 +148,28 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get('/shared', { preHandler: authenticate }, async (request) => ({
+  app.get('/shared', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await listSharedWithMe(request.authUser!),
   }));
 
-  app.get('/share-targets', { preHandler: authenticate }, async (request) => {
-    const query = z.object({ q: z.string().default(''), limit: z.coerce.number().int().min(1).max(25).default(10) })
+  app.get('/share-targets', { preHandler: requireInternal }, async (request) => {
+    const query = z
+      .object({
+        q: z.string().default(''),
+        limit: z.coerce.number().int().min(1).max(25).default(10),
+        /** หน้าจอค้นหาแยกกลุ่ม เพื่อให้ "บุคลากรภายใน" กับ "ลูกค้า" ไม่ปะปนกันในรายการเดียว */
+        scope: z.enum(['INTERNAL', 'EXTERNAL']).optional(),
+      })
       .parse(request.query);
-    return { success: true, data: await searchShareTargets(query.q, request.authUser!, query.limit) };
+    return {
+      success: true,
+      data: await searchShareTargets(query.q, request.authUser!, query.limit, query.scope),
+    };
   });
   /* ---------------- ค้นหา ---------------- */
   const isoDate = z.coerce.date().optional();
-  app.get('/search', { preHandler: authenticate }, async (request) => {
+  app.get('/search', { preHandler: requireInternal }, async (request) => {
     const query = z
       .object({
         q: z.string().max(191).optional(),
@@ -176,13 +190,13 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     return { success: true, data: await searchResources(query, request.authUser!) };
   });
 
-  app.get('/search/facets', { preHandler: authenticate }, async (request) => ({
+  app.get('/search/facets', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await searchFacets(request.authUser!),
   }));
 
   /* ---------------- ประวัติการใช้งาน ---------------- */
-  app.get('/resources/:id/activity', { preHandler: authenticate }, async (request) => {
+  app.get('/resources/:id/activity', { preHandler: requireInternal }, async (request) => {
     const query = z
       .object({
         limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -195,7 +209,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get('/activity', { preHandler: authenticate }, async (request) => {
+  app.get('/activity', { preHandler: requireInternal }, async (request) => {
     const query = z
       .object({
         userId: z.string().min(1).optional(),
@@ -210,18 +224,18 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     return { success: true, data: await listAdminActivity(query, request.authUser!) };
   });
 
-  app.get('/activity/actions', { preHandler: authenticate }, async (request) => ({
+  app.get('/activity/actions', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await listActivityActions(request.authUser!),
   }));
 
   /* ---------------- ส่งมอบความรับผิดชอบ ---------------- */
-  app.get('/handover/overview', { preHandler: authenticate }, async (request) => ({
+  app.get('/handover/overview', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await ownershipOverview(request.authUser!),
   }));
 
-  app.get('/handover/preview', { preHandler: authenticate }, async (request) => {
+  app.get('/handover/preview', { preHandler: requireInternal }, async (request) => {
     const query = z.object({ fromUserId: z.string().min(1), toUserId: z.string().min(1) }).parse(request.query);
     return {
       success: true,
@@ -229,7 +243,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.post('/handover/transfer', { preHandler: authenticate }, async (request) => {
+  app.post('/handover/transfer', { preHandler: requireInternal }, async (request) => {
     const body = z.object({ fromUserId: z.string().min(1), toUserId: z.string().min(1) }).parse(request.body);
     return {
       success: true,
@@ -237,7 +251,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get('/users/:id/offboarding-check', { preHandler: authenticate }, async (request) => ({
+  app.get('/users/:id/offboarding-check', { preHandler: requireInternal }, async (request) => ({
     success: true,
     data: await offboardingCheck(idParams.parse(request.params).id, request.authUser!),
   }));

@@ -9,12 +9,26 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test --test-concurrency=1 src/**/*.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:smoke": "node scripts/migration-smoke-check.mjs",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "rbac:sync": "tsx prisma/rbac-sync.ts",
+    "backup:create": "tsx scripts/backup-cli.ts create",
+    "backup:list": "tsx scripts/backup-cli.ts list",
+    "backup:verify": "tsx scripts/backup-cli.ts verify",
+    "backup:stage-restore": "tsx scripts/backup-cli.ts stage-restore",
+    "backup:discard-stage": "tsx scripts/backup-cli.ts discard-stage",
+    "backup:schedule-status": "tsx scripts/backup-cli.ts schedule-status",
+    "backup:retention": "tsx scripts/backup-cli.ts retention",
+    "backup:offsite": "tsx scripts/backup-cli.ts offsite",
+    "backup:lock-status": "tsx scripts/backup-cli.ts lock-status",
+    "restore:rehearsal": "tsx scripts/backup-cli.ts rehearsal",
+    "restore:rehearsal-status": "tsx scripts/backup-cli.ts rehearsal-status",
+    "qa:portal": "tsx scripts/f11-qa-fixture.ts create",
+    "qa:portal-clean": "tsx scripts/f11-qa-fixture.ts destroy"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
@@ -29,7 +43,8 @@
     "fastify": "^5.2.1",
     "jose": "^6.2.10",
     "pino": "^9.6.0",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "unzipper": "^0.12.5"
   },
   "devDependencies": {
     "@types/archiver": "^8.0.0",
@@ -38,8 +53,7 @@
     "pino-pretty": "^13.0.0",
     "prisma": "^6.3.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3",
-    "unzipper": "^0.12.5"
+    "typescript": "^5.7.3"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

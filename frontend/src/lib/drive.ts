@@ -1,4 +1,5 @@
 import { resourceApi, type ResourceCapabilities, type ResourceDto, type TagDto } from './api';
+import type { DriveRoot } from './drive-labels';
 
 export type DriveEntryKind = 'folder' | 'file';
 export type SharePermission = 'OWNER' | 'EDITOR' | 'VIEWER';
@@ -11,12 +12,14 @@ export interface DriveEntry {
   uploadedBy: { id: string; displayName: string; email: string } | null;
   currentVersion: number | null;
   visibility: 'ORGANIZATION' | 'RESTRICTED';
+  /** ไดร์ฟที่รายการนี้สังกัด ใช้ประกอบ "ปลายทาง" เชิงตรรกะที่ผู้ใช้อ่านเข้าใจ */
+  driveRoot: DriveRoot;
   favorite: boolean; pinned: boolean; parentId: string | null; remark?: string; isLocked: boolean;
   tags: TagDto[];
   lockReason: string | null;
   lockedAt: string | null;
   lockedByName: string | null;
-  source?: import('@/components/files/ResourceSourceBadge').ResourceSource;
+  source?: import('./resource-sources').ResourceSource;
   externalUrl?: string | null; externalProvider?: string | null;
   sourceSystem?: string | null; sourceEntityType?: string | null; sourceEntityId?: string | null;
   sourceUrl?: string | null;
@@ -29,7 +32,7 @@ export interface BreadcrumbNode { id: string | null; name: string }
 export type DriveScope = 'files' | 'shared' | 'recent' | 'favorites' | 'trash';
 export interface DriveListing { entries: DriveEntry[]; breadcrumb: BreadcrumbNode[] }
 
-const SOURCE_MAP: Record<ResourceDto['sourceType'], import('@/components/files/ResourceSourceBadge').ResourceSource> = {
+const SOURCE_MAP: Record<ResourceDto['sourceType'], import('./resource-sources').ResourceSource> = {
   MANUAL: 'MANUAL', GOOGLE: 'GOOGLE', S2_PAYROLL: 'S2_PAYROLL', S2_ERP: 'S2_ERP',
   S2_LINE_BOT: 'S2_LINE_BOT', EXTERNAL_UPLOAD: 'EXTERNAL_UPLOAD', SYSTEM: 'SYSTEM',
 };
@@ -53,11 +56,12 @@ export function toDriveEntry(resource: ResourceDto): DriveEntry {
     sourceSystem: resource.sourceSystem, sourceEntityType: resource.sourceEntityType,
     sourceEntityId: resource.sourceEntityId, sourceUrl: resource.sourceUrl,
     createdByIntegrationApp: resource.createdByIntegrationApp,
+    driveRoot: resource.driveScope ?? 'MY_DRIVE',
     source: SOURCE_MAP[resource.sourceType], capabilities: resource.capabilities,
   };
 }
 
-export async function listDrive(scope: DriveScope, folderId?: string, sort = 'name', direction: 'asc' | 'desc' = 'asc'): Promise<DriveListing> {
+export async function listDrive(scope: DriveScope, folderId?: string, sort = 'name', direction: 'asc' | 'desc' = 'asc', driveRoot: DriveRoot = 'MY_DRIVE'): Promise<DriveListing> {
   // /recent ใช้ปลายทางเฉพาะที่เรียงตามเวลาแก้ไขล่าสุดแล้ว
   if (scope === 'recent') {
     const recent = await resourceApi.recent(50);
@@ -66,6 +70,8 @@ export async function listDrive(scope: DriveScope, folderId?: string, sort = 'na
   if (scope !== 'files') return { entries: [], breadcrumb: [] };
   const params = new URLSearchParams({ sort, direction, limit: '100' });
   if (folderId) params.set('parentId', folderId);
+  // ที่ระดับรากทั้งสองไดร์ฟใช้ parentId เดียวกัน (null) จึงต้องบอกไดร์ฟให้ backend กรอง
+  else params.set('driveScope', driveRoot);
   const [listing, crumbs] = await Promise.all([
     resourceApi.list(params),
     folderId ? resourceApi.breadcrumb(folderId) : Promise.resolve({ success: true as const, data: [] }),

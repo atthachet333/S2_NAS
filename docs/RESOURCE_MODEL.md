@@ -10,6 +10,10 @@ Active sibling names are unique through `siblingKey`. Names are trimmed, whitesp
 
 Files have current metadata on `Resource` and immutable history in `ResourceVersion`. Each version has a separate opaque `storageKey`, byte size, SHA-256 checksum, MIME type, uploader, and version number. Neither `storageKey` nor a physical path is part of any DTO.
 
+## Drive scope
+
+Every resource carries `driveScope` (`MY_DRIVE` | `SYSTEM_DRIVE`). It is assigned by the server: inherited from the parent folder when one exists, otherwise taken from the drive root the request targets, subject to that drive's create policy. Clients cannot override it. Moving a folder propagates the new scope to its whole subtree. See [SYSTEM_DRIVE.md](./SYSTEM_DRIVE.md).
+
 ## Organization policy
 
 - The organization owns the namespace and managed files.

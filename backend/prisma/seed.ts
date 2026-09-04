@@ -1,44 +1,14 @@
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
 import { getSeedableUsers } from '../src/config/seed-users.js';
+import { syncRbac } from './rbac.js';
 
 const prisma = new PrismaClient();
 
-const permissions = [
-  ['users:read', 'ดูผู้ใช้'], ['users:manage', 'จัดการผู้ใช้'],
-  ['roles:read', 'ดูบทบาทและสิทธิ์'], ['roles:manage', 'จัดการบทบาทและสิทธิ์'],
-  ['resources:read', 'ดูทรัพยากร'], ['resources:write', 'สร้างและแก้ไขทรัพยากร'],
-  ['resources:delete', 'ลบทรัพยากร'], ['admin:access', 'เข้าพื้นที่ผู้ดูแลระบบ'],
-  ['resources:owner:manage', 'โอนเจ้าของทรัพยากร'],
-  ['resources:share', 'จัดการสิทธิ์เข้าถึงทรัพยากร'],
-  ['resources:lock', 'ล็อกและปลดล็อกทรัพยากร'],
-] as const;
-
-const rolePermissions: Record<string, string[]> = {
-  SUPER_ADMIN: permissions.map(([code]) => code),
-  ADMIN: permissions.map(([code]) => code).filter((code) => code !== 'roles:manage'),
-  MANAGER: [
-    'users:read', 'resources:read', 'resources:write', 'resources:delete',
-    'resources:owner:manage', 'resources:share', 'resources:lock',
-  ],
-  MEMBER: ['resources:read', 'resources:write'],
-  VIEWER: ['resources:read'],
-};
-
 async function main() {
-  for (const [code, name] of permissions) {
-    await prisma.permission.upsert({ where: { code }, update: { name }, create: { code, name } });
-  }
-  console.log('[SEED] Permissions synced');
-
-  for (const [code, permissionCodes] of Object.entries(rolePermissions)) {
-    const role = await prisma.role.upsert({ where: { code }, update: {}, create: { code, name: code.replace('_', ' ') } });
-    const rows = await prisma.permission.findMany({ where: { code: { in: permissionCodes } } });
-    for (const permission of rows) {
-      await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } }, update: {}, create: { roleId: role.id, permissionId: permission.id } });
-    }
-  }
-  console.log('[SEED] Roles synced');
+  // สิทธิ์และบทบาทใช้นิยามชุดเดียวกับ rbac:sync จะได้ไม่มีสำเนาที่เพี้ยนจากกัน
+  await syncRbac(prisma);
+  console.log('[SEED] Permissions and roles synced');
 
   const configuredAdminEmail = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
   const configuredPassword = process.env.SEED_ADMIN_PASSWORD;

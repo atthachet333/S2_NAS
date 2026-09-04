@@ -5,8 +5,25 @@ import { useOutsideClose } from '@/hooks/useOutsideClose';
 import { cn } from '@/lib/utils';
 import type { ExternalResourceType } from '@/lib/external-resources';
 
-/** ปุ่ม + ใหม่ สำหรับสร้างโฟลเดอร์และอัปโหลด */
-export function NewMenu({ variant = 'solid', onCreateFolder, onCreateExternal }: { variant?: 'solid' | 'outline'; onCreateFolder?: () => void; onCreateExternal?: (type: ExternalResourceType) => void }) {
+/**
+ * ปุ่ม + ใหม่ - ทางเข้าเดียวของการสร้างทรัพยากรทุกชนิด
+ *
+ * ใช้ร่วมกันทั้งไดร์ฟของฉันและไดร์ฟของระบบ ปลายทางถูกตัดสินโดยหน้าที่เรียกใช้
+ * ไม่ใช่โดยเมนูนี้ เมนูจึงไม่ต้องรู้ว่าตอนนี้อยู่ไดร์ฟไหน
+ */
+export function NewMenu({
+  variant = 'solid',
+  onCreateFolder,
+  onCreateExternal,
+  onUploadFile,
+  onUploadFolder,
+}: {
+  variant?: 'solid' | 'outline';
+  onCreateFolder?: () => void;
+  onCreateExternal?: (type: ExternalResourceType) => void;
+  onUploadFile?: () => void;
+  onUploadFolder?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useOutsideClose(ref, open, () => setOpen(false));
@@ -31,7 +48,10 @@ export function NewMenu({ variant = 'solid', onCreateFolder, onCreateExternal }:
       </button>
 
       {open ? (
-        <div role="menu" className="s2-menu absolute left-0 z-[var(--z-menu)] mt-7 w-56 sm:left-auto sm:right-0">
+        <div
+          role="menu"
+          className="s2-menu absolute left-0 z-[var(--z-menu)] mt-7 max-h-[70vh] w-56 overflow-y-auto sm:left-auto sm:right-0"
+        >
           <MenuItem
             icon={<FolderPlus className="h-4 w-4" />}
             label="สร้างโฟลเดอร์"
@@ -41,13 +61,20 @@ export function NewMenu({ variant = 'solid', onCreateFolder, onCreateExternal }:
           <MenuItem
             icon={<Upload className="h-4 w-4" />}
             label="อัปโหลดไฟล์"
-            onSelect={() => { setOpen(false); window.dispatchEvent(new Event('s2-upload-file')); }}
+            onSelect={() => {
+              setOpen(false);
+              if (onUploadFile) onUploadFile();
+              else window.dispatchEvent(new Event('s2-upload-file'));
+            }}
           />
           <MenuItem
             icon={<FolderUp className="h-4 w-4" />}
             label="อัปโหลดโฟลเดอร์"
-            shortcut="เร็ว ๆ นี้"
-            disabled
+            onSelect={() => {
+              setOpen(false);
+              if (onUploadFolder) onUploadFolder();
+              else window.dispatchEvent(new Event('s2-upload-folder'));
+            }}
           />
           <MenuSeparator />
           <MenuItem icon={<Sheet className="h-4 w-4" />} label="เพิ่ม Google Sheet" onSelect={() => createExternal('GOOGLE_SHEET')} />

@@ -1,35 +1,26 @@
-import { Bot, Building2, Cloud, ExternalLink, HardDrive, Server, Wallet } from 'lucide-react';
+import { Bot, Building2, Cloud, ExternalLink, HardDrive, Server, Wallet, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { RESOURCE_SOURCE_LABEL, type ResourceSource } from '@/lib/resource-sources';
 
-export type ResourceSource =
-  | 'MANUAL'
-  | 'GOOGLE'
-  | 'S2_PAYROLL'
-  | 'S2_ERP'
-  | 'S2_LINE_BOT'
-  | 'EXTERNAL_UPLOAD'
-  | 'SYSTEM';
+export { sourceLabel } from '@/lib/resource-sources';
+export type { ResourceSource } from '@/lib/resource-sources';
 
 /**
  * ต้นทางของทรัพยากร
  *
- * S2 NAS เป็นศูนย์กลางของทรัพยากรจากหลายระบบใน S2 Ecosystem
  * ป้ายนี้ต้องบอกได้ทันทีว่า "ทรัพยากรนี้มาจากไหน" โดยไม่แย่งสายตาไปจากชื่อไฟล์
  * จึงใช้สีเข้มเฉพาะที่ไอคอน ส่วนพื้นหลังคงความสุภาพไว้
+ * ชื่อที่แสดงมาจาก lib/resource-sources เพื่อให้ตารางกับป้ายพูดตรงกันเสมอ
  */
-const SOURCES = {
-  MANUAL: { label: 'Uploaded', icon: HardDrive, tone: 'text-navy-500' },
-  GOOGLE: { label: 'Google', icon: Cloud, tone: 'text-[#1a73e8]' },
-  S2_PAYROLL: { label: 'S2 Payroll', icon: Wallet, tone: 'text-violet-500' },
-  S2_ERP: { label: 'S2 ERP', icon: Building2, tone: 'text-sky-500' },
-  S2_LINE_BOT: { label: 'LINE Bot', icon: Bot, tone: 'text-[#06c755]' },
-  EXTERNAL_UPLOAD: { label: 'External', icon: ExternalLink, tone: 'text-amber-500' },
-  SYSTEM: { label: 'System', icon: Server, tone: 'text-navy-400' },
-} as const;
-
-export function sourceLabel(source?: ResourceSource): string {
-  return source ? SOURCES[source].label : '—';
-}
+const SOURCES: Record<ResourceSource, { label: string; icon: LucideIcon; tone: string }> = {
+  MANUAL: { label: RESOURCE_SOURCE_LABEL.MANUAL, icon: HardDrive, tone: 'text-navy-500' },
+  GOOGLE: { label: RESOURCE_SOURCE_LABEL.GOOGLE, icon: Cloud, tone: 'text-[#1a73e8]' },
+  S2_PAYROLL: { label: RESOURCE_SOURCE_LABEL.S2_PAYROLL, icon: Wallet, tone: 'text-violet-500' },
+  S2_ERP: { label: RESOURCE_SOURCE_LABEL.S2_ERP, icon: Building2, tone: 'text-sky-500' },
+  S2_LINE_BOT: { label: RESOURCE_SOURCE_LABEL.S2_LINE_BOT, icon: Bot, tone: 'text-[#06c755]' },
+  EXTERNAL_UPLOAD: { label: RESOURCE_SOURCE_LABEL.EXTERNAL_UPLOAD, icon: ExternalLink, tone: 'text-amber-500' },
+  SYSTEM: { label: RESOURCE_SOURCE_LABEL.SYSTEM, icon: Server, tone: 'text-navy-400' },
+};
 
 export function ResourceSourceBadge({
   source,

@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import { after, before, describe, test } from 'node:test';
 import * as unzipper from 'unzipper';
 import { prisma } from '../../core/prisma.js';
+import { env } from '../../config/env.js';
 import { resolveInsideStorage } from '../../core/storage.js';
 import { createFolder } from '../resources/resource.service.js';
 import { sanitizeFileName, resolveMimeType } from './file-security.js';
@@ -436,11 +437,23 @@ describe('Phase D file operations', () => {
     });
 
     test('ถังขยะแสดงรายการพร้อมตำแหน่งเดิมและผู้ลบ', async () => {
-      const items = await listTrash(folderOwner);
+      const { items } = await listTrash(folderOwner);
       const entry = items.find((item) => item.id === trashFileId);
       assert.ok(entry, 'ต้องพบรายการในถังขยะ');
       assert.equal(entry.deletedBy?.id, folderOwnerId);
-      assert.ok(entry.originalLocation.includes('Accounting'));
+      assert.ok(entry.originalLocation?.includes('Accounting'));
+    });
+
+    test('ถังขยะส่งค่านโยบายอายุมาด้วย เพื่อให้ข้อความบนหน้าจอตรงกับค่าที่ระบบใช้จริง', async () => {
+      const { items, retentionDays } = await listTrash(folderOwner);
+      assert.equal(retentionDays, env.S2_NAS_TRASH_RETENTION_DAYS);
+      const entry = items.find((item) => item.id === trashFileId);
+      // แต่ละรายการหมดอายุของตัวเอง นับจากวันที่ลบรายการนั้น
+      assert.ok(entry?.expiresAt instanceof Date);
+      assert.equal(
+        entry!.expiresAt!.getTime() - entry!.deletedAt!.getTime(),
+        retentionDays * 24 * 60 * 60 * 1000,
+      );
     });
 
     test('กู้คืนไฟล์กลับตำแหน่งเดิมได้', async () => {

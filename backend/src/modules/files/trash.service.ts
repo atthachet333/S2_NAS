@@ -1,4 +1,5 @@
 import { prisma } from '../../core/prisma.js';
+import { getSetting } from '../system/settings.service.js';
 import { AppError, forbidden, notFound } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
 import { deleteStoredFile, removeResourceDirectory } from '../../core/file-storage.js';
@@ -115,15 +116,31 @@ export async function listTrash(user: AuthUser) {
     : [];
   const parentName = new Map(parents.map((row) => [row.id, row.name]));
 
-  return roots
+  const retentionDays = await getSetting('TRASH_RETENTION_DAYS');
+  const items = roots
     .filter((row) => capabilities(row, user).canView)
     .map((row) => ({
       ...toResourceDto(row, user),
       deletedAt: row.deletedAt,
       deletedBy: row.deletedBy,
-      originalLocation: row.trashedFromId ? (parentName.get(row.trashedFromId) ?? 'โฟลเดอร์ที่ถูกลบแล้ว') : 'รากองค์กร',
+      /** null = รากของไดร์ฟ ให้หน้าจอเป็นผู้เติมชื่อไดร์ฟจาก drive-labels แหล่งเดียว */
+      originalLocation: row.trashedFromId ? (parentName.get(row.trashedFromId) ?? 'โฟลเดอร์ที่ถูกลบแล้ว') : null,
       originalParentId: row.trashedFromId,
+      /**
+       * แต่ละรายการหมดอายุของตัวเอง ไม่ใช่ล้างถังทั้งใบตามรอบ
+       * null = ปิดการลบถาวรอัตโนมัติ ผู้ใช้จะได้ไม่เห็นเวลานับถอยหลังที่ไม่มีวันเกิดขึ้นจริง
+       */
+      expiresAt:
+        retentionDays > 0 && row.deletedAt
+          ? new Date(row.deletedAt.getTime() + retentionDays * 24 * 60 * 60 * 1000)
+          : null,
     }));
+
+  /**
+   * ส่งค่านโยบายอายุถังขยะไปด้วย เพื่อให้ข้อความบนหน้าจอตรงกับค่าที่ระบบใช้จริงเสมอ
+   * ถ้าปล่อยให้หน้าจอเขียนจำนวนวันเอง วันหนึ่งที่ค่านี้เปลี่ยน ข้อความจะโกหกผู้ใช้ทันที
+   */
+  return { items, retentionDays };
 }
 
 /* ------------------------------------------------------------------ */
@@ -258,6 +275,14 @@ export async function describePermanentDelete(id: string, user: AuthUser) {
 }
 
 /**
+ * ผู้ลงมือลบถาวร
+ *
+ * userId = null หมายถึงระบบเป็นผู้ลงมือ (งานเก็บกวาดถังขยะตามอายุ) ไม่ใช่ผู้ใช้คนใด
+ * ActivityLog.userId เป็น optional อยู่แล้ว จึงบันทึกร่องรอยได้ครบโดยไม่ต้องสร้างบัญชีปลอม
+ */
+export type PurgeActor = { userId: string | null; reason: 'USER' | 'RETENTION' };
+
+/**
  * ลบถาวร: ลบไฟล์จริงของทุกเวอร์ชันก่อน แล้วจึงลบ metadata
  *
  * ถ้าลบไฟล์จริงบางส่วนไม่สำเร็จ จะไม่แกล้งรายงานว่าสำเร็จ
@@ -270,6 +295,19 @@ export async function permanentlyDelete(id: string, user: AuthUser, audit: Audit
   if (!capabilities(resource, user).canDelete) {
     throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์ลบทรัพยากรนี้', 403);
   }
+  return purgeTrashedResource(id, { userId: user.id, reason: 'USER' }, audit);
+}
+
+/**
+ * แกนกลางของการลบถาวร ใช้ร่วมกันระหว่างผู้ใช้กดลบเองและงานเก็บกวาดตามอายุ
+ *
+ * ตัวเรียกเป็นผู้ตรวจสิทธิ์เอง ฟังก์ชันนี้ตรวจเฉพาะเงื่อนไขที่เป็นความจริงของข้อมูล
+ * (ต้องอยู่ในถังขยะ และต้องไม่ถูกล็อก) เพื่อไม่ให้นโยบายสองเส้นทางแยกจากกัน
+ */
+export async function purgeTrashedResource(id: string, actor: PurgeActor, audit: AuditContext) {
+  const resource = await loadResource(id);
+  if (!resource.deletedAt) throw new AppError('RESOURCE_NOT_TRASHED', 'ต้องย้ายไปถังขยะก่อนลบถาวร', 400);
+  assertNotLocked(resource);
 
   const ids = resource.type === 'FOLDER' ? await collectSubtreeIds(id, true) : [id];
   const versions = await prisma.resourceVersion.findMany({
@@ -286,12 +324,12 @@ export async function permanentlyDelete(id: string, user: AuthUser, audit: Audit
   if (failed.length > 0) {
     await prisma.activityLog.create({
       data: {
-        userId: user.id,
+        userId: actor.userId,
         action: 'RESOURCE_PERMANENT_DELETE_FAILED',
         resourceId: id,
         ipAddress: audit.ipAddress,
         userAgent: audit.userAgent?.slice(0, 500),
-        metadata: { failedObjects: failed.length },
+        metadata: { failedObjects: failed.length, reason: actor.reason },
       },
     });
     throw new AppError(
@@ -309,11 +347,16 @@ export async function permanentlyDelete(id: string, user: AuthUser, audit: Audit
     }
     await tx.activityLog.create({
       data: {
-        userId: user.id,
+        userId: actor.userId,
         action: 'RESOURCE_PERMANENTLY_DELETED',
         ipAddress: audit.ipAddress,
         userAgent: audit.userAgent?.slice(0, 500),
-        metadata: { resourceCount: ids.length, versionCount: versions.length, name: resource.name },
+        metadata: {
+          resourceCount: ids.length,
+          versionCount: versions.length,
+          name: resource.name,
+          reason: actor.reason,
+        },
       },
     });
   });

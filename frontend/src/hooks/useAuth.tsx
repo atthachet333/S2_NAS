@@ -5,7 +5,8 @@ import { publishAuthEvent, runExclusive, subscribeAuthEvents } from '@/lib/sessi
 interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
-  login(email: string, password: string): Promise<void>;
+  /** คืนผู้ใช้ที่เพิ่งเข้าสู่ระบบ เพื่อให้หน้าเรียกตัดสินปลายทางได้ทันทีโดยไม่ต้องรอ state รอบถัดไป */
+  login(email: string, password: string): Promise<AuthUser>;
   logout(): Promise<void>;
   changePassword(currentPassword: string, newPassword: string): Promise<void>;
   updateProfile(displayName: string): Promise<void>;
@@ -120,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAccessToken(response.data.accessToken);
       setUser(response.data.user);
       publishAuthEvent('LOGIN');
+      return response.data.user;
     },
     async logout() {
       try {

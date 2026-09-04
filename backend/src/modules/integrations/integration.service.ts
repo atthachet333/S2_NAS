@@ -110,7 +110,7 @@ export async function authenticateApiKey(apiKey: string): Promise<IntegrationAut
   if (!credential.app.isActive) throw new AppError('INTEGRATION_DISABLED', 'Integration is disabled', 403);
   const scopes = credential.app.scopes as string[];
   const permissions = [scopes.includes('resources:read') ? 'resources:read' : '', scopes.some(s=>['resources:create','resources:upload','resources:update','resources:metadata'].includes(s)) ? 'resources:write' : ''].filter(Boolean);
-  const user: AuthUser = { id: credential.app.actorUser.id, email: credential.app.actorUser.email, displayName: credential.app.name, status: 'ACTIVE', mustChangePassword: false, roles: ['SERVICE'], permissions };
+  const user: AuthUser = { id: credential.app.actorUser.id, email: credential.app.actorUser.email, displayName: credential.app.name, type: 'SERVICE', status: 'ACTIVE', mustChangePassword: false, roles: ['SERVICE'], permissions };
   const now = new Date();
   await prisma.$transaction([prisma.integrationCredential.update({ where: { id: credential.id }, data: { lastUsedAt: now } }), prisma.integrationApp.update({ where: { id: credential.appId }, data: { lastUsedAt: now } })]);
   return { app: credential.app, user, credentialId: credential.id };

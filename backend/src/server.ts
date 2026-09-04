@@ -8,6 +8,11 @@ import {
   printLine,
 } from './core/banner.js';
 import { checkDatabase, disconnectDatabase } from './core/database.js';
+import { startTrashRetentionWorker } from './modules/files/trash-retention.js';
+import { startIndexWorker } from './modules/search/index.worker.js';
+import { startBackupScheduler } from './modules/backup/schedule.service.js';
+import { backupOperator } from './modules/backup/operator.js';
+import { verifyBackupRoot } from './modules/backup/backup-root.js';
 import { verifyStorage } from './core/storage.js';
 import { logger } from './core/logger.js';
 
@@ -73,11 +78,59 @@ async function start(): Promise<void> {
     process.exit(1);
   }
 
+  /**
+   * งานเบื้องหลังเริ่มหลัง HTTP พร้อมรับงานแล้วเท่านั้น
+   * ถ้าเริ่มก่อน การเก็บกวาดจะแย่ง connection pool ตอนที่ระบบยังไม่พร้อมให้บริการ
+   */
+  const retention = env.DATABASE_URL && db.status === 'CONNECTED' ? startTrashRetentionWorker() : null;
+  if (!retention) {
+    printLine('TRASH', 'Retention', 'SKIPPED (ฐานข้อมูลยังไม่พร้อม)', 'warn');
+  } else {
+    printLine('TRASH', 'Retention', `${env.S2_NAS_TRASH_RETENTION_DAYS} วันต่อรายการ`);
+  }
+
+  /**
+   * ตัวจับเวลาสำรองข้อมูลเริ่มก็ต่อเมื่อระบบพร้อมจริงทั้งสามอย่าง:
+   * ฐานข้อมูลต่อได้ storage พร้อม และรากของชุดสำรองเขียนได้
+   * การเริ่มทั้งที่ยังไม่พร้อมจะได้แค่ชุดสำรองที่ล้มเหลวเป็นประจำ
+   */
+  const backupRoot = await verifyBackupRoot();
+  printLine('BACKUP', 'Root', backupRoot.writable ? 'WRITABLE' : 'NOT WRITABLE', backupRoot.writable ? 'ok' : 'error');
+
+  const scheduler =
+    env.DATABASE_URL && db.status === 'CONNECTED' && backupRoot.writable
+      ? startBackupScheduler(backupOperator)
+      : null;
+  if (!scheduler) {
+    printLine('BACKUP', 'Schedule', 'SKIPPED (ระบบยังไม่พร้อม)', 'warn');
+  } else {
+    printLine(
+      'BACKUP',
+      'Schedule',
+      `${env.S2_NAS_BACKUP_TIME} ${env.S2_NAS_BACKUP_TIMEZONE} (เก็บ ${env.S2_NAS_BACKUP_RETENTION_DAYS} วัน)`,
+    );
+  }
+
+  /**
+   * ตัวสกัดข้อความเริ่มหลังสุด และไม่บล็อกการเริ่มระบบ
+   * งานค้างจากการรีสตาร์ทครั้งก่อนถูกกู้คืนเองในเบื้องหลัง
+   */
+  const indexWorker =
+    env.DATABASE_URL && db.status === 'CONNECTED' ? startIndexWorker() : null;
+  if (!indexWorker) {
+    printLine('SEARCH', 'Content index', 'DISABLED', 'warn');
+  } else {
+    printLine('SEARCH', 'Content index', `${env.S2_NAS_EXTRACT_CONCURRENCY} worker · ทุก ${env.S2_NAS_EXTRACT_POLL_SECONDS}s`);
+  }
+
   printBannerFooter('Backend ready');
 
   const shutdown = async (signal: string): Promise<void> => {
     process.stdout.write(`\n[${BRAND.name}] ได้รับสัญญาณ ${signal} - กำลังปิดระบบ\n`);
     try {
+      retention?.stop();
+      scheduler?.stop();
+      indexWorker?.stop();
       await app.close();
       await disconnectDatabase();
     } finally {

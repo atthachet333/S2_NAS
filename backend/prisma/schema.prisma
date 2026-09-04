@@ -7,8 +7,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// การจำแนกชนิดของบัญชี - เป็นตัวกำหนดนโยบายพื้นฐาน ไม่ใช่บทบาท
+/// INTERNAL = บุคลากรขององค์กร ใช้พื้นที่ทำงานภายในตามบทบาทและสิทธิ์ปกติ
+/// EXTERNAL = ลูกค้า/ผู้ใช้งานภายนอก เห็นได้เฉพาะสิ่งที่ถูกแชร์ให้โดยตรงผ่าน /portal เท่านั้น
+/// SERVICE  = บัญชีตัวแทนของระบบเชื่อมต่อ ไม่ใช่มนุษย์
+///
+/// ชนิดของบัญชีมีน้ำหนักเหนือบทบาทเสมอ บัญชี EXTERNAL ที่เผลอได้บทบาทภายในกว้าง ๆ
+/// ก็ยังถูกจำกัดด้วยนโยบายภายนอกอยู่ดี (ดู modules/portal/portal-policy.ts)
 enum UserType {
-  HUMAN
+  INTERNAL
+  EXTERNAL
   SERVICE
 }
 
@@ -64,36 +72,43 @@ enum ResourceAccessLevel {
 }
 
 model User {
-  id                 String               @id @default(cuid())
-  email              String               @unique @db.VarChar(191)
-  displayName        String               @db.VarChar(191)
-  passwordHash       String?              @db.VarChar(191)
-  type               UserType             @default(HUMAN)
-  status             UserStatus           @default(INVITED)
-  mustChangePassword Boolean              @default(true)
-  tokenVersion       Int                  @default(0)
-  lastLoginAt        DateTime?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  roles              UserRole[]
-  refreshTokens      RefreshToken[]
-  activityLogs       ActivityLog[]
-  ownedResources     Resource[]           @relation("ResourceOwner")
-  createdResources   Resource[]           @relation("ResourceCreator")
-  updatedResources   Resource[]           @relation("ResourceUpdater")
-  deletedResources   Resource[]           @relation("ResourceDeleter")
-  lockedResources    Resource[]           @relation("ResourceLocker")
-  favorites          UserFavorite[]       @relation("UserFavorites")
-  pins               UserPinnedResource[] @relation("UserPins")
-  createdTags        Tag[]                @relation("TagCreator")
-  taggedResources    ResourceTag[]        @relation("ResourceTagCreator")
-  createdVersions    ResourceVersion[]    @relation("ResourceVersionCreator")
-  resourceAccess     ResourceAccess[]     @relation("ResourceAccessUser")
-  grantedAccess      ResourceAccess[]     @relation("ResourceAccessCreator")
-  integrationApp     IntegrationApp?      @relation("IntegrationActor")
+  id                  String                @id @default(cuid())
+  email               String                @unique @db.VarChar(191)
+  displayName         String                @db.VarChar(191)
+  passwordHash        String?               @db.VarChar(191)
+  type                UserType              @default(INTERNAL)
+  status              UserStatus            @default(INVITED)
+  mustChangePassword  Boolean               @default(true)
+  tokenVersion        Int                   @default(0)
+  lastLoginAt         DateTime?
+  /// ชื่อบริษัท/หน่วยงานของผู้ใช้ภายนอก - ใช้แยกแยะลูกค้าในหน้าจัดการเท่านั้น
+  /// ไม่ใช่ขอบเขตสิทธิ์ สิทธิ์มาจากการแชร์รายทรัพยากรเสมอ
+  organizationName    String?               @db.VarChar(191)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  roles               UserRole[]
+  refreshTokens       RefreshToken[]
+  activityLogs        ActivityLog[]
+  ownedResources      Resource[]            @relation("ResourceOwner")
+  createdResources    Resource[]            @relation("ResourceCreator")
+  updatedResources    Resource[]            @relation("ResourceUpdater")
+  deletedResources    Resource[]            @relation("ResourceDeleter")
+  lockedResources     Resource[]            @relation("ResourceLocker")
+  favorites           UserFavorite[]        @relation("UserFavorites")
+  pins                UserPinnedResource[]  @relation("UserPins")
+  createdTags         Tag[]                 @relation("TagCreator")
+  taggedResources     ResourceTag[]         @relation("ResourceTagCreator")
+  createdVersions     ResourceVersion[]     @relation("ResourceVersionCreator")
+  resourceAccess      ResourceAccess[]      @relation("ResourceAccessUser")
+  grantedAccess       ResourceAccess[]      @relation("ResourceAccessCreator")
+  integrationApp      IntegrationApp?       @relation("IntegrationActor")
+  triggeredBackups    BackupLog[]           @relation("BackupTrigger")
+  triggeredRehearsals RestoreRehearsalLog[] @relation("RehearsalTrigger")
+  identities          UserIdentity[]        @relation("UserIdentities")
 
   @@index([status])
   @@index([createdAt])
+  @@index([type, status])
   @@map("users")
 }
 
@@ -150,6 +165,7 @@ model Resource {
   tags                      ResourceTag[]
   favoritedBy               UserFavorite[]
   pinnedBy                  UserPinnedResource[]
+  searchIndex               ResourceSearchIndex[]
   createdByIntegrationApp   IntegrationApp?          @relation("IntegrationResourceCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
   integrationScopeApps      IntegrationApp[]         @relation("IntegrationAllowedRoot")
   integrationIdempotency    IntegrationIdempotency[]
@@ -187,9 +203,10 @@ model ResourceVersion {
   createdAt                 DateTime @default(now())
   createdByIntegrationAppId String?
 
-  resource                Resource        @relation(fields: [resourceId], references: [id], onDelete: Cascade)
-  createdBy               User            @relation("ResourceVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  createdByIntegrationApp IntegrationApp? @relation("IntegrationVersionCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
+  resource                Resource             @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  createdBy               User                 @relation("ResourceVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdByIntegrationApp IntegrationApp?      @relation("IntegrationVersionCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
+  searchIndex             ResourceSearchIndex?
 
   @@unique([resourceId, versionNumber])
   @@index([resourceId])
@@ -266,12 +283,19 @@ model ResourceTag {
   @@map("resource_tags")
 }
 
+/// การมอบสิทธิ์รายบุคคลบนทรัพยากรหนึ่งชิ้น
+///
+/// expiresAt ทำให้สิทธิ์ของลูกค้าหมดอายุเองโดยไม่ต้องรอใครมาเก็บกวาด
+/// การตรวจสิทธิ์ทุกครั้งเทียบกับเวลาปัจจุบันเสมอ แถวที่หมดอายุจึงถูกปฏิเสธทันที
+/// แต่ยังคงอยู่ในฐานข้อมูลเพื่อการตรวจสอบย้อนหลัง
 model ResourceAccess {
   id            String              @id @default(cuid())
   resourceId    String
   userId        String
   accessLevel   ResourceAccessLevel
   allowDownload Boolean             @default(false)
+  /// null = ไม่หมดอายุ มิฉะนั้นคือเวลาสิ้นสุดสิทธิ์แบบสัมบูรณ์ (UTC)
+  expiresAt     DateTime?
   createdById   String
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
@@ -282,6 +306,7 @@ model ResourceAccess {
   @@unique([resourceId, userId])
   @@index([resourceId])
   @@index([userId])
+  @@index([userId, expiresAt])
   @@map("resource_access")
 }
 
@@ -432,4 +457,207 @@ model SystemSetting {
   updatedAt   DateTime @updatedAt
 
   @@map("system_settings")
+}
+
+enum BackupStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum BackupType {
+  FULL
+}
+
+/// ใครสั่งให้สำรอง - ผู้ดูแลกดเอง หรือตารางเวลาของระบบ
+/// จำเป็นต่อการกันไม่ให้รันซ้ำหลังเซิร์ฟเวอร์รีสตาร์ท
+enum BackupTrigger {
+  MANUAL
+  SCHEDULED
+}
+
+/// สถานะการคัดลอกออกไปเก็บนอกเครื่อง - แยกจาก BackupStatus โดยตั้งใจ
+/// ชุดสำรองในเครื่องที่ตรวจผ่านแล้วยังถือว่าใช้ได้ แม้การคัดลอกออกนอกเครื่องจะล้มเหลว
+enum OffsiteState {
+  NOT_CONFIGURED
+  PENDING
+  COPYING
+  VERIFIED
+  FAILED
+}
+
+/// บันทึกการสำรองข้อมูลหนึ่งครั้ง = ภาพนิ่งหนึ่งชุดที่สอดคล้องกันของ S2 NAS
+/// ห้ามส่ง backupName หรือ path จริงออกไปใน DTO - เป็นข้อมูลของเครื่อง ไม่ใช่ของผู้ใช้
+model BackupLog {
+  id                String        @id @default(cuid())
+  status            BackupStatus  @default(PENDING)
+  type              BackupType    @default(FULL)
+  startedAt         DateTime      @default(now())
+  completedAt       DateTime?
+  triggeredByUserId String?
+  databaseBytes     BigInt?
+  storageBytes      BigInt?
+  totalBytes        BigInt?
+  fileCount         Int?
+  /// ชื่อโฟลเดอร์ของชุดสำรองภายใต้ S2_NAS_BACKUP_ROOT (ไม่ใช่ absolute path)
+  backupName        String        @unique @db.VarChar(191)
+  errorCode         String?       @db.VarChar(100)
+  /// ข้อความที่ปลอดภัยพอจะแสดงให้ผู้ดูแลเห็น ห้ามมี command line, path จริง หรือรหัสผ่าน
+  errorMessageSafe  String?       @db.VarChar(500)
+  manifestChecksum  String?       @db.VarChar(191)
+  /// ผู้สั่ง - ตารางเวลาหรือผู้ดูแล
+  trigger           BackupTrigger @default(MANUAL)
+  /// สถานะสำเนานอกเครื่องของชุดสำรองนี้
+  offsiteState      OffsiteState  @default(NOT_CONFIGURED)
+  offsiteVerifiedAt DateTime?
+  offsiteAttempts   Int           @default(0)
+  /// เหตุผลที่คัดลอกออกนอกเครื่องไม่สำเร็จ - ต้องไม่มี path จริงหรือความลับ
+  offsiteErrorSafe  String?       @db.VarChar(500)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  triggeredBy User? @relation("BackupTrigger", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([startedAt])
+  @@index([trigger, status, startedAt])
+  @@index([offsiteState])
+  @@map("backup_logs")
+}
+
+/// ผลของการซ้อมกู้คืน - ชุดสำรองที่ยังไม่เคยกู้คืนสำเร็จ ยังพิสูจน์ไม่ได้ว่าใช้ได้จริง
+enum RehearsalStatus {
+  RUNNING
+  PASSED
+  FAILED
+}
+
+enum RehearsalTrigger {
+  MANUAL
+  SCHEDULED
+}
+
+/// บันทึกการซ้อมกู้คืนหนึ่งครั้ง
+/// ซ้อมในพื้นที่พักเสมอ ไม่มีขั้นตอนใดแตะระบบที่ใช้งานจริง
+model RestoreRehearsalLog {
+  id                String           @id @default(cuid())
+  backupId          String           @db.VarChar(191)
+  status            RehearsalStatus  @default(RUNNING)
+  trigger           RehearsalTrigger @default(MANUAL)
+  startedAt         DateTime         @default(now())
+  completedAt       DateTime?
+  databaseRestored  Boolean          @default(false)
+  storageRestored   Boolean          @default(false)
+  resourceCount     Int?
+  versionCount      Int?
+  missingCount      Int?
+  orphanCount       Int?
+  checksumFailures  Int?
+  /// การล้างพื้นที่พักล้มเหลวต้องเห็นแยกจากผลการซ้อม
+  cleanupFailed     Boolean          @default(false)
+  errorCode         String?          @db.VarChar(100)
+  /// ข้อความที่ปลอดภัยพอจะแสดงให้ผู้ดูแล ห้ามมี path จริง คำสั่ง หรือรหัสผ่าน
+  errorMessageSafe  String?          @db.VarChar(500)
+  triggeredByUserId String?
+  createdAt         DateTime         @default(now())
+
+  triggeredBy User? @relation("RehearsalTrigger", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, startedAt])
+  @@index([backupId])
+  @@map("restore_rehearsal_logs")
+}
+
+/// สถานะการสกัดข้อความของไฟล์หนึ่งเวอร์ชัน
+///
+/// ทุกสถานะมีความหมายชัดเจน ไม่มีการใช้ null แทน "ไม่รู้"
+/// PENDING     = รอคิว
+/// PROCESSING  = กำลังทำ (มี processingStartedAt กำกับ ใช้กู้คืนหลังเซิร์ฟเวอร์ล่ม)
+/// READY       = สกัดสำเร็จ มีข้อความค้นได้
+/// NO_TEXT     = ไฟล์ถูกต้องแต่ไม่มีข้อความให้สกัด เช่น PDF ที่เป็นภาพสแกน (ยังไม่มี OCR)
+/// UNSUPPORTED = ชนิดไฟล์ที่ระบบยังไม่สกัด เช่น รูปภาพ วิดีโอ ไฟล์บีบอัด
+/// FAILED      = พยายามแล้วไม่สำเร็จ เช่น ไฟล์เสียหายหรือมีรหัสผ่าน
+enum SearchIndexStatus {
+  PENDING
+  PROCESSING
+  READY
+  NO_TEXT
+  UNSUPPORTED
+  FAILED
+}
+
+/// ข้อความที่สกัดจากไฟล์หนึ่งเวอร์ชัน เพื่อให้ค้นหาจาก "เนื้อในเอกสาร" ได้
+///
+/// หนึ่งแถวต่อหนึ่งเวอร์ชัน - งานสกัดจึงทำซ้ำได้โดยไม่เกิดผลข้างเคียง (idempotent)
+/// และประวัติของเวอร์ชันเก่ายังอยู่ครบ
+///
+/// การค้นหาปกติเทียบ versionNumber กับ Resource.currentVersion เสมอ
+/// เนื้อหาของเวอร์ชันเก่าจึงไม่มีทางถูกคืนเป็นผลลัพธ์ปัจจุบัน
+///
+/// ข้อความที่สกัดได้เป็นข้อมูลลับเท่ากับตัวเอกสารต้นทาง
+/// ห้ามบันทึกลง log ห้ามส่งออกนอกระบบ และห้ามคืนให้ผู้ที่ไม่มีสิทธิ์เห็นเอกสารนั้น
+model ResourceSearchIndex {
+  id                  String            @id @default(cuid())
+  resourceId          String
+  resourceVersionId   String            @unique
+  /// เลขเวอร์ชันของไฟล์ ใช้เทียบกับ Resource.currentVersion เพื่อหาเวอร์ชันที่มีผลอยู่
+  versionNumber       Int
+  status              SearchIndexStatus @default(PENDING)
+  mimeType            String?           @db.VarChar(191)
+  /// ข้อความตามที่สกัดได้จริง ใช้ตัดข้อความรอบคำค้นมาแสดง
+  extractedText       String?           @db.MediumText
+  /// ข้อความที่ปรับให้เทียบง่าย - NFC + ตัวพิมพ์เล็ก + ยุบช่องว่าง ใช้เป็นเป้าของการค้นหา
+  normalizedText      String?           @db.MediumText
+  characterCount      Int               @default(0)
+  /// ข้อความยาวเกินเพดานจึงถูกตัด - ต้องบอกตามจริง ไม่ใช่ทำเหมือนสกัดครบ
+  truncated           Boolean           @default(false)
+  extractedAt         DateTime?
+  /// รุ่นของตัวสกัด ใช้ตัดสินว่าควรสกัดใหม่เมื่อกติกาการสกัดเปลี่ยน
+  extractorVersion    String            @db.VarChar(32)
+  errorCode           String?           @db.VarChar(100)
+  attempts            Int               @default(0)
+  /// เวลาที่เริ่มทำงาน - งานที่ค้างอยู่นานเกินไปแปลว่าเซิร์ฟเวอร์ล่มกลางคัน
+  processingStartedAt DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  resource Resource        @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  version  ResourceVersion @relation(fields: [resourceVersionId], references: [id], onDelete: Cascade)
+
+  @@index([resourceId, versionNumber])
+  @@index([status, createdAt])
+  @@index([status, processingStartedAt])
+  @@map("resource_search_index")
+}
+
+/// ผู้ให้บริการยืนยันตัวตนภายนอก - F9 รองรับเฉพาะ Google
+enum IdentityProvider {
+  GOOGLE
+}
+
+/// การเชื่อมบัญชีภายนอกเข้ากับผู้ใช้ S2 NAS ที่มีอยู่แล้ว
+///
+/// providerSubject (sub ของ Google) คือกุญแจตัวจริงของตัวตน ไม่ใช่อีเมล
+/// เพราะผู้ใช้เปลี่ยนอีเมลของบัญชี Google ได้ แต่ sub ไม่เปลี่ยน
+/// การยึดอีเมลเป็นกุญแจจะทำให้ตัวตนย้ายไปหาผู้ใช้คนอื่นได้เมื่ออีเมลถูกเปลี่ยนมือ
+model UserIdentity {
+  id                      String           @id @default(cuid())
+  userId                  String
+  provider                IdentityProvider
+  providerSubject         String           @db.VarChar(191)
+  providerEmail           String?          @db.VarChar(191)
+  providerEmailNormalized String?          @db.VarChar(191)
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  lastLoginAt             DateTime?
+
+  user User @relation("UserIdentities", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// ตัวตนภายนอกหนึ่งอันผูกกับผู้ใช้ได้คนเดียวเท่านั้น
+  @@unique([provider, providerSubject])
+  /// หนึ่งผู้ใช้เชื่อมบัญชี Google ได้บัญชีเดียว - กันความกำกวมตอนกู้คืนการเข้าถึง
+  @@unique([provider, userId])
+  @@index([providerEmailNormalized])
+  @@map("user_identities")
 }

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { driveRootLabel } from '@/lib/drive-labels';
+import { Badge } from '@/components/ui/Panel';
+import { URGENCY_TONE, trashCountdown } from '@/lib/trash-countdown';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, RotateCcw, Trash2 } from 'lucide-react';
+import { AlertTriangle, RotateCcw, Trash2, Clock } from 'lucide-react';
 import { ApiError, fileApi, type TrashEntryDto } from '@/lib/api';
 import { toDriveEntry } from '@/lib/drive';
 import { uploadErrorText } from '@/lib/error-text';
@@ -75,7 +78,9 @@ export default function TrashPage() {
     },
   });
 
-  const items = data?.data ?? [];
+  const items = data?.data.items ?? [];
+  /** จำนวนวันมาจาก backend เสมอ ถ้าหน้าจอเขียนเองไว้ ข้อความจะโกหกทันทีที่ค่าถูกเปลี่ยน */
+  const retentionDays = data?.data.retentionDays ?? 0;
 
   return (
     <div className="space-y-6">
@@ -83,6 +88,17 @@ export default function TrashPage() {
         title="ถังขยะ"
         description="รายการที่ถูกลบยังคงอยู่บนเซิร์ฟเวอร์จนกว่าจะลบถาวร"
       />
+
+      {/* ประกาศนโยบายรวม ส่วนเวลาที่เหลือของแต่ละรายการอยู่ที่แถวของรายการนั้น */}
+      {retentionDays > 0 ? (
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12px] leading-relaxed text-amber-700"
+        >
+          <Clock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          รายการในถังขยะจะถูกลบถาวรอัตโนมัติหลัง {retentionDays} วัน
+        </p>
+      ) : null}
 
       <section>
         <div className="flex items-baseline justify-between gap-3 border-t border-line pt-4">
@@ -110,6 +126,7 @@ export default function TrashPage() {
             <ul className="overflow-hidden rounded-2xl border border-[var(--s2-card-border)] bg-[var(--s2-layer-card)]">
               {items.map((item) => {
                 const entry = toDriveEntry(item);
+                const countdown = trashCountdown(item.expiresAt);
                 return (
                   <li key={item.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-0">
                     <FileTypeIcon
@@ -123,19 +140,29 @@ export default function TrashPage() {
                       <p className="truncate text-[13px] font-medium text-navy-900">{item.name}</p>
                       <p className="mt-0.5 truncate text-[10.5px] text-navy-400">
                         {item.type === 'FOLDER' ? 'โฟลเดอร์' : formatBytes(entry.sizeBytes)} · เดิมอยู่ใน{' '}
-                        {item.originalLocation}
+                        {item.originalLocation ?? driveRootLabel(entry.driveRoot)}
                       </p>
                     </div>
 
                     <div className="flex min-w-0 items-center gap-1.5">
                       {item.deletedBy ? <OwnerAvatar owner={item.deletedBy} size="xs" /> : null}
-                      <span
-                        className="truncate text-[10.5px] text-navy-400"
-                        title={formatDateTime(item.deletedAt)}
-                      >
+                      <span className="truncate text-[10.5px] text-navy-400">
                         {item.deletedBy ? `${ownerLabel(item.deletedBy)} · ` : ''}
                         {formatRelativeTime(item.deletedAt)}
                       </span>
+                    </div>
+
+                    {/*
+                      วันที่ลบและเวลาที่เหลือ - ผู้ใช้ต้องเห็นทั้งสองอย่างโดยไม่ต้องชี้เมาส์
+                      ความเร่งด่วนสื่อด้วยข้อความเสมอ สีเป็นเพียงตัวช่วย ไม่ใช่ตัวบอกความหมายเพียงอย่างเดียว
+                    */}
+                    <div className="flex shrink-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
+                      <span className="whitespace-nowrap text-[10.5px] text-navy-400">
+                        วันที่ลบ {formatDateTime(item.deletedAt)}
+                      </span>
+                      {countdown ? (
+                        <Badge tone={URGENCY_TONE[countdown.urgency]}>{countdown.label}</Badge>
+                      ) : null}
                     </div>
 
                     <div className="flex shrink-0 gap-1.5">
@@ -230,7 +257,17 @@ function RestoreConflictDialog({
           <>
             <p className="mt-2 text-[12px] leading-relaxed text-navy-500">เลือกโฟลเดอร์ปลายทางสำหรับกู้คืนรายการนี้</p>
             <div className="mt-4">
-              <FolderPicker value={targetParentId} onChange={(id) => { setTargetParentId(id); setLocationChosen(true); }} excludeId={conflict.item.id} />
+              {/* การกู้คืนคงไดร์ฟเดิมของรายการเสมอ (backend ใช้ resource.driveScope) จึงล็อกตัวเลือกไว้ที่ไดร์ฟนั้น */}
+              <FolderPicker
+                value={targetParentId}
+                onChange={(id) => { setTargetParentId(id); setLocationChosen(true); }}
+                driveRoot={conflict.item.driveScope}
+                onDriveRootChange={() => undefined}
+                selectableDriveRoots={[conflict.item.driveScope]}
+                currentDriveRoot={conflict.item.driveScope}
+                disabledDriveReason="กู้คืนได้เฉพาะไดร์ฟเดิมของรายการนี้"
+                excludeId={conflict.item.id}
+              />
             </div>
           </>
         )}

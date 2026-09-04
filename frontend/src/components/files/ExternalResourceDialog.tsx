@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { DriveRoot } from '@/lib/drive-labels';
 import { FileText, Globe2, Link2, Sheet, X } from 'lucide-react';
 import { ApiError, resourceApi } from '@/lib/api';
 import type { DriveEntry } from '@/lib/drive';
@@ -11,8 +12,8 @@ const ERRORS = {
   RESOURCE_ACCESS_DENIED: 'คุณไม่มีสิทธิ์เพิ่มทรัพยากรในตำแหน่งนี้',
 } as const;
 
-export function ExternalResourceDialog({ type, parentId, entry, destinationName, onClose, onSuccess }: {
-  type: ExternalResourceType; parentId: string | null; entry?: DriveEntry | null; destinationName: string;
+export function ExternalResourceDialog({ type, parentId, driveRoot = 'MY_DRIVE', entry, destinationName, onClose, onSuccess }: {
+  type: ExternalResourceType; parentId: string | null; driveRoot?: DriveRoot; entry?: DriveEntry | null; destinationName: string;
   onClose: () => void; onSuccess: (message: string) => void;
 }) {
   const meta = EXTERNAL_RESOURCE_META[type];
@@ -32,7 +33,7 @@ export function ExternalResourceDialog({ type, parentId, entry, destinationName,
     setError(null); setSubmitting(true);
     try {
       if (entry) await resourceApi.update(entry.id, { name, externalUrl: url, remark: remark.trim() || null });
-      else await resourceApi.createExternal({ type, name, parentId, url, remark: remark.trim() || null });
+      else await resourceApi.createExternal({ type, name, parentId, url, remark: remark.trim() || null, ...(parentId ? {} : { driveScope: driveRoot }) });
       onSuccess(entry ? 'แก้ไขลิงก์แล้ว' : meta.toast);
     } catch (reason) {
       setError(reason instanceof ApiError ? ERRORS[reason.code as keyof typeof ERRORS] ?? reason.message : 'ดำเนินการไม่สำเร็จ');

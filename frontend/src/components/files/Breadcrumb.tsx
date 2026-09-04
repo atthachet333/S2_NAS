@@ -15,10 +15,13 @@ const MAX_VISIBLE = 3;
 
 export function Breadcrumb({
   root,
+  rootTo = '/files',
   nodes,
   className,
 }: {
   root: string;
+  /** เส้นทางของรากไดร์ฟที่กำลังอยู่ - ไดร์ฟของระบบต้องไม่ลิงก์กลับไปไดร์ฟของฉัน */
+  rootTo?: string;
   nodes: BreadcrumbNode[];
   className?: string;
 }) {
@@ -39,7 +42,7 @@ export function Breadcrumb({
       )}
     >
       <Link
-        to="/files"
+        to={rootTo}
         className={cn(
           'shrink-0 rounded-md px-1.5 py-0.5 transition-colors hover:bg-navy-50',
           nodes.length === 0 ? 'font-semibold text-navy-800' : 'text-navy-500 hover:text-navy-800',
@@ -67,7 +70,7 @@ export function Breadcrumb({
               {hiddenNodes.map((node) => (
                 <Link
                   key={node.id ?? node.name}
-                  to={node.id ? `/files/${node.id}` : '/files'}
+                  to={node.id ? `${rootTo}/${node.id}` : rootTo}
                   role="menuitem"
                   onClick={() => setExpanded(false)}
                   className="s2-menu-item"
@@ -91,7 +94,7 @@ export function Breadcrumb({
               </span>
             ) : (
               <Link
-                to={node.id ? `/files/${node.id}` : '/files'}
+                to={node.id ? `${rootTo}/${node.id}` : rootTo}
                 className="max-w-[32vw] truncate rounded-md px-1.5 py-0.5 text-navy-500 transition-colors hover:bg-navy-50 hover:text-navy-800 sm:max-w-none"
               >
                 {node.name}

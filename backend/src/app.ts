@@ -14,6 +14,7 @@ import { registerErrorHandler } from './plugins/error-handler.js';
 import { registerRequestLogging } from './plugins/request-logging.js';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { systemRoutes } from './modules/system/system.routes.js';
+import { backupRoutes } from './modules/backup/backup.routes.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { usersRoutes } from './modules/users/users.routes.js';
 import { resourceRoutes } from './modules/resources/resource.routes.js';
@@ -21,6 +22,7 @@ import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js';
 import { fileRoutes } from './modules/files/file.routes.js';
 import { workspaceRoutes } from './modules/workspace/workspace.routes.js';
 import { integrationRoutes } from './modules/integrations/integration.routes.js';
+import { portalRoutes } from './modules/portal/portal.routes.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -62,6 +64,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(fileRoutes);
       await api.register(workspaceRoutes);
       await api.register(integrationRoutes);
+      await api.register(portalRoutes);
+      await api.register(backupRoutes);
     },
     { prefix: '/api' },
   );

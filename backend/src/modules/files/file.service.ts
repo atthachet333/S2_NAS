@@ -19,8 +19,10 @@ import {
   validateResourceName,
 } from '../resources/resource.service.js';
 import { siblingKey } from '../resources/sibling-key.js';
+import { getSetting } from '../system/settings.service.js';
 import { assertCanCreateInSystemDrive } from '../resources/system-drive.js';
 import { resolveMimeType, sanitizeFileName } from './file-security.js';
+import { enqueueExtraction } from '../search/search-index.service.js';
 import type { AuthUser } from '../auth/auth.service.js';
 
 const ownerSelect = { id: true, displayName: true, email: true } as const;
@@ -44,6 +46,16 @@ export interface UploadInput {
   sourceEntityType?: string | null;
   sourceEntityId?: string | null;
   sourceUrl?: string | null;
+  /**
+   * รหัสโฟลเดอร์ที่พื้นที่ลูกค้าตรวจสิทธิ์เรียบร้อยแล้ว
+   *
+   * ตั้งได้จาก modules/portal เท่านั้น หลังจาก resolvePortalAccess ยืนยันว่า
+   * ผู้ใช้ภายนอกมีสิทธิ์ CONTRIBUTOR บนโฟลเดอร์ใบนั้นจริง
+   * เส้นทางของเบราว์เซอร์ภายในและ Integration API ไม่รับค่านี้จากผู้เรียกเด็ดขาด
+   *
+   * ต้องตรงกับ parentId เสมอ - ค่าที่ไม่ตรงกันแปลว่ามีคนพยายามย้ายปลายทาง
+   */
+  portalAuthorizedParentId?: string;
 }
 
 export interface AuditContext {
@@ -62,7 +74,25 @@ async function loadResource(id: string) {
 }
 
 /** โฟลเดอร์ปลายทางต้องมีอยู่ ยังไม่ถูกลบ และผู้ใช้ต้องมีสิทธิ์สร้างในนั้น */
-async function assertUploadTarget(parentId: string | null, user: AuthUser) {
+async function assertUploadTarget(parentId: string | null, user: AuthUser, portalAuthorizedParentId?: string) {
+  /**
+   * เส้นทางของพื้นที่ลูกค้า
+   *
+   * สิทธิ์ถูกตัดสินไปแล้วจากการแชร์ ไม่ใช่จากบทบาทภายใน จึงไม่เรียก capabilities ซ้ำ
+   * (ผู้ใช้ภายนอกได้ค่าปฏิเสธทั้งหมดจากที่นั่นอยู่แล้วโดยตั้งใจ)
+   * แต่กติกาที่เหลือยังบังคับใช้ครบ: ต้องเป็นโฟลเดอร์ ต้องไม่ถูกลบ และต้องไม่ถูกล็อก
+   */
+  if (portalAuthorizedParentId !== undefined) {
+    if (!parentId || parentId !== portalAuthorizedParentId) {
+      throw forbidden('ปลายทางการอัปโหลดไม่ตรงกับสิทธิ์ที่ได้รับ');
+    }
+    const target = await loadResource(parentId);
+    if (target.deletedAt) throw notFound('FOLDER_NOT_FOUND', 'ไม่พบโฟลเดอร์ปลายทาง');
+    if (target.type !== 'FOLDER') throw notFound('FOLDER_NOT_FOUND', 'ปลายทางไม่ใช่โฟลเดอร์');
+    assertNotLocked(target);
+    return target;
+  }
+
   if (!parentId) {
     if (!user.permissions.includes('resources:write')) {
       throw forbidden('ไม่มีสิทธิ์อัปโหลดไฟล์ในระดับราก');
@@ -129,7 +159,7 @@ export async function uploadFile(
   input: UploadInput,
   audit: AuditContext,
 ): Promise<UploadResult> {
-  const parent = await assertUploadTarget(input.parentId, user);
+  const parent = await assertUploadTarget(input.parentId, user, input.portalAuthorizedParentId);
   /** โฟลเดอร์แม่เป็นผู้กำหนดไดร์ฟเสมอ ผู้เรียกระบุได้เฉพาะตอนอัปโหลดที่ระดับราก */
   const destinationDrive: DriveScope = parent?.driveScope ?? input.driveScope ?? 'MY_DRIVE';
   if (!parent && destinationDrive === 'SYSTEM_DRIVE') assertCanCreateInSystemDrive(user);
@@ -139,7 +169,12 @@ export async function uploadFile(
   let staged: StagedFile | null = null;
 
   try {
-    staged = await stageUpload(source);
+    /**
+     * ขนาดสูงสุดที่มีผลจริง ตรวจระหว่างสตรีมจึงไม่เขียนไฟล์ใหญ่เกินกำหนดลงดิสก์
+     * ชั้น transport (bodyLimit/fileSize) ยังเป็นเพดานแข็งที่ตั้งไว้ตอน start server
+     * ค่านี้จึงลดได้ทันที แต่เพิ่มเกินเพดานนั้นต้องรีสตาร์ทก่อน
+     */
+    staged = await stageUpload(source, { maxBytes: await effectiveUploadBytes() });
 
     // ตรวจชนิดไฟล์จากลายเซ็นจริง ไม่เชื่อค่าที่เบราว์เซอร์ประกาศมา
     const { createReadStream } = await import('node:fs');
@@ -227,7 +262,7 @@ export async function uploadFile(
           include: resourceInclude,
         });
 
-        await tx.resourceVersion.create({
+        const firstVersion = await tx.resourceVersion.create({
           data: {
             resourceId: resource.id,
             versionNumber: 1,
@@ -253,13 +288,20 @@ export async function uploadFile(
           },
         });
 
-        return resource;
+        return { resource, versionId: firstVersion.id };
       });
+
+      /**
+       * เข้าคิวสกัดข้อความหลังธุรกรรมสำเร็จแล้วเท่านั้น
+       * ไม่รอให้สกัดเสร็จก่อนตอบผู้ใช้ - การอัปโหลดต้องเร็วเท่าเดิมเสมอ
+       * และไฟล์ต้องใช้งานได้ทันทีแม้การทำดัชนีจะยังไม่เริ่ม
+       */
+      await enqueueExtraction(created.versionId);
 
       logger.info(`[UPLOAD] "${finalName}" (${stored.size} bytes)`);
       return {
         status: 'CREATED',
-        resource: toResourceDto(created, user),
+        resource: toResourceDto(created.resource, user),
         ...(duplicate ? { duplicateOf: duplicate } : {}),
       };
     } catch (error) {
@@ -301,7 +343,8 @@ export async function uploadVersion(
 
   let staged: StagedFile | null = null;
   try {
-    staged = await stageUpload(source);
+    // เวอร์ชันใหม่ใช้เพดานขนาดเดียวกับการอัปโหลดไฟล์ใหม่
+    staged = await stageUpload(source, { maxBytes: await effectiveUploadBytes() });
     const { createReadStream } = await import('node:fs');
     const head = await readHead(createReadStream(staged.tempPath, { start: 0, end: 63 }));
     const mime = resolveMimeType(head, resource.extension, input.declaredMime);
@@ -347,7 +390,7 @@ async function addVersionFromStaged(
       });
       const versionNumber = (latest?.versionNumber ?? 0) + 1;
 
-      await tx.resourceVersion.create({
+      const createdVersion = await tx.resourceVersion.create({
         data: {
           resourceId,
           versionNumber,
@@ -387,11 +430,18 @@ async function addVersionFromStaged(
         },
       });
 
-      return resource;
+      return { resource, versionId: createdVersion.id };
     });
 
-    logger.info(`[UPLOAD] เวอร์ชันใหม่ของ "${updated.name}" (v${updated.currentVersion})`);
-    return toResourceDto(updated, user);
+    /**
+     * เวอร์ชันใหม่ต้องถูกทำดัชนีด้วย มิฉะนั้นการค้นหาจะยังคืนผลจากเนื้อหาของเวอร์ชันเก่า
+     * แถวดัชนีของเวอร์ชันเดิมยังอยู่ แต่จะไม่ถูกนับเป็นปัจจุบันอีกต่อไป
+     * เพราะการค้นหาเทียบ versionNumber กับ currentVersion เสมอ
+     */
+    await enqueueExtraction(updated.versionId);
+
+    logger.info(`[UPLOAD] เวอร์ชันใหม่ของ "${updated.resource.name}" (v${updated.resource.currentVersion})`);
+    return toResourceDto(updated.resource, user);
   } catch (error) {
     await deleteStoredFile(stored.storageKey);
     logger.error({ err: error }, '[UPLOAD] สร้างเวอร์ชันไม่สำเร็จ ลบไฟล์ที่เขียนไปแล้ว');
@@ -509,4 +559,14 @@ export async function getManagedStorageBytes(): Promise<number> {
     _sum: { size: true },
   });
   return result._sum.size === null ? 0 : Number(result._sum.size);
+}
+
+/**
+ * ขนาดอัปโหลดสูงสุดที่มีผลจริง (ไบต์)
+ *
+ * ค่าตั้งค่าเก็บเป็นเมกะไบต์เพราะเป็นหน่วยที่ผู้ดูแลคิดเป็น
+ * ส่วนการบังคับใช้ทำงานเป็นไบต์ การแปลงจึงอยู่ที่เดียวตรงนี้
+ */
+export async function effectiveUploadBytes(): Promise<number> {
+  return (await getSetting('MAX_UPLOAD_SIZE_MB')) * 1024 * 1024;
 }

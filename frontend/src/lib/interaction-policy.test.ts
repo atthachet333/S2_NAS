@@ -21,15 +21,16 @@ const entry = (kind: 'file' | 'folder', overrides: Partial<DriveEntry> = {}): Dr
   id: kind, kind, resourceType: kind === 'file' ? 'FILE' : 'FOLDER', name: kind === 'file' ? 'test.pdf' : 'TEST',
   ownerId: 'owner', ownerName: 'Owner', ownerEmail: 'owner@example.invalid', modifiedAt: '', createdAt: '',
   mimeType: kind === 'file' ? 'application/pdf' : null, uploadedBy: null, currentVersion: kind === 'file' ? 2 : null,
-  visibility: 'ORGANIZATION', favorite: false, pinned: false, parentId: null, isLocked: false,
+  visibility: 'ORGANIZATION', driveRoot: 'MY_DRIVE', favorite: false, pinned: false, parentId: null, isLocked: false,
   tags: [], lockReason: null, lockedAt: null, lockedByName: null, capabilities, ...overrides,
 });
 
 describe('file manager interaction policy', () => {
-  test('empty-space menu activates all F2 external actions while upload-folder stays future', () => {
+  test('empty-space menu offers every creation action, none of them disabled', () => {
     assert.deepEqual(EMPTY_WORKSPACE_ACTIONS.slice(0, 3).map((item) => item.label), ['สร้างโฟลเดอร์', 'อัปโหลดไฟล์', 'อัปโหลดโฟลเดอร์']);
-    assert.equal(EMPTY_WORKSPACE_ACTIONS.find((item) => item.id === 'upload-folder')?.disabled, true);
-    assert.ok(EMPTY_WORKSPACE_ACTIONS.filter((item) => ['google-sheet', 'google-doc', 'google-drive', 'web-link'].includes(item.id)).every((item) => !item.disabled));
+    // อัปโหลดโฟลเดอร์ทำงานได้จริงตั้งแต่ F8 จึงต้องไม่ถูกปิดไว้อีกต่อไป
+    assert.equal(EMPTY_WORKSPACE_ACTIONS.find((item) => item.id === 'upload-folder')?.disabled, false);
+    assert.ok(EMPTY_WORKSPACE_ACTIONS.every((item) => !item.disabled), 'ทุกการกระทำในเมนูต้องใช้งานได้จริง');
   });
 
   test('folder context menu has folder-only actions and capability filtering', () => {

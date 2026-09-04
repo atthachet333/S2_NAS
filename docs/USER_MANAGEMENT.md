@@ -76,3 +76,15 @@ Without this guard, one mis-click leaves nobody able to administer roles, and re
 ## First login
 
 An activated user signs in with the temporary password, is forced to change it, and that change revokes every refresh token and bumps `tokenVersion`, so the temporary password and any session created with it stop working immediately.
+
+## Account types (F10)
+
+`UserType` is `INTERNAL | EXTERNAL | SERVICE`. The value `HUMAN` was renamed to `INTERNAL` in the F10 migration, in three steps (widen the enum, move the rows, narrow the enum) — a direct `MODIFY` to the new value set would have silently blanked every row.
+
+Account type outranks roles everywhere. `requireInternal` rejects an `EXTERNAL` account before any internal module logic runs, and `capabilities()` returns an all-false set for it as a last line of defence. An external account that somehow acquires a broad internal role still cannot reach internal data.
+
+`organizationName` holds a client's company name. It is a label for the administration screen, not a permission boundary — two clients at the same company still see only what was shared with each of them. Internal accounts never carry one.
+
+Client accounts are created by an administrator at /admin/clients with no roles at all: a client's access comes from per-resource sharing, and giving a client an internal role would not grant anything real (external policy closes it) while making the user list misleading. There is no self-signup, and Google sign-in never creates an account. See [CLIENT_PORTAL.md](CLIENT_PORTAL.md).
+
+`GET /api/users` accepts `type` so the internal and client screens share one endpoint without mixing the two lists.
