@@ -51,3 +51,15 @@ Not formally defined yet, and they should be. Two decisions are needed:
 - Backups are not encrypted at rest. They contain no secrets, but they do contain all company file content — protect the backup root accordingly.
 - The operation lock is per process; a multi-process deployment needs a database-level lock.
 - Restore staging needs a database namespace the app account may create (`test_` by default).
+
+## F12 - ดัชนีข้อความไม่อยู่ในเส้นทางวิกฤต
+
+เมื่อกู้ระบบกลับมาหลังเหตุการณ์ร้ายแรง **อย่ารอการทำดัชนีข้อความ**
+
+ลำดับความสำคัญไม่เปลี่ยน: ฐานข้อมูล → ไฟล์จริง → ตรวจ checksum → เปิดให้ใช้งาน
+
+การค้นจากเนื้อในเอกสารเป็นสิ่งสุดท้ายที่ควรกังวล มันสร้างใหม่ได้ทั้งหมดจากไฟล์ที่กู้มาแล้ว
+และระบบให้บริการได้ครบทุกอย่างระหว่างที่คิวยังทำงานอยู่เบื้องหลัง
+
+ถ้าตัวสกัดข้อความมีปัญหาจนรบกวนการกู้ระบบ ให้ตั้ง `S2_NAS_EXTRACT_ENABLED=0`
+แล้วเปิดกลับภายหลัง - ไม่มีข้อมูลใดสูญหายจากการปิดมัน

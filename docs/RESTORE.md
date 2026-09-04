@@ -80,3 +80,18 @@ A weekly staged restore proves the newest backup is still restorable without any
 ## Cleaning up
 
 `npm run backup:discard-stage -- <backupId>` drops the staging database and removes the staging directory. Staging areas are working space, not something to keep.
+
+## F12 - หลังกู้คืน ดัชนีข้อความ
+
+หลังกู้คืน ระบบใช้งานได้ทันทีโดยไม่ต้องรอการทำดัชนี
+
+ถ้าแถวดัชนีหายหรือไม่ครบ:
+
+- ไฟล์ทุกไฟล์ยังเปิดและดาวน์โหลดได้ตามปกติ
+- ค้นจากชื่อไฟล์ แท็ก และหมายเหตุยังได้เหมือนเดิม
+- **ค้นจากเนื้อในเอกสารเท่านั้นที่ยังใช้ไม่ได้** จนกว่าจะทำดัชนีใหม่
+
+รอบกู้คืนตอนเริ่มระบบจะสร้างแถวที่ขาดหายให้เองครั้งละไม่เกิน 500 แถว
+หรือผู้ดูแลสั่ง `POST /api/admin/search-index/reindex-all` เพื่อเข้าคิวทั้งระบบก็ได้
+
+การทำดัชนีใหม่ไม่แตะไฟล์จริงเลย - อ่านอย่างเดียว

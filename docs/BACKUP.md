@@ -105,3 +105,14 @@ Automated daily scheduling, the retention policy, and offsite copying are docume
 ## F10 schema note
 
 External accounts, `organizationName`, and `ResourceAccess.expiresAt` are ordinary columns in the existing tables, so they are covered by the standard full dump with no change to the backup procedure. The restore rehearsal was re-run after the F10 migration and passed.
+
+## F12 - ดัชนีข้อความเป็นข้อมูลที่สร้างใหม่ได้
+
+ตาราง `resource_search_index` อยู่ในฐานข้อมูล จึงติดไปกับชุดสำรองเต็มตามปกติโดยไม่ต้องทำอะไรเพิ่ม
+
+แต่มันคือ **ข้อมูลที่คำนวณได้จากไฟล์จริง** ไม่ใช่ข้อมูลต้นฉบับ
+การกู้คืนจึงต้องไม่ขึ้นกับมัน และไม่มีขั้นตอนใดของการกู้คืนที่ล้มเหลวได้เพราะแถวเหล่านี้หายไป
+
+ขนาดของชุดสำรองจะโตขึ้นตามปริมาณข้อความที่สกัดได้ ซึ่งเล็กกว่าตัวไฟล์มาก
+ถ้าต้องการชุดสำรองที่เล็กที่สุด สามารถล้างตารางนี้ก่อนสำรองแล้วสั่งทำดัชนีใหม่ภายหลังได้
+โดยไม่กระทบข้อมูลใด ๆ - แต่ไม่แนะนำ เพราะประหยัดพื้นที่ได้ไม่มากเมื่อเทียบกับความยุ่งยาก

@@ -33,3 +33,17 @@ Trash is a subtree soft-delete: `deletedAt`, `deletedById`, and `trashedFromId` 
 - `ResourceAccess` carries `accessLevel` and `allowDownload` per user. See [SHARING.md](SHARING.md).
 
 All modules share one `resourceInclude` definition exported from `resource.service.ts`. Per-module copies previously drifted and produced DTOs that were missing fields.
+
+## ResourceSearchIndex (F12)
+
+ข้อความที่สกัดจากไฟล์เพื่อให้ค้นหาจากเนื้อในเอกสารได้ **หนึ่งแถวต่อหนึ่งเวอร์ชัน**
+
+เป็น **ข้อมูลที่สร้างใหม่ได้** ไม่ใช่ข้อมูลต้นฉบับ - ระบบทำงานได้ครบทุกอย่างแม้ตารางนี้ว่างเปล่า
+ไฟล์ยังเปิดและดาวน์โหลดได้ และค้นจากชื่อไฟล์ แท็ก หมายเหตุ ยังได้เหมือนเดิม
+
+การค้นหาปกติเทียบ `versionNumber` กับ `Resource.currentVersion` เสมอ
+เนื้อหาของเวอร์ชันเก่ายังอยู่ในตารางเพื่อการตรวจสอบ แต่ไม่มีทางถูกคืนเป็นผลลัพธ์ปัจจุบัน
+
+`ON DELETE CASCADE` จากทั้ง `Resource` และ `ResourceVersion` - การลบถาวรไม่ทิ้งข้อความที่สกัดไว้ค้างอยู่
+
+ข้อความที่สกัดได้มีความลับเท่ากับตัวเอกสารต้นทาง ดู [SEARCH_INDEXING.md](SEARCH_INDEXING.md)
