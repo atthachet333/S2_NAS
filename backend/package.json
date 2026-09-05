@@ -32,7 +32,9 @@
     "ocr:status": "tsx scripts/ocr-cli.ts status",
     "ocr:run": "tsx scripts/ocr-cli.ts run",
     "ocr:retry-failed": "tsx scripts/ocr-cli.ts retry-failed",
-    "ocr:eligible": "tsx scripts/ocr-cli.ts eligible"
+    "ocr:eligible": "tsx scripts/ocr-cli.ts eligible",
+    "qa:f15": "tsx scripts/f15-qa-fixture.ts create",
+    "qa:f15-clean": "tsx scripts/f15-qa-fixture.ts destroy"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

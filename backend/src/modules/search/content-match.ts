@@ -224,3 +224,29 @@ export function rankOf(input: {
       return 8;
   }
 }
+
+/**
+ * รหัสทรัพยากรที่ดัชนีของ "เวอร์ชันปัจจุบัน" เข้าเงื่อนไขที่กำหนด
+ *
+ * ใช้กับตัวกรองสถานะ OCR และตัวกรอง "มีข้อความข้างใน" ของ F15
+ *
+ * ต้องผูกกับเวอร์ชันปัจจุบันเสมอ ไม่อย่างนั้นไฟล์ที่ OCR ล้มเหลวใน v1
+ * แล้วอัปโหลด v2 ที่อ่านได้ดี จะยังโผล่ในตัวกรอง "OCR ล้มเหลว" ตลอดไป
+ *
+ * เงื่อนไขที่รับเข้ามาเป็นข้อความ SQL คงที่จากโมดูลตัวกรองเท่านั้น
+ * ไม่เคยมีค่าจากผู้ใช้ประกอบเข้ามา - ผู้ใช้เลือกได้แค่ว่าจะใช้เงื่อนไขชุดไหน
+ * ซึ่งถูกตรวจด้วย zod enum ก่อนถึงตรงนี้เสมอ
+ */
+export async function indexStateResourceIds(condition: string): Promise<string[]> {
+  const rows = await prisma.$queryRawUnsafe<Array<{ resourceId: string }>>(
+    `SELECT i.resourceId AS resourceId
+       FROM resource_search_index i
+       INNER JOIN resources r
+         ON r.id = i.resourceId
+        AND r.currentVersion = i.versionNumber
+      WHERE r.deletedAt IS NULL
+        AND (${condition})
+      LIMIT ${CONTENT_CANDIDATE_LIMIT}`,
+  );
+  return [...new Set(rows.map((row) => row.resourceId))];
+}

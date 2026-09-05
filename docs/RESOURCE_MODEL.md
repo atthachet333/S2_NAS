@@ -60,3 +60,22 @@ All modules share one `resourceInclude` definition exported from `resource.servi
 
 ยังคง **หนึ่งแถวต่อหนึ่งเวอร์ชัน** และยังเป็น **ข้อมูลที่สร้างใหม่ได้**
 ดู [OCR.md](OCR.md)
+
+---
+
+## F15 - ประเภทเอกสารและสถานะการตรวจ
+
+`Resource.documentCategoryId` เป็น nullable และอ้างไปยัง `DocumentCategory`
+`null` แปลว่า **ยังไม่ได้จัดประเภท** ไม่ใช่ "ไม่มีประเภท"
+
+`onDelete: SetNull` - ประเภทที่ถูกลบไม่ทำให้เอกสารหาย แต่ระบบไม่อนุญาตให้ลบประเภท
+ที่ยังมีเอกสารใช้อยู่ตั้งแต่ชั้นบริการอยู่แล้ว
+
+`ResourceSearchIndex` เพิ่มสามฟิลด์ของการตรวจ: `reviewStatus` `reviewedById`
+`reviewedAt` ซึ่งแยกจาก `correctedById`/`correctedAt` ของ F14 เพราะ
+"ตรวจแล้วถูก" กับ "ตรวจแล้วแก้" เป็นคนละเหตุการณ์กัน
+
+`SavedSearch` เป็นตารางใหม่ที่ผูกกับผู้ใช้แบบ `onDelete: Cascade`
+ชุดค้นหาเป็นของส่วนตัว ไม่มีความหมายเมื่อเจ้าของถูกลบ
+
+ดู [DOCUMENT_CLASSIFICATION.md](DOCUMENT_CLASSIFICATION.md)

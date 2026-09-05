@@ -185,9 +185,57 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
         favoriteOnly: z.coerce.boolean().optional(),
         limit: z.coerce.number().int().min(1).max(100).default(25),
         cursor: z.string().min(1).optional(),
+
+        /* ---- ตัวกรองขั้นสูงของ F15 ---- */
+        fileKind: z
+          .enum(['pdf', 'image', 'word', 'excel', 'powerpoint', 'text', 'link', 'folder', 'other'])
+          .optional(),
+        driveScope: z.enum(['MY_DRIVE', 'SYSTEM_DRIVE']).optional(),
+        createdById: z.string().min(1).optional(),
+        untaggedOnly: z.coerce.boolean().optional(),
+        documentCategoryId: z.string().min(1).optional(),
+        uncategorizedOnly: z.coerce.boolean().optional(),
+        textSource: z.enum(['NATIVE_TEXT', 'OCR', 'HUMAN_CORRECTED']).optional(),
+        ocrState: z
+          .enum(['PENDING', 'PROCESSING', 'READY', 'NEEDS_OCR', 'OCR_DONE', 'FAILED', 'REVIEWED'])
+          .optional(),
+        hasText: z.coerce.boolean().optional(),
+        uploadedPreset: z.enum(['today', 'last7', 'last30', 'thisMonth', 'custom']).optional(),
+        uploadedFrom: isoDate,
+        uploadedTo: isoDate,
+        updatedPreset: z.enum(['today', 'last7', 'last30', 'thisMonth', 'custom']).optional(),
+        sort: z.enum(['relevance', 'newest', 'oldest', 'name', 'largest']).optional(),
       })
       .parse(request.query);
-    return { success: true, data: await searchResources(query, request.authUser!) };
+
+    /**
+     * แยกตัวกรองขั้นสูงออกจากพารามิเตอร์เดิม
+     *
+     * พารามิเตอร์เดิมของ F12 ยังทำงานเหมือนเดิมทุกอย่าง ลิงก์และชุดค้นหาเก่า
+     * จึงไม่พังเมื่อ F15 เพิ่มตัวกรองเข้ามา
+     */
+    const {
+      fileKind, driveScope, createdById, untaggedOnly, documentCategoryId, uncategorizedOnly,
+      textSource, ocrState, hasText, uploadedPreset, uploadedFrom, uploadedTo,
+      updatedPreset, sort, ...base
+    } = query;
+
+    return {
+      success: true,
+      data: await searchResources(
+        {
+          ...base,
+          filters: {
+            fileKind, driveScope, createdById, untaggedOnly, documentCategoryId,
+            uncategorizedOnly, textSource, ocrState, hasText, uploadedPreset,
+            uploadedFrom, uploadedTo, updatedPreset,
+            updatedFrom: base.updatedFrom, updatedTo: base.updatedTo,
+            sort,
+          },
+        },
+        request.authUser!,
+      ),
+    };
   });
 
   app.get('/search/facets', { preHandler: requireInternal }, async (request) => ({

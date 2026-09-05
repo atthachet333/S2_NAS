@@ -192,6 +192,14 @@ export async function saveCorrection(
         correctedById: user.id,
         correctedAt: new Date(),
         correctionRevision: nextRevision,
+        /**
+         * การแก้ข้อความคือการตรวจรูปแบบหนึ่ง จึงปิดงานในคิวตรวจไปด้วยในตัว
+         * ไม่อย่างนั้นเอกสารที่มีคนนั่งแก้ไปแล้วจะยังค้างอยู่ในคิว "ยังไม่ตรวจ"
+         * และคนจะถูกเรียกให้ตรวจงานที่ตัวเองเพิ่งทำเสร็จ
+         */
+        reviewStatus: 'CORRECTED',
+        reviewedById: user.id,
+        reviewedAt: new Date(),
         // ข้อความมีผลใช้งานได้แล้ว แม้ผลดิบเดิมจะเคยเป็น NO_TEXT
         status: 'READY',
         errorCode: null,
@@ -266,6 +274,14 @@ export async function resetCorrection(
       correctedById: null,
       correctedAt: null,
       correctionRevision: 0,
+      /**
+       * กลับไปใช้ผลดิบแล้ว ข้อความจึงเป็นของเครื่องอีกครั้ง
+       * แต่ "เคยมีคนดูแล้ว" ยังเป็นความจริงอยู่ จึงเหลือสถานะเป็น VERIFIED
+       * ไม่ใช่ย้อนกลับไป UNREVIEWED ซึ่งจะทำให้เอกสารวนกลับเข้าคิวไม่รู้จบ
+       */
+      reviewStatus: 'VERIFIED',
+      reviewedById: user.id,
+      reviewedAt: new Date(),
     },
   });
 

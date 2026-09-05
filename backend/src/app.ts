@@ -18,6 +18,7 @@ import { backupRoutes } from './modules/backup/backup.routes.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { usersRoutes } from './modules/users/users.routes.js';
 import { resourceRoutes } from './modules/resources/resource.routes.js';
+import { f15Routes } from './modules/search/f15.routes.js';
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js';
 import { fileRoutes } from './modules/files/file.routes.js';
 import { workspaceRoutes } from './modules/workspace/workspace.routes.js';
@@ -66,6 +67,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(integrationRoutes);
       await api.register(portalRoutes);
       await api.register(backupRoutes);
+      await api.register(f15Routes);
     },
     { prefix: '/api' },
   );

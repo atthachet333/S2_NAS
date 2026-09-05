@@ -17,6 +17,7 @@ export const resourceInclude = {
   createdByIntegrationApp: { select: { id: true, name: true, code: true } },
   lockedBy: { select: ownerSelect },
   tags: { include: { tag: { select: { id: true, name: true } } } },
+  documentCategory: { select: { id: true, name: true } },
   access: { select: { userId: true, accessLevel: true, allowDownload: true, expiresAt: true } },
   _count: { select: { children: { where: { deletedAt: null } } } },
 } as const;
@@ -170,6 +171,10 @@ export function toResourceDto(resource: ResourceWithRelations, user: AuthUser) {
     sourceEntityId: resource.sourceEntityId, sourceUrl: resource.sourceUrl,
     createdByIntegrationApp: resource.createdByIntegrationApp,
     remark: resource.remark, isLocked: resource.isLocked, itemCount: resource._count.children,
+    /** ประเภทเอกสารที่คนกำหนดไว้ - null คือยังไม่ได้จัดประเภท */
+    documentCategory: resource.documentCategory
+      ? { id: resource.documentCategory.id, name: resource.documentCategory.name }
+      : null,
     visibility: resource.visibility, currentVersion: resource.currentVersion,
     driveScope: resource.driveScope,
     tags: resource.tags.map((link) => ({ id: link.tag.id, name: link.tag.name })),

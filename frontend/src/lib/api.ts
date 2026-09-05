@@ -240,6 +240,8 @@ export interface ResourceDto {
   sourceUrl: string | null;
   createdByIntegrationApp: { id: string; name: string; code: string } | null;
   isLocked: boolean; itemCount: number; createdAt: string; updatedAt: string;
+  /** ประเภทเอกสารที่คนกำหนดไว้ - null คือยังไม่ได้จัดประเภท */
+  documentCategory?: { id: string; name: string } | null;
   visibility: 'ORGANIZATION' | 'RESTRICTED';
   /** ไดร์ฟที่ทรัพยากรนี้สังกัด - ตัดสินนโยบายการเขียนได้จากแถวเดียว */
   driveScope: 'MY_DRIVE' | 'SYSTEM_DRIVE';
@@ -574,6 +576,72 @@ export interface CorrectionHistoryDto {
   createdBy: { id: string; name: string };
 }
 
+/* ---------------- F15 ---------------- */
+
+export interface SavedSearchDto {
+  id: string;
+  name: string;
+  query: string;
+  /** ตัวกรองในรูปเดียวกับที่อยู่บน URL */
+  filters: Record<string, string | boolean>;
+  lastUsedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SmartViewDto {
+  slug: string;
+  name: string;
+  description: string;
+}
+
+export interface DocumentCategoryDto {
+  id: string;
+  name: string;
+  slug: string;
+  isActive: boolean;
+  sortOrder: number;
+  resourceCount: number;
+}
+
+export interface ReviewQueueItemDto {
+  resourceId: string;
+  name: string;
+  extension: string | null;
+  ownerName: string;
+  ocrConfidence: number | null;
+  ocrPageCount: number | null;
+  characterCount: number;
+  indexedAt: string | null;
+}
+
+export interface ReviewQueueDto {
+  items: ReviewQueueItemDto[];
+  /** จำนวนที่เหลือจริงที่ผู้เรียกเห็นได้ ไม่ใช่ยอดรวมของทั้งระบบ */
+  remaining: number;
+}
+
+export interface ReviewSummaryDto {
+  needsReview: number;
+  verified: number;
+  corrected: number;
+  failed: number;
+}
+
+/**
+ * ผลของงานหลายรายการ
+ *
+ * แยกสามจำนวนตามความจริง ไม่ยุบเป็น "สำเร็จ/ไม่สำเร็จ" - "ข้าม" ไม่ใช่ความล้มเหลว
+ * เช่นโฟลเดอร์ในงานที่ทำได้เฉพาะไฟล์ ผู้ใช้ควรเห็นความต่างนี้
+ */
+export interface BulkOutcomeDto {
+  batchId: string;
+  succeeded: number;
+  skipped: number;
+  failed: number;
+  errors: Array<{ resourceId: string; code: string; message: string }>;
+}
+
 export interface SearchHitDto extends ResourceDto {
   /** NAME | TAG | REMARK | CONTENT - บอกว่าทำไมผลลัพธ์นี้ถึงขึ้นมา */
   matchReason: string | null;
@@ -844,4 +912,78 @@ export const portalApi = {
     `/api/portal/resources/${id}/versions/${versionNumber}/content`,
   versionDownloadUrl: (id: string, versionNumber: number) =>
     `/api/portal/resources/${id}/versions/${versionNumber}/download`,
+};
+
+/** ชุดค้นหาที่บันทึกไว้ - เป็นของส่วนตัวของแต่ละคน */
+export const savedSearchApi = {
+  list: () => apiFetch<Ok<SavedSearchDto[]>>('/saved-searches'),
+  get: (id: string) => apiFetch<Ok<SavedSearchDto>>(`/saved-searches/${id}`),
+  create: (input: { name: string; query?: string; filters?: Record<string, unknown> }) =>
+    apiFetch<Ok<SavedSearchDto>>('/saved-searches', { method: 'POST', body: JSON.stringify(input) }),
+  update: (id: string, input: { name?: string; query?: string; filters?: Record<string, unknown> }) =>
+    apiFetch<Ok<SavedSearchDto>>(`/saved-searches/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  remove: (id: string) =>
+    apiFetch<Ok<{ deleted: boolean }>>(`/saved-searches/${id}`, { method: 'DELETE' }),
+};
+
+/** มุมมองอัจฉริยะ - ชุดเงื่อนไขสำเร็จรูป ไม่ใช่โฟลเดอร์ */
+export const smartViewApi = {
+  list: () => apiFetch<Ok<SmartViewDto[]>>('/smart-views'),
+  run: (slug: string, params: URLSearchParams) =>
+    apiFetch<Ok<{ view: { slug: string; name: string }; items: SearchHitDto[]; nextCursor: string | null }>>(
+      `/smart-views/${slug}?${params.toString()}`,
+    ),
+};
+
+/** คิวตรวจผลของ OCR */
+export const ocrReviewApi = {
+  queue: (params: URLSearchParams) =>
+    apiFetch<Ok<ReviewQueueDto>>(`/ocr-review/queue?${params.toString()}`),
+  /** ยืนยันว่าเครื่องอ่านถูกแล้ว โดยไม่แก้ข้อความ - ที่มาของข้อความยังเป็น OCR */
+  verify: (resourceId: string) =>
+    apiFetch<Ok<{ resourceId: string; reviewStatus: string; reviewedAt: string }>>(
+      `/resources/${resourceId}/ocr-review/verify`,
+      { method: 'POST' },
+    ),
+  summary: () => apiFetch<Ok<ReviewSummaryDto>>('/ocr-review/summary'),
+};
+
+/** ประเภทเอกสาร */
+export const categoryApi = {
+  list: (includeInactive = false) =>
+    apiFetch<Ok<DocumentCategoryDto[]>>(
+      `/document-categories${includeInactive ? '?includeInactive=true' : ''}`,
+    ),
+  create: (input: { name: string; sortOrder?: number }) =>
+    apiFetch<Ok<DocumentCategoryDto>>('/document-categories', { method: 'POST', body: JSON.stringify(input) }),
+  update: (id: string, input: { name?: string; isActive?: boolean; sortOrder?: number }) =>
+    apiFetch<Ok<DocumentCategoryDto>>(`/document-categories/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  remove: (id: string) =>
+    apiFetch<Ok<{ deleted: boolean }>>(`/document-categories/${id}`, { method: 'DELETE' }),
+  seedDefaults: () =>
+    apiFetch<Ok<{ created: number }>>('/document-categories/seed-defaults', { method: 'POST' }),
+};
+
+/** งานที่ทำกับหลายรายการพร้อมกัน */
+export const bulkApi = {
+  addTag: (resourceIds: string[], tagName: string) =>
+    apiFetch<Ok<BulkOutcomeDto>>('/resources/bulk/tags', {
+      method: 'POST',
+      body: JSON.stringify({ resourceIds, tagName }),
+    }),
+  removeTag: (resourceIds: string[], tagId: string) =>
+    apiFetch<Ok<BulkOutcomeDto>>('/resources/bulk/tags', {
+      method: 'DELETE',
+      body: JSON.stringify({ resourceIds, tagId }),
+    }),
+  setCategory: (resourceIds: string[], documentCategoryId: string | null) =>
+    apiFetch<Ok<BulkOutcomeDto>>('/resources/bulk/category', {
+      method: 'POST',
+      body: JSON.stringify({ resourceIds, documentCategoryId }),
+    }),
+  setOwner: (resourceIds: string[], newOwnerId: string) =>
+    apiFetch<Ok<BulkOutcomeDto>>('/resources/bulk/owner', {
+      method: 'POST',
+      body: JSON.stringify({ resourceIds, newOwnerId }),
+    }),
 };

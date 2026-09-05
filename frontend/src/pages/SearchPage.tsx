@@ -6,17 +6,30 @@ import { DriveWorkspace } from '@/components/files/DriveWorkspace';
 import { PreviewModal } from '@/components/files/PreviewModal';
 import { EmptyState } from '@/components/ui/States';
 import { PageTitle } from '@/components/ui/PageTitle';
-import { workspaceApi, type SearchHitDto } from '@/lib/api';
+import { categoryApi, workspaceApi, type SearchHitDto } from '@/lib/api';
 import { applyMarks, toDriveEntry, type DriveEntry } from '@/lib/drive';
 import { matchReasonLabel, splitSnippet } from '@/lib/search-content';
 import { textSourceBadge } from '@/lib/ocr';
+import { AdvancedFilterPanel } from '@/components/search/AdvancedFilterPanel';
+import { SavedSearchMenu } from '@/components/search/SavedSearchMenu';
+import {
+  FILTER_KEYS,
+  activeChips as buildChips,
+  filtersFromParams,
+  paramsFromFilters,
+  type SearchFilters,
+} from '@/lib/search-filters';
 import { useWorkspaceMarks } from '@/hooks/useWorkspaceMarks';
 import { useWorkspaceActions } from '@/hooks/useWorkspaceActions';
 import { useDriveUi } from '@/hooks/useDriveUi';
 import { isPreviewable } from '@/lib/file-types';
 
-/** ตัวกรองทั้งหมดอยู่ใน URL เพื่อให้ผลค้นหาที่กรองแล้วส่งต่อและบุ๊กมาร์กได้ */
-const FILTER_KEYS = ['q', 'type', 'ownerId', 'tagId', 'visibility', 'updatedFrom', 'updatedTo', 'favoriteOnly'] as const;
+/**
+ * ตัวกรองทั้งหมดอยู่ใน URL
+ *
+ * ทำให้รีเฟรชแล้วไม่หาย บุ๊กมาร์กได้ ส่งลิงก์ให้เพื่อนร่วมงานได้ และเป็นรูปแบบเดียว
+ * กับที่ชุดค้นหาที่บันทึกไว้ใช้ - รายชื่อคีย์อยู่ใน lib/search-filters.ts ที่เดียว
+ */
 
 export default function SearchPage() {
   const [params, setParams] = useSearchParams();
@@ -48,6 +61,10 @@ export default function SearchPage() {
   });
 
   const facets = useQuery({ queryKey: ['search-facets'], queryFn: workspaceApi.facets });
+  const categories = useQuery({
+    queryKey: ['document-categories'],
+    queryFn: () => categoryApi.list(),
+  });
 
   const entries = applyMarks((results.data?.data.items ?? []).map(toDriveEntry), favoriteIds, pinnedIds);
 
@@ -79,29 +96,30 @@ export default function SearchPage() {
     }
   };
 
-  const activeChips = [
-    params.get('type') ? { key: 'type', label: `ประเภท: ${({ FOLDER: 'โฟลเดอร์', FILE: 'ไฟล์', GOOGLE_SHEET: 'Google Sheet', GOOGLE_DOC: 'Google Doc', GOOGLE_DRIVE: 'Google Drive', WEB_LINK: 'Web Link' } as Record<string, string>)[params.get('type')!] ?? params.get('type')}` } : null,
-    params.get('ownerId')
-      ? {
-          key: 'ownerId',
-          label: `ผู้ดูแล: ${
-            facets.data?.data.owners.find((owner) => owner.id === params.get('ownerId'))?.displayName ?? '—'
-          }`,
-        }
-      : null,
-    params.get('tagId')
-      ? {
-          key: 'tagId',
-          label: `แท็ก: ${facets.data?.data.tags.find((tag) => tag.id === params.get('tagId'))?.name ?? '—'}`,
-        }
-      : null,
-    params.get('visibility')
-      ? { key: 'visibility', label: params.get('visibility') === 'RESTRICTED' ? 'จำกัดการเข้าถึง' : 'ทั้งองค์กร' }
-      : null,
-    params.get('favoriteOnly') ? { key: 'favoriteOnly', label: 'เฉพาะรายการโปรด' } : null,
-    params.get('updatedFrom') ? { key: 'updatedFrom', label: `แก้ไขตั้งแต่ ${params.get('updatedFrom')}` } : null,
-    params.get('updatedTo') ? { key: 'updatedTo', label: `แก้ไขถึง ${params.get('updatedTo')}` } : null,
-  ].filter((chip): chip is { key: string; label: string } => chip !== null);
+  const filters = filtersFromParams(params);
+
+  /**
+   * ป้ายของตัวกรองที่กำลังใช้อยู่
+   *
+   * ชื่อผู้ดูแล แท็ก และประเภทเอกสาร ถูกแปลงจากรหัสเป็นชื่อที่คนอ่านออก
+   * ป้ายที่เขียนว่า "ผู้ดูแล: cmt9x2..." ไม่ได้ช่วยให้ใครรู้ว่ากรองอะไรอยู่
+   */
+  const chips = buildChips(filters, {
+    owners: new Map((facets.data?.data.owners ?? []).map((o) => [o.id, o.displayName])),
+    tags: new Map((facets.data?.data.tags ?? []).map((t) => [t.id, t.name])),
+    categories: new Map((categories.data?.data ?? []).map((c) => [c.id, c.name])),
+  });
+
+  /** ล้างตัวกรองแต่เก็บคำค้นไว้ - ผู้ใช้ที่กด "ล้างตัวกรอง" ไม่ได้ต้องการเริ่มใหม่ทั้งหมด */
+  const clearFilters = () => {
+    setParams(term ? new URLSearchParams({ q: term }) : new URLSearchParams(), { replace: true });
+  };
+
+  /** เปิดชุดค้นหาที่บันทึกไว้ - เขียนทั้งคำค้นและตัวกรองลง URL ในครั้งเดียว */
+  const applySaved = (savedQuery: string, savedFilters: SearchFilters) => {
+    setParams(paramsFromFilters(savedQuery, savedFilters), { replace: false });
+  };
+
 
   return (
     <div className="space-y-4">
@@ -146,91 +164,48 @@ export default function SearchPage() {
             ตัวกรองขั้นสูง
           </button>
 
-          {activeChips.map((chip) => (
-            <button
-              key={chip.key}
-              type="button"
-              onClick={() => setFilter(chip.key, null)}
-              className="inline-flex items-center gap-1 rounded-full border border-brand-200 bg-brand-50 py-1 pl-2.5 pr-1.5 text-[11.5px] text-brand-700"
-              aria-label={`ล้างตัวกรอง ${chip.label}`}
-            >
-              {chip.label}
-              <X className="h-3 w-3" aria-hidden />
-            </button>
-          ))}
-
-          {activeChips.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => setParams(term ? new URLSearchParams({ q: term }) : new URLSearchParams(), { replace: true })}
-              className="text-[11.5px] text-navy-400 underline-offset-2 hover:underline"
-            >
-              ล้างตัวกรองทั้งหมด
-            </button>
-          ) : null}
+          <SavedSearchMenu
+            query={term}
+            filters={filters}
+            onApply={applySaved}
+            onApplySmartView={(slug) => navigate(`/smart-views/${slug}`)}
+          />
         </div>
 
-        {advancedOpen ? (
-          <div className="grid gap-3 rounded-xl border border-line bg-[var(--s2-surface-soft)] p-3 sm:grid-cols-2 lg:grid-cols-3">
-            <Field label="ประเภท">
-              <select className="s2-input h-9 rounded-lg px-2 text-[12.5px]" value={params.get('type') ?? ''} onChange={(event) => setFilter('type', event.target.value || null)}>
-                <option value="">ทั้งหมด</option>
-                <option value="FOLDER">โฟลเดอร์</option>
-                <option value="FILE">ไฟล์</option>
-                <option value="GOOGLE_SHEET">Google Sheet</option>
-                <option value="GOOGLE_DOC">Google Doc</option>
-                <option value="GOOGLE_DRIVE">Google Drive</option>
-                <option value="WEB_LINK">Web Link</option>
-              </select>
-            </Field>
-
-            <Field label="ผู้ดูแล">
-              <select className="s2-input h-9 rounded-lg px-2 text-[12.5px]" value={params.get('ownerId') ?? ''} onChange={(event) => setFilter('ownerId', event.target.value || null)}>
-                <option value="">ทุกคน</option>
-                {(facets.data?.data.owners ?? []).map((owner) => (
-                  <option key={owner.id} value={owner.id}>
-                    {owner.displayName} ({owner.resourceCount})
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="แท็ก">
-              <select className="s2-input h-9 rounded-lg px-2 text-[12.5px]" value={params.get('tagId') ?? ''} onChange={(event) => setFilter('tagId', event.target.value || null)}>
-                <option value="">ทุกแท็ก</option>
-                {(facets.data?.data.tags ?? []).map((tag) => (
-                  <option key={tag.id} value={tag.id}>
-                    {tag.name} ({tag.resourceCount})
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="การมองเห็น">
-              <select className="s2-input h-9 rounded-lg px-2 text-[12.5px]" value={params.get('visibility') ?? ''} onChange={(event) => setFilter('visibility', event.target.value || null)}>
-                <option value="">ทั้งหมด</option>
-                <option value="ORGANIZATION">ทั้งองค์กร</option>
-                <option value="RESTRICTED">จำกัดการเข้าถึง</option>
-              </select>
-            </Field>
-
-            <Field label="แก้ไขตั้งแต่">
-              <input type="date" className="s2-input h-9 rounded-lg px-2 text-[12.5px]" value={params.get('updatedFrom') ?? ''} onChange={(event) => setFilter('updatedFrom', event.target.value || null)} />
-            </Field>
-
-            <Field label="แก้ไขถึง">
-              <input type="date" className="s2-input h-9 rounded-lg px-2 text-[12.5px]" value={params.get('updatedTo') ?? ''} onChange={(event) => setFilter('updatedTo', event.target.value || null)} />
-            </Field>
-
-            <label className="inline-flex items-center gap-2 text-[12px] text-navy-600">
-              <input
-                type="checkbox"
-                checked={params.get('favoriteOnly') === 'true'}
-                onChange={(event) => setFilter('favoriteOnly', event.target.checked ? 'true' : null)}
-              />
-              เฉพาะรายการโปรดของฉัน
-            </label>
+        {/* ป้ายตัวกรองที่กดปิดได้ทีละอัน - ผู้ใช้เห็นทันทีว่ากำลังกรองอะไรอยู่ */}
+        {chips.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {chips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={() => setFilter(chip.key, null)}
+                className="inline-flex items-center gap-1 rounded-full border border-brand-200 bg-brand-50 py-1 pl-2.5 pr-1.5 text-[11.5px] text-brand-700"
+                aria-label={`ล้างตัวกรอง ${chip.label}`}
+              >
+                {chip.label}
+                <X className="h-3 w-3" aria-hidden />
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="text-[11.5px] text-navy-400 underline-offset-2 hover:underline"
+            >
+              ล้างตัวกรอง
+            </button>
           </div>
+        ) : null}
+
+        {advancedOpen ? (
+          <AdvancedFilterPanel
+            filters={filters}
+            onChange={(key, value) =>
+              setFilter(key, value === null || value === false ? null : String(value))
+            }
+            onClear={clearFilters}
+            onClose={() => setAdvancedOpen(false)}
+          />
         ) : null}
       </div>
 
@@ -286,14 +261,6 @@ export default function SearchPage() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block text-[11.5px] font-semibold text-navy-700">
-      {label}
-      <span className="mt-1 block">{children}</span>
-    </label>
-  );
-}
 
 /**
  * ผลลัพธ์ที่ตรงเพราะ "เนื้อในเอกสาร"

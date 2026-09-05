@@ -8,6 +8,8 @@ import SharedPage from '@/pages/SharedPage';
 import RecentPage from '@/pages/RecentPage';
 import FavoritesPage from '@/pages/FavoritesPage';
 import SearchPage from '@/pages/SearchPage';
+import SmartViewPage from '@/pages/SmartViewPage';
+import OcrReviewPage from '@/pages/OcrReviewPage';
 import TrashPage from '@/pages/TrashPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import AdminUsersPage from '@/pages/admin/AdminUsersPage';
@@ -25,6 +27,7 @@ import PortalFolderPage from '@/pages/portal/PortalFolderPage';
 import PortalUploadsPage from '@/pages/portal/PortalUploadsPage';
 import AdminIntegrationsPage from '@/pages/admin/AdminIntegrationsPage';
 import AdminOwnershipPage from '@/pages/admin/AdminOwnershipPage';
+import AdminCategoriesPage from '@/pages/admin/AdminCategoriesPage';
 
 export default function App() {
   return (
@@ -55,6 +58,9 @@ export default function App() {
         <Route path="/recent" element={<RecentPage />} />
         <Route path="/favorites" element={<FavoritesPage />} />
         <Route path="/search" element={<SearchPage />} />
+        {/* มุมมองอัจฉริยะเป็นชุดตัวกรองสำเร็จรูป ไม่ใช่โฟลเดอร์ */}
+        <Route path="/smart-views/:slug" element={<SmartViewPage />} />
+        <Route path="/ocr-review" element={<OcrReviewPage />} />
         <Route path="/trash" element={<TrashPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
@@ -67,6 +73,7 @@ export default function App() {
         <Route path="clients" element={<AdminClientsPage />} />
         <Route path="permissions" element={<AdminPermissionsPage />} />
         <Route path="ownership" element={<AdminOwnershipPage />} />
+        <Route path="categories" element={<AdminCategoriesPage />} />
         <Route path="activity" element={<AdminActivityPage />} />
         <Route path="storage" element={<AdminStoragePage />} />
         <Route path="backup" element={<AdminBackupPage />} />

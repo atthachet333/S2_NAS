@@ -6,6 +6,7 @@ import { Breadcrumb } from '@/components/files/Breadcrumb';
 import { DriveWorkspace } from '@/components/files/DriveWorkspace';
 import { FileToolbar, type SortKey } from '@/components/files/FileToolbar';
 import { FolderHeader } from '@/components/files/FolderHeader';
+import { BulkMetadataDialog } from '@/components/files/BulkMetadataDialog';
 import { ResourceDialog, type ResourceDialogMode } from '@/components/files/ResourceDialog';
 import { WorkspaceOnboarding } from '@/components/files/WorkspaceOnboarding';
 import { ApiError, fileApi, resourceApi } from '@/lib/api';
@@ -63,6 +64,8 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
   const [preview, setPreview] = useState<DriveEntry | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [zipPending, setZipPending] = useState(false);
+  /** กล่องแก้ข้อมูลของหลายรายการ - ใช้การเลือกชุดเดิมของหน้าไฟล์ */
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkTrashConfirm, setBulkTrashConfirm] = useState(false);
   const [bulkTrashPending, setBulkTrashPending] = useState(false);
   const filePickerRef = useRef<HTMLInputElement>(null);
@@ -407,6 +410,13 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
           {selectedEntries.length > 0 ? (
             <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2" role="toolbar" aria-label="การทำงานกับรายการที่เลือก">
               <span className="mr-auto text-[12px] font-semibold text-brand-700">เลือกแล้ว {selectedEntries.length} รายการ</span>
+              <button
+                type="button"
+                className="s2-btn s2-btn-outline"
+                onClick={() => setBulkOpen(true)}
+              >
+                แก้ข้อมูลหลายรายการ
+              </button>
               {selectedDownloadMode ? <button
                 type="button"
                 className="s2-btn s2-btn-outline"
@@ -530,6 +540,14 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
             openDetails();
             setPreview(null);
           }}
+        />
+      ) : null}
+
+      {bulkOpen ? (
+        <BulkMetadataDialog
+          entries={selectedEntries}
+          onClose={() => setBulkOpen(false)}
+          onDone={() => setSelectedIds(new Set())}
         />
       ) : null}
 

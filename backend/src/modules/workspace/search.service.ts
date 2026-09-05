@@ -4,12 +4,21 @@ import { badRequest, forbidden } from '../../core/errors.js';
 import { capabilities, resourceInclude, toResourceDto } from '../resources/resource.service.js';
 import {
   contentMatchResourceIds,
+  indexStateResourceIds,
   matchReasonFor,
   rankOf,
   snippetsFor,
   type ContentSnippetInfo,
   type MatchReason,
 } from '../search/content-match.js';
+import {
+  fileKindWhere,
+  hasTextCondition,
+  ocrStateCondition,
+  orderByFor,
+  resolveDateRange,
+  type SearchFilters,
+} from '../search/search-filters.js';
 import type { AuthUser } from '../auth/auth.service.js';
 
 /**
@@ -35,6 +44,13 @@ export interface SearchInput {
   favoriteOnly?: boolean;
   limit: number;
   cursor?: string;
+  /**
+   * ตัวกรองขั้นสูงของ F15
+   *
+   * แยกเป็นก้อนเดียวเพื่อให้ชุดค้นหาที่บันทึกไว้ มุมมองอัจฉริยะ และ URL
+   * ใช้รูปร่างเดียวกันทั้งหมด ดู search-filters.ts
+   */
+  filters?: SearchFilters;
 }
 
 function isAdmin(user: AuthUser): boolean {
@@ -87,6 +103,49 @@ export async function searchResources(input: SearchInput, user: AuthUser) {
   if (input.tagId) filters.push({ tags: { some: { tagId: input.tagId } } });
   if (input.visibility) filters.push({ visibility: input.visibility });
   if (input.favoriteOnly) filters.push({ favoritedBy: { some: { userId: user.id } } });
+
+  /**
+   * ตัวกรองขั้นสูงถูกใส่ "ต่อท้าย" เงื่อนไขสิทธิ์ที่ใส่ไว้ตั้งแต่ต้นเสมอ
+   * ทุกอย่างอยู่ใน AND เดียวกัน ตัวกรองจึงทำได้แค่ทำให้ผลลัพธ์แคบลง
+   * ไม่มีทางทำให้เห็นทรัพยากรที่เดิมมองไม่เห็น
+   */
+  const f = input.filters ?? {};
+
+  if (f.fileKind) filters.push(fileKindWhere(f.fileKind) as Prisma.ResourceWhereInput);
+  if (f.driveScope) filters.push({ driveScope: f.driveScope });
+  if (f.ownerId) filters.push({ ownerId: f.ownerId });
+  if (f.createdById) filters.push({ createdById: f.createdById });
+  if (f.sourceType) filters.push({ sourceType: f.sourceType });
+  if (f.tagId) filters.push({ tags: { some: { tagId: f.tagId } } });
+  if (f.untaggedOnly) filters.push({ tags: { none: {} } });
+  if (f.documentCategoryId) filters.push({ documentCategoryId: f.documentCategoryId });
+  if (f.uncategorizedOnly) filters.push({ documentCategoryId: null });
+  if (f.favoriteOnly) filters.push({ favoritedBy: { some: { userId: user.id } } });
+
+  const uploaded = resolveDateRange(f.uploadedPreset, f.uploadedFrom, f.uploadedTo);
+  if (uploaded) filters.push({ createdAt: uploaded });
+  const touched = resolveDateRange(f.updatedPreset, f.updatedFrom, f.updatedTo);
+  if (touched) filters.push({ updatedAt: touched });
+
+  /**
+   * ตัวกรองที่อ้างอิงดัชนีข้อความต้องดูเฉพาะเวอร์ชันปัจจุบัน
+   * จึงหารหัสมาก่อนแล้วค่อยผสมเป็นเงื่อนไข แทนการใช้ relation filter ของ Prisma
+   * ซึ่งเทียบ versionNumber กับ currentVersion ของตารางแม่ไม่ได้
+   *
+   * รายการว่างแปลว่า "ไม่มีอะไรตรง" ไม่ใช่ "ไม่ต้องกรอง" - ต้องบังคับให้ผลเป็นศูนย์
+   */
+  if (f.ocrState) {
+    const ids = await indexStateResourceIds(ocrStateCondition(f.ocrState));
+    filters.push(ids.length > 0 ? { id: { in: ids } } : { id: { in: [] } });
+  }
+  if (f.textSource) {
+    const ids = await indexStateResourceIds(`i.textSource = '${f.textSource}'`);
+    filters.push(ids.length > 0 ? { id: { in: ids } } : { id: { in: [] } });
+  }
+  if (f.hasText !== undefined) {
+    const ids = await indexStateResourceIds(hasTextCondition(f.hasText));
+    filters.push(ids.length > 0 ? { id: { in: ids } } : { id: { in: [] } });
+  }
   if (input.updatedFrom || input.updatedTo) {
     filters.push({
       updatedAt: {
@@ -101,8 +160,11 @@ export async function searchResources(input: SearchInput, user: AuthUser) {
   const rows = await prisma.resource.findMany({
     where,
     include: resourceInclude,
-    // โฟลเดอร์ขึ้นก่อนเพื่อให้ผู้ใช้เจอ "ที่เก็บ" ก่อน "ของชิ้นเดียว"
-    orderBy: [{ type: 'asc' }, { updatedAt: 'desc' }, { id: 'asc' }],
+    /**
+     * ค่าเริ่มต้น: โฟลเดอร์ขึ้นก่อนเพื่อให้ผู้ใช้เจอ "ที่เก็บ" ก่อน "ของชิ้นเดียว"
+     * เมื่อผู้ใช้เลือกการเรียงเอง ให้ใช้ของเขาแทน
+     */
+    orderBy: orderByFor(f.sort) as Prisma.ResourceOrderByWithRelationInput[],
     take: input.limit + 1,
     ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
   });

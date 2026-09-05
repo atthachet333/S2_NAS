@@ -105,6 +105,9 @@ model User {
   triggeredBackups    BackupLog[]              @relation("BackupTrigger")
   triggeredRehearsals RestoreRehearsalLog[]    @relation("RehearsalTrigger")
   identities          UserIdentity[]           @relation("UserIdentities")
+  savedSearches       SavedSearch[]            @relation("SavedSearchOwner")
+  documentCategories  DocumentCategory[]       @relation("DocumentCategoryCreator")
+  reviewedIndexes     ResourceSearchIndex[]    @relation("OcrReviewer")
   textCorrections     ResourceTextCorrection[] @relation("TextCorrectionAuthor")
   correctedIndexes    ResourceSearchIndex[]    @relation("TextCorrector")
 
@@ -138,6 +141,8 @@ model Resource {
   sourceUrl                 String?                  @db.Text
   createdByIntegrationAppId String?
   remark                    String?                  @db.VarChar(1000)
+  /// ประเภทเอกสารที่คนกำหนดไว้ - null คือยังไม่ได้จัดประเภท ไม่ใช่ "ไม่มีประเภท"
+  documentCategoryId        String?
   isLocked                  Boolean                  @default(false)
   /// ใครล็อก เมื่อไร และเพราะอะไร - สำคัญมากกับเอกสารบัญชีที่ปิดงบแล้ว
   lockedAt                  DateTime?
@@ -162,6 +167,7 @@ model Resource {
   updatedBy                 User?                    @relation("ResourceUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
   deletedBy                 User?                    @relation("ResourceDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
   lockedBy                  User?                    @relation("ResourceLocker", fields: [lockedById], references: [id], onDelete: SetNull)
+  documentCategory          DocumentCategory?        @relation(fields: [documentCategoryId], references: [id], onDelete: SetNull)
   access                    ResourceAccess[]
   versions                  ResourceVersion[]
   tags                      ResourceTag[]
@@ -603,6 +609,22 @@ enum SearchTextSource {
 /// NO_TEXT     = ไฟล์ถูกต้องแต่ไม่มีข้อความให้สกัด เช่น PDF ที่เป็นภาพสแกน (ยังไม่มี OCR)
 /// UNSUPPORTED = ชนิดไฟล์ที่ระบบยังไม่สกัด เช่น รูปภาพ วิดีโอ ไฟล์บีบอัด
 /// FAILED      = พยายามแล้วไม่สำเร็จ เช่น ไฟล์เสียหายหรือมีรหัสผ่าน
+/// สถานะ "การตรวจโดยมนุษย์" ของผลที่เครื่องอ่านมา
+///
+/// แยกจาก SearchIndexStatus โดยตั้งใจ เพราะเป็นคนละคำถามกัน
+///   SearchIndexStatus ตอบว่า "เครื่องอ่านสำเร็จหรือไม่"
+///   OcrReviewStatus   ตอบว่า "มีคนดูผลนั้นแล้วหรือยัง"
+/// การยัดสองเรื่องนี้ลง enum เดียวจะทำให้ตอบไม่ได้ว่างานที่ FAILED เคยมีคนดูแล้วหรือยัง
+///
+/// UNREVIEWED = ยังไม่มีใครตรวจ
+/// VERIFIED   = คนอ่านแล้วยืนยันว่าเครื่องอ่านถูก โดยไม่ต้องแก้อะไร
+/// CORRECTED  = คนแก้ข้อความแล้ว (คู่กับ textSource = HUMAN_CORRECTED)
+enum OcrReviewStatus {
+  UNREVIEWED
+  VERIFIED
+  CORRECTED
+}
+
 enum SearchIndexStatus {
   PENDING
   PROCESSING
@@ -671,12 +693,21 @@ model ResourceSearchIndex {
   correctedAt        DateTime?
   /// เลขรุ่นของการตรวจแก้ - ใช้กันการเขียนทับกันเองเมื่อมีสองคนแก้พร้อมกัน
   correctionRevision Int       @default(0)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+
+  // ---- การตรวจผลของเครื่องโดยมนุษย์ (F15) ----
+
+  /// มีคนตรวจผลนี้แล้วหรือยัง - ไม่ใช่เรื่องเดียวกับว่าเครื่องอ่านสำเร็จหรือไม่
+  reviewStatus OcrReviewStatus @default(UNREVIEWED)
+  /// ผู้ที่ตรวจล่าสุด - เป็นข้อมูลภายใน ไม่ส่งออกไปฝั่งลูกค้า
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
 
   resource    Resource                 @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   version     ResourceVersion          @relation(fields: [resourceVersionId], references: [id], onDelete: Cascade)
   correctedBy User?                    @relation("TextCorrector", fields: [correctedById], references: [id], onDelete: SetNull)
+  reviewedBy  User?                    @relation("OcrReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   corrections ResourceTextCorrection[]
 
   @@index([resourceId, versionNumber])
@@ -684,6 +715,8 @@ model ResourceSearchIndex {
   @@index([status, processingStartedAt])
   /// ใช้หยิบงานตามชนิด โดยให้การสกัดปกติมาก่อน OCR เสมอ
   @@index([status, jobKind, createdAt])
+  /// ใช้โดยคิวตรวจ OCR - หางานที่ยังไม่มีใครตรวจ เรียงจากเก่าสุดก่อน
+  @@index([reviewStatus, textSource, createdAt])
   @@map("resource_search_index")
 }
 
@@ -711,6 +744,59 @@ model ResourceTextCorrection {
   @@unique([resourceSearchIndexId, revision])
   @@index([resourceSearchIndexId, revision])
   @@map("resource_text_corrections")
+}
+
+/// ประเภทของเอกสารตามการใช้งานจริงขององค์กร
+///
+/// ตั้งค่าได้ ไม่ใช่ enum ตายตัว - ประเภทเอกสารของแต่ละองค์กรต่างกัน
+/// และการเพิ่มประเภทใหม่ไม่ควรต้องแก้โค้ดแล้ว deploy ใหม่
+///
+/// การจัดประเภทเป็นการตัดสินใจของคน ไม่ใช่การเดาของเครื่อง
+model DocumentCategory {
+  id          String   @id @default(cuid())
+  name        String   @db.VarChar(100)
+  /// ใช้อ้างอิงใน URL และตัวกรอง - คงที่แม้ชื่อที่แสดงจะถูกเปลี่ยน
+  slug        String   @unique @db.VarChar(100)
+  /// ปิดการใช้งานแทนการลบ - ทรัพยากรที่เคยถูกจัดประเภทไว้ต้องไม่กำพร้า
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User       @relation("DocumentCategoryCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  resources Resource[]
+
+  @@index([isActive, sortOrder])
+  @@map("document_categories")
+}
+
+/// ชุดเงื่อนไขการค้นหาที่ผู้ใช้บันทึกไว้ใช้ซ้ำ
+///
+/// เป็นของส่วนตัวของแต่ละคน ไม่แชร์ข้ามผู้ใช้ใน F15
+/// เพราะชื่อที่คนตั้งให้ชุดค้นหามักบอกใบ้เนื้องานที่เขากำลังทำอยู่
+///
+/// เก็บ "เงื่อนไข" ไม่ได้เก็บ "ผลลัพธ์" - ผลลัพธ์ถูกคำนวณใหม่ทุกครั้งพร้อมตรวจสิทธิ์
+/// ชุดค้นหาที่บันทึกไว้จึงไม่มีทางกลายเป็นช่องทางเห็นเอกสารที่สิทธิ์ถูกถอนไปแล้ว
+model SavedSearch {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String    @db.VarChar(100)
+  /// คำค้น - แยกจากตัวกรองเพื่อให้แสดงและแก้ไขได้ตรงไปตรงมา
+  query      String    @default("") @db.VarChar(191)
+  /// ตัวกรองทั้งชุดในรูป JSON - ตรวจความถูกต้องด้วย schema เดียวกับ API ทุกครั้งที่อ่าน
+  filters    Json
+  /// ใช้จัดลำดับ "ที่ใช้บ่อย" โดยไม่ต้องนับสถิติการใช้งานแยกต่างหาก
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user User @relation("SavedSearchOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// ชื่อซ้ำในชุดของคนเดียวกันทำให้เลือกผิด จึงกันไว้ตั้งแต่ฐานข้อมูล
+  @@unique([userId, name])
+  @@index([userId, lastUsedAt])
+  @@map("saved_searches")
 }
 
 /// ผู้ให้บริการยืนยันตัวตนภายนอก - F9 รองรับเฉพาะ Google
