@@ -287,6 +287,11 @@ export interface ResourceResponse { success: true; data: ResourceDto }
 export interface BreadcrumbResponse { success: true; data: Array<{ id: string; name: string }> }
 
 export const resourceApi = {
+  /** สถานะการอ่านข้อความจากเอกสาร - ใช้ตัดสินว่าจะแสดงปุ่มอะไร */
+  ocrState: (id: string) => apiFetch<Ok<OcrStateDto>>(`/resources/${id}/ocr`),
+  /** สั่งอ่านข้อความ - เข้าคิวเท่านั้น ไม่รอให้เสร็จ */
+  requestOcr: (id: string) =>
+    apiFetch<Ok<{ queued: boolean }>>(`/resources/${id}/ocr`, { method: 'POST' }),
   list: (params: URLSearchParams) => apiFetch<ResourceListResponse>(`/resources?${params.toString()}`),
   get: (id: string) => apiFetch<ResourceResponse>(`/resources/${id}`),
   recent: (limit = 50) => apiFetch<{ success: true; data: ResourceDto[] }>(`/resources-recent?limit=${limit}`),
@@ -498,11 +503,29 @@ export interface SharedResourceDto extends ResourceDto {
 }
 
 /** ข้อมูลเพิ่มเติมที่มีเฉพาะในผลการค้นหา */
+/** สถานะการอ่านข้อความจากเอกสารของไฟล์หนึ่งชิ้น */
+export interface OcrStateDto {
+  eligible: boolean;
+  reason: string | null;
+  kind: 'IMAGE' | 'SCANNED_PDF' | null;
+  status: string | null;
+  /** NATIVE_TEXT = ข้อความในไฟล์จริง · OCR = อ่านจากภาพ ซึ่งเป็นการคาดเดา */
+  textSource: string | null;
+  ocrRequested: boolean;
+  ocrCompletedAt: string | null;
+  ocrConfidence: number | null;
+  ocrPageCount: number | null;
+  truncated: boolean;
+  engineAvailable: boolean;
+}
+
 export interface SearchHitDto extends ResourceDto {
   /** NAME | TAG | REMARK | CONTENT - บอกว่าทำไมผลลัพธ์นี้ถึงขึ้นมา */
   matchReason: string | null;
   /** ข้อความล้วนรอบคำค้น มีเฉพาะเมื่อตรงเพราะเนื้อในเอกสาร */
   contentSnippet: string | null;
+  /** ที่มาของข้อความที่ตรงกัน - ใช้บอกผู้ใช้ว่าผลนี้มาจากการอ่านภาพ */
+  textSource?: string | null;
 }
 
 export interface SearchResultDto {

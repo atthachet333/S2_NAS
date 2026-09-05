@@ -7,6 +7,7 @@ import {
   matchReasonFor,
   rankOf,
   snippetsFor,
+  type ContentSnippetInfo,
   type MatchReason,
 } from '../search/content-match.js';
 import type { AuthUser } from '../auth/auth.service.js';
@@ -116,7 +117,10 @@ export async function searchResources(input: SearchInput, user: AuthUser) {
    */
   const contentSet = new Set(contentIds);
   const snippetTargets = visible.filter((row) => contentSet.has(row.id)).map((row) => row.id);
-  const snippets = term && snippetTargets.length > 0 ? await snippetsFor(snippetTargets, term) : new Map<string, string>();
+  const snippets =
+    term && snippetTargets.length > 0
+      ? await snippetsFor(snippetTargets, term)
+      : new Map<string, ContentSnippetInfo>();
 
   const items = visible.map((row) => {
     const tags = row.tags.map((link) => link.tag.name);
@@ -128,8 +132,10 @@ export async function searchResources(input: SearchInput, user: AuthUser) {
       ...toResourceDto(row, user),
       /** บอกผู้ใช้ว่าทำไมผลลัพธ์นี้ถึงขึ้นมา - การค้นหาที่อธิบายตัวเองได้คือการค้นหาที่เชื่อถือได้ */
       matchReason: reason,
-      contentSnippet: reason === 'CONTENT' ? snippets.get(row.id) ?? null : null,
-      _rank: rankOf({ name: row.name, term, reason }),
+      contentSnippet: reason === 'CONTENT' ? snippets.get(row.id)?.snippet ?? null : null,
+      /** ที่มาของข้อความที่ตรงกัน - หน้าจอใช้บอกว่าผลนี้มาจากการอ่านภาพ */
+      textSource: reason === 'CONTENT' ? snippets.get(row.id)?.textSource ?? null : null,
+      _rank: rankOf({ name: row.name, term, reason, textSource: snippets.get(row.id)?.textSource ?? null }),
     };
   });
 

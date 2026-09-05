@@ -74,6 +74,12 @@ export interface ContentSnippet {
   snippet: string;
 }
 
+/** ตัวอย่างข้อความพร้อมที่มา - NATIVE_TEXT เชื่อถือได้กว่า OCR ซึ่งเป็นการคาดเดา */
+export interface ContentSnippetInfo {
+  snippet: string;
+  textSource: string | null;
+}
+
 /**
  * ตัดข้อความรอบตำแหน่งที่ตรงกับคำค้น
  *
@@ -114,12 +120,14 @@ export function buildSnippet(text: string, term: string): string | null {
 export async function snippetsFor(
   allowedResourceIds: string[],
   term: string,
-): Promise<Map<string, string>> {
-  const result = new Map<string, string>();
+): Promise<Map<string, ContentSnippetInfo>> {
+  const result = new Map<string, ContentSnippetInfo>();
   if (allowedResourceIds.length === 0) return result;
 
-  const rows = await prisma.$queryRaw<Array<{ resourceId: string; extractedText: string | null }>>(Prisma.sql`
-    SELECT i.resourceId AS resourceId, i.extractedText AS extractedText
+  const rows = await prisma.$queryRaw<
+    Array<{ resourceId: string; extractedText: string | null; textSource: string | null }>
+  >(Prisma.sql`
+    SELECT i.resourceId AS resourceId, i.extractedText AS extractedText, i.textSource AS textSource
     FROM resource_search_index i
     INNER JOIN resources r
       ON r.id = i.resourceId
@@ -131,7 +139,11 @@ export async function snippetsFor(
   for (const row of rows) {
     if (!row.extractedText) continue;
     const snippet = buildSnippet(row.extractedText, term);
-    if (snippet) result.set(row.resourceId, snippet);
+    /**
+     * ที่มาของข้อความเดินทางไปพร้อมกับตัวอย่าง
+     * ผู้ใช้ที่เห็นผลลัพธ์ต้องรู้ว่ากำลังอ่านข้อความจากไฟล์จริง หรือจากการที่เครื่องอ่านภาพ
+     */
+    if (snippet) result.set(row.resourceId, { snippet, textSource: row.textSource });
   }
 
   return result;
@@ -177,9 +189,19 @@ export function matchReasonFor(input: {
  * ลำดับความสำคัญของผลลัพธ์
  *
  * ตั้งใจให้เรียบง่ายและอธิบายได้ ไม่ใช่ระบบให้คะแนนความเกี่ยวข้องเต็มรูปแบบ
- * ชื่อที่ตรงทั้งชื่อ > ชื่อที่ขึ้นต้นด้วยคำค้น > ชื่อที่มีคำค้น > แท็ก > หมายเหตุ > เนื้อหา
+ *
+ *   ชื่อที่ตรงทั้งชื่อ > ขึ้นต้นด้วยคำค้น > ชื่อมีคำค้น > แท็ก > หมายเหตุ
+ *   > เนื้อหาจากไฟล์จริง > เนื้อหาที่เครื่องอ่านจากภาพ
+ *
+ * ข้อความจาก OCR อยู่ท้ายสุดเพราะเป็นการคาดเดา ผลที่อ่านผิดจึงไม่ควรขึ้นก่อน
+ * ชื่อไฟล์ที่ตรงเป๊ะ ซึ่งผู้ใช้ตั้งใจตั้งชื่อไว้เอง
  */
-export function rankOf(input: { name: string; term: string; reason: MatchReason | null }): number {
+export function rankOf(input: {
+  name: string;
+  term: string;
+  reason: MatchReason | null;
+  textSource?: string | null;
+}): number {
   const needle = normalizeForSearch(input.term);
   const name = normalizeForSearch(input.name);
 
@@ -193,8 +215,8 @@ export function rankOf(input: { name: string; term: string; reason: MatchReason 
     case 'REMARK':
       return 4;
     case 'CONTENT':
-      return 5;
+      return input.textSource === 'OCR' ? 6 : 5;
     default:
-      return 6;
+      return 7;
   }
 }

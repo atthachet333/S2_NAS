@@ -1,4 +1,4 @@
-import type { SearchIndexStatus } from '@prisma/client';
+import type { SearchIndexStatus, SearchJobKind } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
 import { logger } from '../../core/logger.js';
 import { EXTRACTOR_VERSION, extractFromStorage, isPermanentFailure } from './extract/index.js';
@@ -45,8 +45,12 @@ export async function enqueueExtraction(resourceVersionId: string): Promise<void
         status: 'PENDING',
         extractorVersion: EXTRACTOR_VERSION,
       },
-      // เข้าคิวซ้ำของเวอร์ชันเดิมคือการสั่งทำใหม่ ไม่ใช่การสร้างงานที่สอง
-      update: { status: 'PENDING', attempts: 0, errorCode: null, processingStartedAt: null },
+      /**
+       * เข้าคิวซ้ำของเวอร์ชันเดิมคือการสั่งทำใหม่ ไม่ใช่การสร้างงานที่สอง
+       * jobKind กลับเป็น EXTRACT เสมอ - การสั่งทำดัชนีใหม่ไม่ใช่การสั่ง OCR
+       * ซึ่งต้องมาจากการตัดสินใจของคนเท่านั้น
+       */
+      update: { status: 'PENDING', jobKind: 'EXTRACT', attempts: 0, errorCode: null, processingStartedAt: null },
     });
   } catch (error) {
     // คิวเสียไม่ใช่เหตุให้การอัปโหลดล้มเหลว - บันทึกไว้แล้วเดินต่อ
@@ -60,9 +64,12 @@ export async function enqueueExtraction(resourceVersionId: string): Promise<void
  * การจองใช้ updateMany พร้อมเงื่อนไขสถานะเดิม ซึ่งเป็นการเปรียบเทียบและเขียนในคำสั่งเดียว
  * ผู้ทำงานสองคนจึงหยิบงานชิ้นเดียวกันไปทำพร้อมกันไม่ได้ แม้จะมีหลายกระบวนการ
  */
-export async function claimNextJob(now: Date = new Date()): Promise<string | null> {
+export async function claimNextJob(
+  now: Date = new Date(),
+  jobKind: SearchJobKind = 'EXTRACT',
+): Promise<string | null> {
   const candidate = await prisma.resourceSearchIndex.findFirst({
-    where: { status: 'PENDING' },
+    where: { status: 'PENDING', jobKind },
     // เก่าที่สุดก่อน งานที่ค้างมานานจึงไม่ถูกแซงตลอดกาล
     orderBy: { createdAt: 'asc' },
     select: { id: true },
@@ -70,7 +77,7 @@ export async function claimNextJob(now: Date = new Date()): Promise<string | nul
   if (!candidate) return null;
 
   const claimed = await prisma.resourceSearchIndex.updateMany({
-    where: { id: candidate.id, status: 'PENDING' },
+    where: { id: candidate.id, status: 'PENDING', jobKind },
     data: { status: 'PROCESSING', processingStartedAt: now, attempts: { increment: 1 } },
   });
   return claimed.count === 1 ? candidate.id : null;
@@ -97,12 +104,15 @@ export async function runJob(indexId: string): Promise<SearchIndexStatus> {
 
   const base = { processingStartedAt: null, extractedAt: new Date(), extractorVersion: EXTRACTOR_VERSION };
 
+
   if (outcome.kind === 'TEXT') {
     await prisma.resourceSearchIndex.update({
       where: { id: indexId },
       data: {
         ...base,
         status: 'READY',
+        // ข้อความที่ฝังอยู่ในไฟล์จริง เชื่อถือได้ต่างจากข้อความที่เครื่องอ่านจากภาพ
+        textSource: 'NATIVE_TEXT',
         extractedText: outcome.text,
         normalizedText: outcome.normalized,
         characterCount: outcome.text.length,
@@ -116,13 +126,15 @@ export async function runJob(indexId: string): Promise<SearchIndexStatus> {
   if (outcome.kind === 'NO_TEXT' || outcome.kind === 'UNSUPPORTED') {
     /**
      * ไม่ใช่ความล้มเหลว - เป็นข้อเท็จจริงเกี่ยวกับไฟล์
-     * PDF ที่เป็นภาพสแกนจบที่ NO_TEXT อย่างตรงไปตรงมา ระบบนี้ยังไม่มี OCR
+     * PDF ที่เป็นภาพสแกนจบที่ NO_TEXT อย่างตรงไปตรงมา
+     * สถานะนี้เองคือสิ่งที่บอกว่าไฟล์ไหนน่าจะได้ประโยชน์จาก OCR (ดู ocr/ocr.service.ts)
      */
     await prisma.resourceSearchIndex.update({
       where: { id: indexId },
       data: {
         ...base,
         status: outcome.kind,
+        textSource: null,
         extractedText: null,
         normalizedText: null,
         characterCount: 0,
@@ -156,9 +168,20 @@ export async function runJob(indexId: string): Promise<SearchIndexStatus> {
  * เรียกตอนเริ่มระบบ ทำสามอย่าง:
  *   1. งานที่ค้างในสถานะ PROCESSING นานผิดปกติ = เซิร์ฟเวอร์ล่มกลางคัน ให้กลับเข้าคิว
  *   2. ไฟล์ที่มีเวอร์ชันปัจจุบันแต่ยังไม่มีแถวดัชนี ให้สร้างแถวรอไว้
- *   3. แถวที่ทำด้วยตัวสกัดรุ่นเก่า ปล่อยไว้ตามเดิม - การทำใหม่ทั้งระบบเป็นการตัดสินใจของผู้ดูแล
+ *   3. แถวที่ทำด้วยตัวสกัดรุ่นเก่า ให้กลับเข้าคิวเพื่อทำใหม่
+ *
+ * ข้อ 3 เปลี่ยนจากเดิมใน F13 ด้วยเหตุผลที่ชัดเจน: กติกาการปรับรูปแบบข้อความเปลี่ยนไป
+ * (เพิ่มการจัดการภาษาไทยสำหรับข้อความจาก OCR) ข้อความที่ปรับรูปแบบไว้ด้วยกติกาเก่า
+ * จึงเทียบกับคำค้นที่ปรับด้วยกติกาใหม่ไม่ได้อีก ปล่อยไว้เฉย ๆ แปลว่าการค้นหาจะพลาดเงียบ ๆ
+ *
+ * ทำเป็นชุดเล็ก ๆ เพื่อไม่ให้การเริ่มระบบช้า และเป็น idempotent เต็มรูปแบบ
  */
-export async function reconcileIndex(now: Date = new Date()): Promise<{ requeued: number; created: number }> {
+export async function reconcileIndex(now: Date = new Date()): Promise<{
+  requeued: number;
+  created: number;
+  restaled: number;
+}> {
+  // งานที่ค้างถูกกู้คืนทั้งสองชนิดด้วยกลไกเดียวกัน - นี่คือเหตุผลที่ใช้คิวเดียว
   const staleBefore = new Date(now.getTime() - STALE_PROCESSING_MINUTES * 60 * 1000);
 
   const requeued = await prisma.resourceSearchIndex.updateMany({
@@ -195,7 +218,30 @@ export async function reconcileIndex(now: Date = new Date()): Promise<{ requeued
     });
   }
 
-  return { requeued: requeued.count, created: current.length };
+  /**
+   * แถวที่ทำไว้ด้วยตัวสกัดรุ่นเก่า
+   *
+   * ไม่แตะแถวที่กำลังรอคิวหรือกำลังทำอยู่ และไม่แตะงาน OCR
+   * เพราะการสั่ง OCR เป็นการตัดสินใจของคน ไม่ควรถูกล้างทิ้งด้วยการอัปเกรดรุ่น
+   */
+  const stale = await prisma.resourceSearchIndex.findMany({
+    where: {
+      extractorVersion: { not: EXTRACTOR_VERSION },
+      jobKind: 'EXTRACT',
+      status: { in: ['READY', 'NO_TEXT', 'UNSUPPORTED'] },
+    },
+    select: { id: true },
+    take: 500,
+  });
+
+  if (stale.length > 0) {
+    await prisma.resourceSearchIndex.updateMany({
+      where: { id: { in: stale.map((row) => row.id) } },
+      data: { status: 'PENDING', attempts: 0, errorCode: null, processingStartedAt: null },
+    });
+  }
+
+  return { requeued: requeued.count, created: current.length, restaled: stale.length };
 }
 
 /* ------------------------------------------------------------------ */

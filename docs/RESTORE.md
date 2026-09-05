@@ -95,3 +95,13 @@ A weekly staged restore proves the newest backup is still restorable without any
 หรือผู้ดูแลสั่ง `POST /api/admin/search-index/reindex-all` เพื่อเข้าคิวทั้งระบบก็ได้
 
 การทำดัชนีใหม่ไม่แตะไฟล์จริงเลย - อ่านอย่างเดียว
+
+## F13 - หลังกู้คืน ข้อความจาก OCR
+
+ถ้าแถวดัชนีของ OCR หายไป ไฟล์ต้นฉบับยังอยู่ครบและใช้งานได้ทุกอย่าง
+เพียงแต่ค้นจากเนื้อในเอกสารสแกนไม่ได้จนกว่าจะสั่ง OCR ใหม่
+
+การสั่ง OCR ใหม่**ไม่แตะไฟล์ต้นฉบับเลย** - อ่านอย่างเดียว และผลลัพธ์เขียนลงดัชนีเท่านั้น
+
+ผู้ดูแลสั่งได้จาก `npm run ocr:eligible` แล้ว `npm run ocr:run -- <resourceId>`
+หรือจากหน้าผู้ดูแลผ่าน `POST /api/admin/ocr/bulk`

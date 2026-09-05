@@ -9,6 +9,7 @@ import { PageTitle } from '@/components/ui/PageTitle';
 import { workspaceApi, type SearchHitDto } from '@/lib/api';
 import { applyMarks, toDriveEntry, type DriveEntry } from '@/lib/drive';
 import { matchReasonLabel, splitSnippet } from '@/lib/search-content';
+import { textSourceBadge } from '@/lib/ocr';
 import { useWorkspaceMarks } from '@/hooks/useWorkspaceMarks';
 import { useWorkspaceActions } from '@/hooks/useWorkspaceActions';
 import { useDriveUi } from '@/hooks/useDriveUi';
@@ -321,6 +322,12 @@ function ContentMatches({ hits, term }: { hits: SearchHitDto[]; term: string }) 
               <span className="rounded-md border border-line px-1.5 py-0.5 text-[10px] text-navy-500">
                 {matchReasonLabel(hit.matchReason)}
               </span>
+              {/* บอกว่าข้อความที่ตรงกันมาจากการอ่านภาพ ซึ่งเชื่อถือได้ไม่เท่าข้อความในไฟล์จริง */}
+              {textSourceBadge(hit.textSource) ? (
+                <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                  {textSourceBadge(hit.textSource)}
+                </span>
+              ) : null}
             </p>
             <p className="mt-1 rounded-lg bg-[var(--s2-surface-soft)] px-2 py-1 text-[11px] leading-relaxed text-navy-500">
               {splitSnippet(hit.contentSnippet!, term).map((part, index) =>

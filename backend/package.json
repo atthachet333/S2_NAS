@@ -28,7 +28,11 @@
     "restore:rehearsal": "tsx scripts/backup-cli.ts rehearsal",
     "restore:rehearsal-status": "tsx scripts/backup-cli.ts rehearsal-status",
     "qa:portal": "tsx scripts/f11-qa-fixture.ts create",
-    "qa:portal-clean": "tsx scripts/f11-qa-fixture.ts destroy"
+    "qa:portal-clean": "tsx scripts/f11-qa-fixture.ts destroy",
+    "ocr:status": "tsx scripts/ocr-cli.ts status",
+    "ocr:run": "tsx scripts/ocr-cli.ts run",
+    "ocr:retry-failed": "tsx scripts/ocr-cli.ts retry-failed",
+    "ocr:eligible": "tsx scripts/ocr-cli.ts eligible"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

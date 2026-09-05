@@ -12,7 +12,7 @@ import { extractPdfText, PdfExtractError } from './pdf.js';
  * รุ่นของตัวสกัดถูกบันทึกไว้กับทุกแถวดัชนี เมื่อกติกาการสกัดเปลี่ยนไปในอนาคต
  * ผู้ดูแลจึงบอกได้ว่าแถวไหนควรทำใหม่ โดยไม่ต้องเดาจากวันที่
  */
-export const EXTRACTOR_VERSION = 'f12.1';
+export const EXTRACTOR_VERSION = 'f13.1';
 
 export type ExtractOutcome =
   | { kind: 'TEXT'; text: string; normalized: string; truncated: boolean }

@@ -47,3 +47,16 @@ All modules share one `resourceInclude` definition exported from `resource.servi
 `ON DELETE CASCADE` จากทั้ง `Resource` และ `ResourceVersion` - การลบถาวรไม่ทิ้งข้อความที่สกัดไว้ค้างอยู่
 
 ข้อความที่สกัดได้มีความลับเท่ากับตัวเอกสารต้นทาง ดู [SEARCH_INDEXING.md](SEARCH_INDEXING.md)
+
+## F13 - ข้อมูลประกอบของ OCR
+
+`ResourceSearchIndex` ถูกขยายแทนการสร้างตารางใหม่ - OCR ผลิต "ข้อความที่ค้นหาได้"
+เหมือนกับการสกัดปกติ จึงควรอยู่ที่เดียวกัน
+
+`textSource` (`NATIVE_TEXT` | `OCR`) บันทึกที่มาของข้อความ ซึ่งจำเป็นเพราะข้อความจาก OCR
+เป็นการคาดเดา และผู้ใช้ควรรู้ว่ากำลังเชื่ออะไรอยู่
+
+`jobKind` (`EXTRACT` | `OCR`) แยกชนิดงานในคิวเดียวกัน
+
+ยังคง **หนึ่งแถวต่อหนึ่งเวอร์ชัน** และยังเป็น **ข้อมูลที่สร้างใหม่ได้**
+ดู [OCR.md](OCR.md)

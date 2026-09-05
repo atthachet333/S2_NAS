@@ -1,6 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { requireInternal, requirePermission } from '../auth/auth.guard.js';
+import { prisma } from '../../core/prisma.js';
+import { AppError } from '../../core/errors.js';
+import { ocrStateFor, requestOcr } from '../search/ocr/ocr.service.js';
 import { breadcrumb, createExternalResource, createFolder, getResource, listRecentResources, listResources, moveResource, ownershipOverview, softDeleteResource, transferOwner, updateResource } from './resource.service.js';
 import { EXTERNAL_RESOURCE_TYPES } from './external-resource.js';
 
@@ -57,5 +60,44 @@ export async function resourceRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.delete('/resources/:id', { preHandler: requireInternal }, async (request) => ({ success: true, data: await softDeleteResource(idParams.parse(request.params).id, request.authUser!, audit(request)) }));
+  /* ---------------- OCR แบบสั่งเอง ---------------- */
+
+  /** สถานะ OCR ของไฟล์ - ใช้ตัดสินว่าจะแสดงปุ่มอะไรบนหน้าจอ */
+  app.get('/resources/:id/ocr', { preHandler: requireInternal }, async (request) => {
+    const { id } = idParams.parse(request.params);
+    // ต้องมองเห็นทรัพยากรก่อนจึงจะรู้สถานะของมันได้
+    await getResource(id, request.authUser!);
+    return { success: true, data: await ocrStateFor(id) };
+  });
+
+  /**
+   * สั่งอ่านข้อความจากเอกสาร
+   *
+   * ใช้ capability เดิมของทรัพยากร - ผู้ที่แก้ไขไฟล์ได้เท่านั้นจึงสั่งได้
+   * ผู้ที่เปิดดูได้อย่างเดียวสั่งไม่ได้ เพราะ OCR กิน CPU ของเครื่องทั้งเครื่อง
+   * และไม่ควรเป็นสิ่งที่ใครก็ตามที่เห็นไฟล์สั่งได้ตามใจ
+   */
+  app.post('/resources/:id/ocr', { preHandler: requireInternal }, async (request) => {
+    const { id } = idParams.parse(request.params);
+    const resource = await getResource(id, request.authUser!);
+    if (!resource.capabilities.canEdit) {
+      throw new AppError('OCR_DENIED', 'ต้องมีสิทธิ์แก้ไขไฟล์นี้จึงจะสั่งอ่านข้อความได้', 403);
+    }
+
+    const result = await requestOcr(id);
+    await prisma.activityLog.create({
+      data: {
+        userId: request.authUser!.id,
+        action: 'OCR_REQUESTED',
+        resourceId: id,
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']?.slice(0, 500),
+        // ห้ามบันทึกข้อความที่อ่านได้ลง audit - มีความลับเท่ากับตัวเอกสาร
+        metadata: {},
+      },
+    });
+    return { success: true, data: result };
+  });
+
   app.get('/admin/ownership', { preHandler: requirePermission('admin:access') }, async () => ({ success: true, data: await ownershipOverview() }));
 }

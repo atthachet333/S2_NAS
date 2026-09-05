@@ -569,6 +569,27 @@ model RestoreRehearsalLog {
   @@map("restore_rehearsal_logs")
 }
 
+/// ชนิดของงานในคิวเดียวกัน
+/// EXTRACT = สกัดข้อความที่ฝังอยู่ในไฟล์อยู่แล้ว ราคาถูก ทำอัตโนมัติหลังอัปโหลด
+/// OCR     = อ่านข้อความจากภาพ ราคาแพง ทำเมื่อมีคนสั่งเท่านั้น
+///
+/// อยู่ในคิวเดียวกันโดยตั้งใจ เพื่อให้การกู้คืนหลังเซิร์ฟเวอร์ล่ม การจองงาน
+/// และการลองใหม่ ใช้กลไกชุดเดียว แต่แยกลำดับความสำคัญและจำนวนงานพร้อมกัน
+enum SearchJobKind {
+  EXTRACT
+  OCR
+}
+
+/// ที่มาของข้อความที่ค้นหาได้
+/// NATIVE_TEXT = สกัดจากข้อความที่ฝังอยู่ในไฟล์จริง เชื่อถือได้
+/// OCR         = อ่านจากภาพ เป็นการคาดเดาของเครื่อง อาจไม่ถูกต้องทั้งหมด
+///
+/// ต้องแยกให้ชัด เพราะข้อความจาก OCR มีโอกาสผิด และผู้ใช้ควรรู้ว่ากำลังเชื่ออะไรอยู่
+enum SearchTextSource {
+  NATIVE_TEXT
+  OCR
+}
+
 /// สถานะการสกัดข้อความของไฟล์หนึ่งเวอร์ชัน
 ///
 /// ทุกสถานะมีความหมายชัดเจน ไม่มีการใช้ null แทน "ไม่รู้"
@@ -604,6 +625,10 @@ model ResourceSearchIndex {
   /// เลขเวอร์ชันของไฟล์ ใช้เทียบกับ Resource.currentVersion เพื่อหาเวอร์ชันที่มีผลอยู่
   versionNumber       Int
   status              SearchIndexStatus @default(PENDING)
+  /// งานชิ้นนี้เป็นการสกัดข้อความปกติ หรือการอ่านภาพด้วย OCR
+  jobKind             SearchJobKind     @default(EXTRACT)
+  /// ข้อความที่ค้นหาได้มาจากไหน - null เมื่อยังไม่มีข้อความ
+  textSource          SearchTextSource?
   mimeType            String?           @db.VarChar(191)
   /// ข้อความตามที่สกัดได้จริง ใช้ตัดข้อความรอบคำค้นมาแสดง
   extractedText       String?           @db.MediumText
@@ -619,8 +644,21 @@ model ResourceSearchIndex {
   attempts            Int               @default(0)
   /// เวลาที่เริ่มทำงาน - งานที่ค้างอยู่นานเกินไปแปลว่าเซิร์ฟเวอร์ล่มกลางคัน
   processingStartedAt DateTime?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+
+  /// เคยมีคนสั่ง OCR ไฟล์เวอร์ชันนี้แล้วหรือยัง - OCR ไม่เกิดขึ้นเองโดยอัตโนมัติ
+  ocrRequested   Boolean   @default(false)
+  /// ชื่อและรุ่นของเครื่องมือที่ใช้ เก็บไว้เพื่อให้ย้อนรอยได้ว่าผลนี้มาจากอะไร
+  ocrEngine      String?   @db.VarChar(100)
+  ocrLanguages   String?   @db.VarChar(64)
+  /// ความมั่นใจเฉลี่ยของเครื่อง ใช้เป็นข้อมูลวินิจฉัยเท่านั้น
+  /// ห้ามใช้ตัดสินสิทธิ์ และห้ามนำเสนอเป็นการรับประกันความถูกต้อง
+  ocrConfidence  Float?
+  ocrCompletedAt DateTime?
+  /// จำนวนหน้าที่อ่านจริง - ต่างจากจำนวนหน้าทั้งหมดเมื่อชนเพดาน
+  ocrPageCount   Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   resource Resource        @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   version  ResourceVersion @relation(fields: [resourceVersionId], references: [id], onDelete: Cascade)
@@ -628,6 +666,8 @@ model ResourceSearchIndex {
   @@index([resourceId, versionNumber])
   @@index([status, createdAt])
   @@index([status, processingStartedAt])
+  /// ใช้หยิบงานตามชนิด โดยให้การสกัดปกติมาก่อน OCR เสมอ
+  @@index([status, jobKind, createdAt])
   @@map("resource_search_index")
 }
 

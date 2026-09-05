@@ -14,6 +14,7 @@ import { FileTypeIcon } from './FileTypeIcon';
 import { OwnerIdentity } from './OwnerIdentity';
 import { ResourceSourceBadge, sourceLabel } from './ResourceSourceBadge';
 import { VersionList } from './VersionList';
+import { OcrPanel } from './OcrPanel';
 import { downloadResource } from '@/lib/download';
 import { isPreviewable } from '@/lib/file-types';
 import { useToast } from '@/hooks/useToast';
@@ -271,7 +272,11 @@ export function DetailsDrawer() {
               </dl>
               </div>
             ) : tab === 'versions' ? (
-              <VersionList entry={selected} />
+              <div className="space-y-3">
+                {/* OCR อยู่คู่กับเวอร์ชัน เพราะทั้งคู่เป็นเรื่องของ "เนื้อในไฟล์" */}
+                <OcrPanel entry={selected} />
+                <VersionList entry={selected} />
+              </div>
             ) : tab === 'access' ? (
               <div className="space-y-4">
                 <div>

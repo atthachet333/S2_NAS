@@ -1,6 +1,8 @@
 import { env } from '../../config/env.js';
 import { logger } from '../../core/logger.js';
 import { claimNextJob, reconcileIndex, runJob } from './search-index.service.js';
+import { cleanStaleTempDirs } from './ocr/engine.js';
+import { runOcrJob } from './ocr/ocr.service.js';
 
 /**
  * ตัวทำงานสกัดข้อความ
@@ -27,7 +29,7 @@ export async function drainOnce(concurrency: number): Promise<number> {
 
   const workers = Array.from({ length: concurrency }, async () => {
     for (;;) {
-      const jobId = await claimNextJob();
+      const jobId = await claimNextJob(new Date(), 'EXTRACT');
       if (!jobId) return;
       try {
         await runJob(jobId);
@@ -38,6 +40,35 @@ export async function drainOnce(concurrency: number): Promise<number> {
       done += 1;
       // ทำทีละชุด ไม่กวาดจนหมดในรอบเดียว เพื่อคืนเวลาให้คำขอของผู้ใช้
       if (done >= concurrency * 20) return;
+    }
+  });
+
+  await Promise.all(workers);
+  return done;
+}
+
+/**
+ * ทำงาน OCR ที่ค้างอยู่
+ *
+ * แยกจากการสกัดปกติด้วยเหตุผลสองข้อ:
+ *   1. OCR กิน CPU มากกว่ามาก จึงต้องจำกัดจำนวนงานพร้อมกันแยกต่างหาก
+ *   2. งาน OCR ค้างจำนวนมากต้องไม่ทำให้ไฟล์ DOCX ที่เพิ่งอัปโหลดรอเป็นชั่วโมง
+ */
+export async function drainOcrOnce(concurrency: number): Promise<number> {
+  let done = 0;
+
+  const workers = Array.from({ length: concurrency }, async () => {
+    for (;;) {
+      const jobId = await claimNextJob(new Date(), 'OCR');
+      if (!jobId) return;
+      try {
+        await runOcrJob(jobId);
+      } catch (error) {
+        logger.warn({ err: error }, '[OCR] งานอ่านข้อความล้มเหลวโดยไม่คาดคิด');
+      }
+      done += 1;
+      // OCR ช้ากว่ามาก จึงทำทีละไม่กี่ชิ้นต่อรอบ
+      if (done >= concurrency * 3) return;
     }
   });
 
@@ -61,7 +92,15 @@ export function startIndexWorker(): IndexWorker | null {
     if (stopped || running) return 0;
     running = true;
     try {
-      return await drainOnce(concurrency);
+      /**
+       * การสกัดข้อความปกติมาก่อนเสมอ
+       *
+       * มันเร็วกว่าหลายเท่าและเป็นสิ่งที่ผู้ใช้เพิ่งอัปโหลดกำลังรออยู่
+       * งาน OCR ที่ค้างเป็นร้อยชิ้นจึงไม่ทำให้ไฟล์ใหม่รอคิวยาว
+       */
+      const extracted = await drainOnce(concurrency);
+      const ocred = await drainOcrOnce(env.S2_NAS_OCR_CONCURRENCY);
+      return extracted + ocred;
     } catch (error) {
       logger.warn({ err: error }, '[SEARCH] รอบทำงานของตัวสกัดข้อความล้มเหลว');
       return 0;
@@ -72,10 +111,15 @@ export function startIndexWorker(): IndexWorker | null {
 
   // กู้คืนงานค้างจากการรีสตาร์ทครั้งก่อน แล้วจึงเริ่มวน
   void reconcileIndex()
-    .then((result) => {
-      if (result.requeued > 0 || result.created > 0) {
-        logger.info(`[SEARCH] กู้คืนคิว: กลับเข้าคิว ${result.requeued} · สร้างใหม่ ${result.created}`);
+    .then(async (result) => {
+      if (result.requeued > 0 || result.created > 0 || result.restaled > 0) {
+        logger.info(
+          `[SEARCH] กู้คืนคิว: กลับเข้าคิว ${result.requeued} · สร้างใหม่ ${result.created} · ทำใหม่ตามรุ่น ${result.restaled}`,
+        );
       }
+      // ไฟล์ชั่วคราวของ OCR ที่ค้างจากการล่มกลางคันต้องไม่สะสมอยู่บนดิสก์
+      const removed = await cleanStaleTempDirs();
+      if (removed > 0) logger.info(`[OCR] ลบพื้นที่ชั่วคราวที่ค้างอยู่ ${removed} รายการ`);
       return tick();
     })
     .catch((error: unknown) => logger.warn({ err: error }, '[SEARCH] กู้คืนคิวไม่สำเร็จ'));

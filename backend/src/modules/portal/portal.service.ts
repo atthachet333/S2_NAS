@@ -23,7 +23,7 @@ import {
   type PortalRole,
 } from './portal-policy.js';
 import { searchGrantedSubtrees } from './portal-search.js';
-import { snippetsFor } from '../search/content-match.js';
+import { snippetsFor, type ContentSnippetInfo } from '../search/content-match.js';
 
 /**
  * พื้นที่เอกสารสำหรับลูกค้า
@@ -247,13 +247,13 @@ export async function searchPortal(
    * รหัสที่ส่งเข้าไปคือรายการที่ผ่านการไล่ลำดับชั้นจากรากที่ได้รับสิทธิ์มาแล้วทั้งหมด
    */
   const contentHits = hits.filter((hit) => hit.contentMatch).map((hit) => hit.resource.id);
-  const snippets = contentHits.length > 0 ? await snippetsFor(contentHits, term) : new Map<string, string>();
+  const snippets = contentHits.length > 0 ? await snippetsFor(contentHits, term) : new Map<string, ContentSnippetInfo>();
 
   return hits.map((hit) => ({
     ...toPortalDto(hit.resource, hit.role, hit.allowDownload),
     path: hit.path,
     matchLabel: hit.contentMatch ? 'ตรงกับเนื้อหาเอกสาร' : 'ตรงกับชื่อไฟล์',
-    contentSnippet: hit.contentMatch ? snippets.get(hit.resource.id) ?? null : null,
+    contentSnippet: hit.contentMatch ? snippets.get(hit.resource.id)?.snippet ?? null : null,
   }));
 }
 

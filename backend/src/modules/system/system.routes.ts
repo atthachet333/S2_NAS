@@ -13,6 +13,13 @@ import {
   reindexResource,
   retryFailed,
 } from '../search/search-index.service.js';
+import { AppError } from '../../core/errors.js';
+import {
+  listOcrEligible,
+  ocrDiagnostics,
+  requestOcr,
+  retryFailedOcr,
+} from '../search/ocr/ocr.service.js';
 
 /** สิทธิ์เฉพาะสำหรับแก้ค่าการทำงานของระบบ - แยกจาก admin:access โดยตั้งใจ */
 export const MANAGE_SETTINGS_PERMISSION = 'system:settings:manage';
@@ -84,6 +91,52 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requirePermission(MANAGE_SETTINGS_PERMISSION) },
     async () => ({ success: true, data: { queued: await retryFailed() } }),
   );
+
+  /* ---------------- OCR ---------------- */
+
+  /** สถานะของเครื่องมือ OCR และคิวงาน - ไม่มีเส้นทางจริงและไม่มีข้อความของเอกสาร */
+  app.get('/admin/ocr', { preHandler: requirePermission(MANAGE_SETTINGS_PERMISSION) }, async () => ({
+    success: true,
+    data: await ocrDiagnostics(),
+  }));
+
+  /** ไฟล์ที่น่าจะได้ประโยชน์จาก OCR แต่ยังไม่เคยสั่ง */
+  app.get('/admin/ocr/eligible', { preHandler: requirePermission(MANAGE_SETTINGS_PERMISSION) }, async (request) => {
+    const query = z.object({ limit: z.coerce.number().int().min(1).max(200).default(100) }).parse(request.query);
+    return { success: true, data: await listOcrEligible(query.limit) };
+  });
+
+  /**
+   * สั่ง OCR หลายไฟล์พร้อมกัน
+   *
+   * เข้าคิวเท่านั้น ไม่รอให้เสร็จ - คำขอ HTTP ต้องไม่ค้างรอ OCR ที่ใช้เวลาเป็นนาทีต่อไฟล์
+   * รายงานจำนวนที่รับและที่ข้ามตามจริง เพื่อให้ผู้ดูแลรู้ว่าเกิดอะไรขึ้นจริง ๆ
+   */
+  app.post('/admin/ocr/bulk', { preHandler: requirePermission(MANAGE_SETTINGS_PERMISSION) }, async (request) => {
+    const body = z
+      .object({ resourceIds: z.array(z.string().min(1).max(191)).min(1).max(200) })
+      .parse(request.body);
+
+    let accepted = 0;
+    const skipped: Array<{ resourceId: string; reason: string }> = [];
+    for (const resourceId of body.resourceIds) {
+      try {
+        await requestOcr(resourceId);
+        accepted += 1;
+      } catch (error) {
+        skipped.push({
+          resourceId,
+          reason: error instanceof AppError ? error.message : 'สั่งอ่านข้อความไม่สำเร็จ',
+        });
+      }
+    }
+    return { success: true, data: { accepted, skipped } };
+  });
+
+  app.post('/admin/ocr/retry-failed', { preHandler: requirePermission(MANAGE_SETTINGS_PERMISSION) }, async () => ({
+    success: true,
+    data: { queued: await retryFailedOcr() },
+  }));
 
   app.get('/admin/settings', { preHandler: requirePermission(MANAGE_SETTINGS_PERMISSION) }, async () => ({
     success: true,
