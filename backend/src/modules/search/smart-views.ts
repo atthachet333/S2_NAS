@@ -83,6 +83,37 @@ export const SMART_VIEWS: SmartView[] = [
     description: 'เอกสารที่ยังไม่ได้กำหนดประเภท',
     filters: { uncategorizedOnly: true, sort: 'newest' },
   },
+  /* ---- วงจรชีวิตเอกสาร (F16) ---- */
+  {
+    slug: 'archive',
+    name: 'คลังเอกสาร',
+    description: 'เอกสารที่เก็บเข้าคลังแล้ว ยังค้นเจอและเปิดได้ตามปกติ',
+    filters: { lifecycleState: 'ARCHIVED', sort: 'newest' },
+  },
+  {
+    slug: 'retention-expiring',
+    name: 'ใกล้ครบกำหนดเก็บรักษา',
+    description: 'เอกสารที่จะพ้นนโยบายการเก็บรักษาภายใน 30 วัน',
+    filters: { retentionStatus: 'EXPIRING', sort: 'oldest' },
+  },
+  {
+    slug: 'retention-expired',
+    name: 'หมดอายุการเก็บรักษา',
+    description: 'พ้นกำหนดเก็บรักษาแล้ว - ลบถาวรได้ถ้ากติกาอื่นอนุญาต ระบบไม่ลบให้เอง',
+    filters: { retentionStatus: 'EXPIRED', sort: 'oldest' },
+  },
+  {
+    slug: 'legal-hold',
+    name: 'Legal Hold',
+    description: 'เอกสารที่ถูกระงับการลบไว้ ลบถาวรไม่ได้จนกว่าจะมีคนปลด',
+    filters: { legalHoldOnly: true, sort: 'newest' },
+  },
+  {
+    slug: 'no-retention',
+    name: 'ไม่มีนโยบายการเก็บรักษา',
+    description: 'เอกสารที่ยังไม่มีใครกำหนดว่าต้องเก็บไว้นานเท่าไร',
+    filters: { retentionStatus: 'NONE', sort: 'newest' },
+  },
   {
     slug: 'my-responsibility',
     name: 'เอกสารที่ฉันดูแล',

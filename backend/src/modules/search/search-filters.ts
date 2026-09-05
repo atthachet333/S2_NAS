@@ -104,6 +104,20 @@ export const searchFiltersSchema = z
     updatedPreset: z.enum(DATE_PRESETS).optional(),
     updatedFrom: z.coerce.date().optional(),
     updatedTo: z.coerce.date().optional(),
+    /* ---- วงจรชีวิตเอกสาร (F16) ---- */
+    /**
+     * ใช้งานอยู่ / เก็บเข้าคลัง / ทั้งหมด
+     *
+     * ค่าเริ่มต้นของการค้นหาคือ "ทั้งหมด" โดยตั้งใจ - ผู้ใช้ที่พิมพ์ชื่อเอกสาร
+     * แล้วไม่เจอเพราะมันถูกเก็บเข้าคลังไปแล้ว จะสรุปว่าเอกสารหายไป
+     * การค้นหาต้องหาเจอเสมอ ส่วนการ "ไม่เกะกะ" เป็นเรื่องของหน้าเรียกดู
+     */
+    lifecycleState: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
+    retentionPolicyId: z.string().min(1).max(191).optional(),
+    /** สถานะการเก็บรักษา - คำนวณจากวันหมดอายุและการระงับ */
+    retentionStatus: z.enum(['NONE', 'ACTIVE', 'EXPIRING', 'EXPIRED', 'FOREVER']).optional(),
+    /** เฉพาะเอกสารที่ถูกระงับการลบอยู่ */
+    legalHoldOnly: z.boolean().optional(),
     sort: z.enum(['relevance', 'newest', 'oldest', 'name', 'largest']).optional(),
   })
   .strict();
@@ -277,4 +291,48 @@ export function hasAnyFilter(filters: SearchFilters): boolean {
     if (key === 'sort') return false;
     return value !== undefined && value !== null && value !== false;
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* สถานะการเก็บรักษา                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * จำนวนวันที่ถือว่า "ใกล้ครบกำหนด"
+ *
+ * สามสิบวันให้เวลาพอที่จะตัดสินใจว่าจะต่ออายุ เก็บเข้าคลัง หรือปล่อยให้หมดอายุ
+ * โดยไม่ต้องรีบร้อน และไม่ยาวจนรายการยาวเกินกว่าจะมีใครดูจริง
+ */
+export const EXPIRING_SOON_DAYS = 30;
+
+export type RetentionStatus = NonNullable<SearchFilters['retentionStatus']>;
+
+/**
+ * เงื่อนไขฐานข้อมูลของสถานะการเก็บรักษาแต่ละแบบ
+ *
+ * "หมดอายุแล้ว" ไม่ได้แปลว่าต้องลบทันที - แปลว่า "ลบได้แล้วถ้ากติกาอื่นอนุญาต"
+ * ระบบไม่เคยลบเอกสารเองเพียงเพราะนโยบายหมดอายุ
+ */
+export function retentionStatusWhere(
+  status: RetentionStatus,
+  now: Date = new Date(),
+): Record<string, unknown> {
+  const soon = new Date(now);
+  soon.setDate(soon.getDate() + EXPIRING_SOON_DAYS);
+
+  switch (status) {
+    case 'NONE':
+      // ยังไม่มีใครกำหนดนโยบายให้ - กลุ่มที่ต้องตามเก็บ
+      return { retentionPolicyId: null };
+    case 'FOREVER':
+      return { retentionForever: true };
+    case 'ACTIVE':
+      return { retentionForever: false, retentionUntil: { gt: soon } };
+    case 'EXPIRING':
+      return { retentionForever: false, retentionUntil: { gt: now, lte: soon } };
+    case 'EXPIRED':
+      return { retentionForever: false, retentionUntil: { lte: now } };
+    default:
+      return {};
+  }
 }

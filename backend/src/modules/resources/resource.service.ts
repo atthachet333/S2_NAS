@@ -18,6 +18,9 @@ export const resourceInclude = {
   lockedBy: { select: ownerSelect },
   tags: { include: { tag: { select: { id: true, name: true } } } },
   documentCategory: { select: { id: true, name: true } },
+  retentionPolicy: { select: { id: true, name: true, retainForever: true } },
+  /// เอาเฉพาะการระงับที่ยังมีผล - ประวัติทั้งหมดมีเส้นทางของตัวเอง
+  legalHolds: { where: { isActive: true }, select: { id: true }, take: 1 },
   access: { select: { userId: true, accessLevel: true, allowDownload: true, expiresAt: true } },
   _count: { select: { children: { where: { deletedAt: null } } } },
 } as const;
@@ -175,6 +178,19 @@ export function toResourceDto(resource: ResourceWithRelations, user: AuthUser) {
     documentCategory: resource.documentCategory
       ? { id: resource.documentCategory.id, name: resource.documentCategory.name }
       : null,
+    /* ---- วงจรชีวิตเอกสาร (F16) ---- */
+    lifecycleState: resource.lifecycleState,
+    archivedAt: resource.archivedAt,
+    retentionPolicy: resource.retentionPolicy
+      ? { id: resource.retentionPolicy.id, name: resource.retentionPolicy.name }
+      : null,
+    retentionUntil: resource.retentionUntil,
+    retentionForever: resource.retentionForever,
+    /**
+     * บอกแค่ว่า "ถูกระงับอยู่" ไม่บอกว่าเพราะอะไร
+     * เหตุผลมักเกี่ยวกับคดีหรือการตรวจสอบ ซึ่งผู้ที่เปิดไฟล์ดูได้ไม่จำเป็นต้องรู้
+     */
+    onLegalHold: resource.legalHolds.length > 0,
     visibility: resource.visibility, currentVersion: resource.currentVersion,
     driveScope: resource.driveScope,
     tags: resource.tags.map((link) => ({ id: link.tag.id, name: link.tag.name })),
@@ -235,7 +251,7 @@ async function createDestination(
   return { visibility: 'ORGANIZATION', driveScope: requestedDrive };
 }
 
-export async function listResources(user: AuthUser, input: { parentId?: string | null; type?: ResourceType; ownerId?: string; sort: 'name' | 'updatedAt' | 'createdAt' | 'size'; direction: 'asc' | 'desc'; limit: number; cursor?: string; driveScope?: DriveScope }) {
+export async function listResources(user: AuthUser, input: { parentId?: string | null; type?: ResourceType; ownerId?: string; sort: 'name' | 'updatedAt' | 'createdAt' | 'size'; direction: 'asc' | 'desc'; limit: number; cursor?: string; driveScope?: DriveScope; includeArchived?: boolean }) {
   if (!user.permissions.includes('resources:read')) throw forbidden('ไม่มีสิทธิ์ดูทรัพยากร');
   if (input.parentId) await assertView(await findResource(input.parentId), user);
   /**
@@ -244,7 +260,20 @@ export async function listResources(user: AuthUser, input: { parentId?: string |
    */
   const driveFilter = input.parentId ? undefined : (input.driveScope ?? 'MY_DRIVE');
   const rows = await prisma.resource.findMany({
-    where: { parentId: input.parentId ?? null, deletedAt: null, type: input.type, ownerId: input.ownerId, driveScope: driveFilter },
+    where: {
+      parentId: input.parentId ?? null,
+      deletedAt: null,
+      type: input.type,
+      ownerId: input.ownerId,
+      driveScope: driveFilter,
+      /**
+       * เอกสารที่เก็บเข้าคลังไม่ขึ้นในมุมมองการทำงานประจำวัน
+       *
+       * ไม่ได้หายไปไหน - ยังค้นเจอ เปิดได้ และอยู่ในหน้าคลัง
+       * แค่ไม่เกะกะสายตาคนที่กำลังทำงานกับเอกสารของเดือนนี้
+       */
+      ...(input.includeArchived ? {} : { lifecycleState: 'ACTIVE' as const }),
+    },
     include: resourceInclude,
     orderBy: input.sort === 'name' ? { normalizedName: input.direction } : { [input.sort]: input.direction },
     take: input.limit + 1,
@@ -263,7 +292,8 @@ export async function listResources(user: AuthUser, input: { parentId?: string |
 export async function listRecentResources(user: AuthUser, limit: number) {
   if (!user.permissions.includes('resources:read')) throw forbidden('ไม่มีสิทธิ์ดูทรัพยากร');
   const rows = await prisma.resource.findMany({
-    where: { deletedAt: null },
+    // "ล่าสุด" คือของที่กำลังทำงานด้วย เอกสารในคลังจึงไม่ควรขึ้นมาปน
+    where: { deletedAt: null, lifecycleState: 'ACTIVE' },
     include: resourceInclude,
     orderBy: { updatedAt: 'desc' },
     take: limit,

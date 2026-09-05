@@ -16,6 +16,7 @@ export const PERMISSIONS = [
   ['resources:lock', 'ล็อกและปลดล็อกทรัพยากร'],
   ['system:settings:manage', 'จัดการค่าตั้งค่าการทำงานของระบบ'],
   ['system:backup:manage', 'สำรองและกู้คืนข้อมูลของระบบ'],
+  ['system:retention:manage', 'จัดการนโยบายการเก็บรักษาและการระงับการลบ'],
 ] as const;
 
 /**

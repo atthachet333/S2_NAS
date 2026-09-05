@@ -108,6 +108,10 @@ model User {
   savedSearches       SavedSearch[]            @relation("SavedSearchOwner")
   documentCategories  DocumentCategory[]       @relation("DocumentCategoryCreator")
   reviewedIndexes     ResourceSearchIndex[]    @relation("OcrReviewer")
+  retentionPolicies   RetentionPolicy[]        @relation("RetentionPolicyCreator")
+  archivedResources   Resource[]               @relation("ResourceArchiver")
+  legalHoldsCreated   LegalHold[]              @relation("LegalHoldCreator")
+  legalHoldsReleased  LegalHold[]              @relation("LegalHoldReleaser")
   textCorrections     ResourceTextCorrection[] @relation("TextCorrectionAuthor")
   correctedIndexes    ResourceSearchIndex[]    @relation("TextCorrector")
 
@@ -118,65 +122,91 @@ model User {
 }
 
 model Resource {
-  id                        String                   @id @default(cuid())
+  id                        String             @id @default(cuid())
   type                      ResourceType
-  name                      String                   @db.VarChar(191)
-  normalizedName            String                   @db.VarChar(191)
-  siblingKey                String                   @unique @db.VarChar(500)
+  name                      String             @db.VarChar(191)
+  normalizedName            String             @db.VarChar(191)
+  siblingKey                String             @unique @db.VarChar(500)
   parentId                  String?
   ownerId                   String
   createdById               String
   updatedById               String?
-  sourceType                ResourceSourceType       @default(MANUAL)
-  mimeType                  String?                  @db.VarChar(191)
-  extension                 String?                  @db.VarChar(32)
+  sourceType                ResourceSourceType @default(MANUAL)
+  mimeType                  String?            @db.VarChar(191)
+  extension                 String?            @db.VarChar(32)
   size                      BigInt?
-  storageKey                String?                  @unique @db.VarChar(500)
-  checksum                  String?                  @db.VarChar(191)
-  externalUrl               String?                  @db.Text
-  externalProvider          String?                  @db.VarChar(100)
-  sourceSystem              String?                  @db.VarChar(100)
-  sourceEntityType          String?                  @db.VarChar(100)
-  sourceEntityId            String?                  @db.VarChar(191)
-  sourceUrl                 String?                  @db.Text
+  storageKey                String?            @unique @db.VarChar(500)
+  checksum                  String?            @db.VarChar(191)
+  externalUrl               String?            @db.Text
+  externalProvider          String?            @db.VarChar(100)
+  sourceSystem              String?            @db.VarChar(100)
+  sourceEntityType          String?            @db.VarChar(100)
+  sourceEntityId            String?            @db.VarChar(191)
+  sourceUrl                 String?            @db.Text
   createdByIntegrationAppId String?
-  remark                    String?                  @db.VarChar(1000)
+  remark                    String?            @db.VarChar(1000)
   /// ประเภทเอกสารที่คนกำหนดไว้ - null คือยังไม่ได้จัดประเภท ไม่ใช่ "ไม่มีประเภท"
   documentCategoryId        String?
-  isLocked                  Boolean                  @default(false)
+
+  /**
+   * ---- วงจรชีวิตเอกสาร (F16) ----
+   */
+
+  /// ใช้งานอยู่ หรือเก็บเข้าคลัง - แยกจากถังขยะโดยสิ้นเชิง
+  lifecycleState          ResourceLifecycleState   @default(ACTIVE)
+  archivedAt              DateTime?
+  archivedById            String?
+  /// นโยบายที่ถูกกำหนดให้เอกสารนี้
+  retentionPolicyId       String?
+  /// เริ่มนับอายุจากวันไหน และนับจากอะไร
+  retentionStartAt        DateTime?
+  retentionStartBasis     RetentionStartBasis?
+  /**
+   * วันที่เก็บรักษาถึง - เป็น "ภาพนิ่ง" ที่คำนวณไว้ตอนกำหนดนโยบาย
+   * ไม่คำนวณใหม่จากนโยบายทุกครั้งที่อ่าน เพราะถ้ามีคนแก้นิยามของนโยบาย
+   * เอกสารหลายพันฉบับจะเปลี่ยนวันหมดอายุพร้อมกันโดยไม่มีใครตั้งใจ
+   * และบางฉบับอาจกลายเป็น "ลบได้แล้ว" ทั้งที่เมื่อวานยังห้ามลบ
+   */
+  retentionUntil          DateTime?
+  /// ภาพนิ่งของ retainForever ตอนกำหนดนโยบาย - แยก "เก็บถาวร" ออกจาก "ไม่มีนโยบาย"
+  retentionForever        Boolean                  @default(false)
+  isLocked                Boolean                  @default(false)
   /// ใครล็อก เมื่อไร และเพราะอะไร - สำคัญมากกับเอกสารบัญชีที่ปิดงบแล้ว
-  lockedAt                  DateTime?
-  lockedById                String?
-  lockReason                String?                  @db.VarChar(500)
+  lockedAt                DateTime?
+  lockedById              String?
+  lockReason              String?                  @db.VarChar(500)
   /// นโยบายการมองเห็น สืบทอดจากโฟลเดอร์แม่เมื่อสร้างทรัพยากรใหม่
-  visibility                ResourceVisibility       @default(ORGANIZATION)
+  visibility              ResourceVisibility       @default(ORGANIZATION)
   /// ไดร์ฟที่สังกัด สืบทอดจากโฟลเดอร์แม่เมื่อสร้าง/ย้ายทรัพยากร
-  driveScope                DriveScope               @default(MY_DRIVE)
+  driveScope              DriveScope               @default(MY_DRIVE)
   /// เลขเวอร์ชันปัจจุบันของไฟล์ (สะท้อนจาก ResourceVersion เพื่อให้ listing เร็ว)
-  currentVersion            Int?
-  deletedAt                 DateTime?
+  currentVersion          Int?
+  deletedAt               DateTime?
   /// ผู้ที่ย้ายทรัพยากรไปถังขยะ และตำแหน่งเดิมก่อนถูกลบ ใช้สำหรับการกู้คืน
-  deletedById               String?
-  trashedFromId             String?                  @db.VarChar(191)
-  createdAt                 DateTime                 @default(now())
-  updatedAt                 DateTime                 @updatedAt
-  parent                    Resource?                @relation("ResourceHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
-  children                  Resource[]               @relation("ResourceHierarchy")
-  owner                     User                     @relation("ResourceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  createdBy                 User                     @relation("ResourceCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy                 User?                    @relation("ResourceUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
-  deletedBy                 User?                    @relation("ResourceDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
-  lockedBy                  User?                    @relation("ResourceLocker", fields: [lockedById], references: [id], onDelete: SetNull)
-  documentCategory          DocumentCategory?        @relation(fields: [documentCategoryId], references: [id], onDelete: SetNull)
-  access                    ResourceAccess[]
-  versions                  ResourceVersion[]
-  tags                      ResourceTag[]
-  favoritedBy               UserFavorite[]
-  pinnedBy                  UserPinnedResource[]
-  searchIndex               ResourceSearchIndex[]
-  createdByIntegrationApp   IntegrationApp?          @relation("IntegrationResourceCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
-  integrationScopeApps      IntegrationApp[]         @relation("IntegrationAllowedRoot")
-  integrationIdempotency    IntegrationIdempotency[]
+  deletedById             String?
+  trashedFromId           String?                  @db.VarChar(191)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  parent                  Resource?                @relation("ResourceHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children                Resource[]               @relation("ResourceHierarchy")
+  owner                   User                     @relation("ResourceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  createdBy               User                     @relation("ResourceCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy               User?                    @relation("ResourceUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedBy               User?                    @relation("ResourceDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
+  lockedBy                User?                    @relation("ResourceLocker", fields: [lockedById], references: [id], onDelete: SetNull)
+  documentCategory        DocumentCategory?        @relation(fields: [documentCategoryId], references: [id], onDelete: SetNull)
+  retentionPolicy         RetentionPolicy?         @relation(fields: [retentionPolicyId], references: [id], onDelete: SetNull)
+  archivedBy              User?                    @relation("ResourceArchiver", fields: [archivedById], references: [id], onDelete: SetNull)
+  legalHolds              LegalHold[]
+  access                  ResourceAccess[]
+  versions                ResourceVersion[]
+  tags                    ResourceTag[]
+  favoritedBy             UserFavorite[]
+  pinnedBy                UserPinnedResource[]
+  searchIndex             ResourceSearchIndex[]
+  createdByIntegrationApp IntegrationApp?          @relation("IntegrationResourceCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
+  integrationScopeApps    IntegrationApp[]         @relation("IntegrationAllowedRoot")
+  integrationIdempotency  IntegrationIdempotency[]
 
   @@index([parentId])
   @@index([ownerId])
@@ -189,6 +219,10 @@ model Resource {
   @@index([visibility])
   @@index([driveScope])
   @@index([driveScope, parentId, deletedAt])
+  /// ใช้แยกเอกสารที่เก็บเข้าคลังออกจากมุมมองการทำงานประจำวัน
+  @@index([lifecycleState, deletedAt])
+  /// ใช้โดยมุมมอง "ใกล้ครบกำหนด" และ "หมดอายุการเก็บรักษา"
+  @@index([retentionUntil])
   @@index([normalizedName])
   @@index([isLocked])
   @@index([createdByIntegrationAppId])
@@ -583,6 +617,30 @@ model RestoreRehearsalLog {
 ///
 /// อยู่ในคิวเดียวกันโดยตั้งใจ เพื่อให้การกู้คืนหลังเซิร์ฟเวอร์ล่ม การจองงาน
 /// และการลองใหม่ ใช้กลไกชุดเดียว แต่แยกลำดับความสำคัญและจำนวนงานพร้อมกัน
+/// สถานะวงจรชีวิตของทรัพยากร
+///
+/// แยกจาก deletedAt โดยเด็ดขาด - "เก็บเข้าคลัง" กับ "อยู่ในถังขยะ" คนละเรื่องกัน
+///   ARCHIVED = เก็บรักษาไว้ ยังค้นเจอและเปิดได้ แค่ไม่เกะกะพื้นที่ทำงานประจำวัน
+///   ถังขยะ   = ตั้งใจจะทิ้ง และจะถูกลบถาวรเมื่อครบกำหนด
+///
+/// การยัดสองเรื่องนี้ลงฟิลด์เดียวจะทำให้เอกสารที่ตั้งใจเก็บไว้สิบปี
+/// ถูกงานเก็บกวาดถังขยะลบทิ้งในวันหนึ่ง
+enum ResourceLifecycleState {
+  ACTIVE
+  ARCHIVED
+}
+
+/// เริ่มนับอายุการเก็บรักษาจากอะไร
+///
+/// ไม่มีตัวเลือก "เดาวันที่จากเนื้อในเอกสาร" โดยตั้งใจ - OCR เดาวันที่ผิดได้
+/// และการเดาผิดจะทำให้เอกสารถูกลบก่อนกำหนดโดยไม่มีใครรู้ตัว
+enum RetentionStartBasis {
+  /// วันที่นำเข้าระบบ - ค่าเริ่มต้นที่ตรวจสอบย้อนหลังได้เสมอ
+  CREATED_AT
+  /// วันที่เจ้าหน้าที่ระบุเอง เช่น วันที่บนเอกสารจริง
+  MANUAL
+}
+
 enum SearchJobKind {
   EXTRACT
   OCR
@@ -753,19 +811,23 @@ model ResourceTextCorrection {
 ///
 /// การจัดประเภทเป็นการตัดสินใจของคน ไม่ใช่การเดาของเครื่อง
 model DocumentCategory {
-  id          String   @id @default(cuid())
-  name        String   @db.VarChar(100)
+  id                       String   @id @default(cuid())
+  name                     String   @db.VarChar(100)
   /// ใช้อ้างอิงใน URL และตัวกรอง - คงที่แม้ชื่อที่แสดงจะถูกเปลี่ยน
-  slug        String   @unique @db.VarChar(100)
+  slug                     String   @unique @db.VarChar(100)
   /// ปิดการใช้งานแทนการลบ - ทรัพยากรที่เคยถูกจัดประเภทไว้ต้องไม่กำพร้า
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive                 Boolean  @default(true)
+  /// นโยบายการเก็บรักษาที่ใช้เป็นค่าตั้งต้นเมื่อจัดเอกสารเข้าประเภทนี้
+  /// ใช้เฉพาะกับเอกสารที่ยังไม่มีนโยบายของตัวเอง - ไม่เขียนทับสิ่งที่คนตั้งใจกำหนดไว้
+  defaultRetentionPolicyId String?
+  sortOrder                Int      @default(0)
+  createdById              String
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
-  createdBy User       @relation("DocumentCategoryCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  resources Resource[]
+  createdBy              User             @relation("DocumentCategoryCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  defaultRetentionPolicy RetentionPolicy? @relation(fields: [defaultRetentionPolicyId], references: [id], onDelete: SetNull)
+  resources              Resource[]
 
   @@index([isActive, sortOrder])
   @@map("document_categories")
@@ -797,6 +859,68 @@ model SavedSearch {
   @@unique([userId, name])
   @@index([userId, lastUsedAt])
   @@map("saved_searches")
+}
+
+/// นโยบายการเก็บรักษาเอกสาร
+///
+/// บอกว่าเอกสารต้องถูกเก็บไว้นานเท่าไรก่อนจะลบถาวรได้
+///
+/// **ไม่ใช่เรื่องเดียวกับอายุของชุดสำรอง (F6)** - อันนั้นคือ "เก็บไฟล์สำรองไว้กี่ชุด"
+/// อันนี้คือ "ห้ามลบเอกสารจนกว่าจะถึงเมื่อไร" สองอย่างนี้ตั้งค่าแยกกันคนละที่
+model RetentionPolicy {
+  id            String   @id @default(cuid())
+  name          String   @db.VarChar(100)
+  description   String?  @db.VarChar(500)
+  /// จำนวนวันที่ต้องเก็บ - null เมื่อเก็บถาวร
+  retentionDays Int?
+  /// เก็บโดยไม่มีกำหนด - ลบถาวรไม่ได้จนกว่าจะมีคนเปลี่ยนนโยบายอย่างตั้งใจ
+  retainForever Boolean  @default(false)
+  /// ปิดการใช้งานแทนการลบ เมื่อยังมีทรัพยากรอ้างถึง
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  createdBy  User               @relation("RetentionPolicyCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  resources  Resource[]
+  categories DocumentCategory[]
+
+  @@index([isActive, sortOrder])
+  @@map("retention_policies")
+}
+
+/// การระงับการลบตามข้อกำหนดทางกฎหมายหรือการตรวจสอบ
+///
+/// เป็นชั้นป้องกันที่แข็งกว่านโยบายการเก็บรักษา: นโยบายมีวันหมด แต่ Legal Hold
+/// อยู่จนกว่าจะมีคนปลดอย่างตั้งใจ และประวัติการวาง/ปลดต้องไม่ถูกลบทิ้งเลย
+///
+/// เก็บเป็นแถวต่อการวางหนึ่งครั้ง ไม่ใช่ธงบนทรัพยากร เพราะคำถามที่ต้องตอบได้คือ
+/// "เคยถูกระงับด้วยเหตุผลอะไร เมื่อไร โดยใคร และใครเป็นคนปลด"
+model LegalHold {
+  id            String    @id @default(cuid())
+  resourceId    String
+  /// เหตุผลโดยย่อ - เก็บที่นี่เท่านั้น ไม่ทำสำเนาลง activity log
+  reason        String    @db.VarChar(500)
+  /// เลขคดี/เลขอ้างอิงภายใน ถ้ามี
+  caseReference String?   @db.VarChar(191)
+  createdById   String
+  createdAt     DateTime  @default(now())
+  /// เหตุผลที่ปลด - บันทึกไว้เพื่อให้ย้อนดูได้ว่าทำไมจึงเลิกระงับ
+  releaseReason String?   @db.VarChar(500)
+  releasedById  String?
+  releasedAt    DateTime?
+  /// ยังมีผลอยู่หรือไม่ - แถวที่ปลดแล้วยังอยู่ในตารางเสมอ
+  isActive      Boolean   @default(true)
+
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  createdBy  User     @relation("LegalHoldCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  releasedBy User?    @relation("LegalHoldReleaser", fields: [releasedById], references: [id], onDelete: SetNull)
+
+  /// ใช้ตรวจอย่างรวดเร็วว่าทรัพยากรนี้ถูกระงับอยู่หรือไม่ ก่อนทุกการลบ
+  @@index([resourceId, isActive])
+  @@index([isActive, createdAt])
+  @@map("legal_holds")
 }
 
 /// ผู้ให้บริการยืนยันตัวตนภายนอก - F9 รองรับเฉพาะ Google

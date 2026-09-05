@@ -2,6 +2,7 @@ import { prisma } from '../../core/prisma.js';
 import { logger } from '../../core/logger.js';
 import { getSetting } from '../system/settings.service.js';
 import { purgeTrashedResource } from './trash.service.js';
+import { governanceForResources } from '../governance/governance.guard.js';
 
 /**
  * งานเก็บกวาดถังขยะตามอายุของแต่ละรายการ
@@ -68,10 +69,28 @@ export async function runTrashRetention(now: Date = new Date()): Promise<Retenti
   const expired = await findExpiredTrashRoots(retentionCutoff(now, days));
   result.scanned = expired.length;
 
+  /**
+   * ตรวจการกำกับดูแลของทั้งรอบในคำสั่งเดียว
+   *
+   * รายการที่ถูกคุ้มครองถูกนับเป็น "ข้าม" ไม่ใช่ "ล้มเหลว"
+   *
+   * ถ้าปล่อยให้ไปชนด่านใน purgeTrashedResource แล้วโยนข้อผิดพลาด งานนี้จะเขียน
+   * บันทึกความล้มเหลวของเอกสารชุดเดิมทุกวันไปเรื่อย ๆ จนบันทึกที่ควรบอกปัญหาจริง
+   * จมหายไปในเสียงรบกวน - และเอกสารที่ถูกเก็บตามนโยบายไม่ใช่ความล้มเหลว
+   * มันคือระบบทำงานถูกต้อง
+   */
+  const governance = await governanceForResources(expired.map((row) => row.id), now);
+
   for (const row of expired) {
     if (row.isLocked) {
       result.skipped += 1;
       logger.warn(`[TRASH] ข้ามการลบถาวรตามอายุ "${row.name}" เพราะถูกล็อกอยู่`);
+      continue;
+    }
+
+    const state = governance.get(row.id);
+    if (state && !state.canPermanentlyDelete) {
+      result.skipped += 1;
       continue;
     }
     try {
@@ -85,7 +104,7 @@ export async function runTrashRetention(now: Date = new Date()): Promise<Retenti
 
   if (result.scanned > 0) {
     logger.info(
-      `[TRASH] เก็บกวาดถังขยะ (เกิน ${days} วัน): ลบถาวร ${result.purged}, ข้าม ${result.skipped}, ล้มเหลว ${result.failed}`,
+      `[TRASH] เก็บกวาดถังขยะ (เกิน ${days} วัน): ลบถาวร ${result.purged}, ข้าม ${result.skipped} (ถูกล็อกหรืออยู่ภายใต้นโยบายการเก็บรักษา), ล้มเหลว ${result.failed}`,
     );
   }
   return result;

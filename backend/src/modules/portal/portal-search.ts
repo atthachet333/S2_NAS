@@ -109,6 +109,7 @@ export async function searchGrantedSubtrees(
       FROM resources r
       WHERE r.id IN (${Prisma.join(rootIds)})
         AND r.deletedAt IS NULL
+        AND r.lifecycleState = 'ACTIVE'
 
       UNION ALL
 
@@ -119,7 +120,7 @@ export async function searchGrantedSubtrees(
         CAST(CONCAT(t.pathIds, '/', c.id) AS CHAR(2048))
       FROM resources c
       INNER JOIN portal_tree t ON c.parentId = t.id
-      WHERE c.deletedAt IS NULL
+      WHERE c.deletedAt IS NULL AND c.lifecycleState = 'ACTIVE'
         AND t.depth < ${MAX_SEARCH_DEPTH}
     )
     SELECT DISTINCT id, pathIds

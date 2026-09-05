@@ -17,6 +17,7 @@ import {
   ocrStateCondition,
   orderByFor,
   resolveDateRange,
+  retentionStatusWhere,
   type SearchFilters,
 } from '../search/search-filters.js';
 import type { AuthUser } from '../auth/auth.service.js';
@@ -120,6 +121,14 @@ export async function searchResources(input: SearchInput, user: AuthUser) {
   if (f.untaggedOnly) filters.push({ tags: { none: {} } });
   if (f.documentCategoryId) filters.push({ documentCategoryId: f.documentCategoryId });
   if (f.uncategorizedOnly) filters.push({ documentCategoryId: null });
+
+  /* ---- วงจรชีวิตเอกสาร (F16) ---- */
+  if (f.lifecycleState) filters.push({ lifecycleState: f.lifecycleState });
+  if (f.retentionPolicyId) filters.push({ retentionPolicyId: f.retentionPolicyId });
+  if (f.retentionStatus) {
+    filters.push(retentionStatusWhere(f.retentionStatus) as Prisma.ResourceWhereInput);
+  }
+  if (f.legalHoldOnly) filters.push({ legalHolds: { some: { isActive: true } } });
   if (f.favoriteOnly) filters.push({ favoritedBy: { some: { userId: user.id } } });
 
   const uploaded = resolveDateRange(f.uploadedPreset, f.uploadedFrom, f.uploadedTo);

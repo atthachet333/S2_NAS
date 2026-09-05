@@ -12,6 +12,7 @@ import {
 } from '../resources/resource.service.js';
 import type { AuthUser } from '../auth/auth.service.js';
 import type { AuditContext } from './file.service.js';
+import { assertDestructionAllowed, governanceForResources } from '../governance/governance.guard.js';
 
 import { siblingKey } from '../resources/sibling-key.js';
 
@@ -117,6 +118,13 @@ export async function listTrash(user: AuthUser) {
   const parentName = new Map(parents.map((row) => [row.id, row.name]));
 
   const retentionDays = await getSetting('TRASH_RETENTION_DAYS');
+
+  // อ่านการระงับการลบของทั้งถังในคำสั่งเดียว ไม่ใช่ถามทีละรายการ
+  const activeHolds = await prisma.legalHold.findMany({
+    where: { resourceId: { in: roots.map((row) => row.id) }, isActive: true },
+    select: { resourceId: true },
+  });
+  const heldIds = new Set(activeHolds.map((row) => row.resourceId));
   const items = roots
     .filter((row) => capabilities(row, user).canView)
     .map((row) => ({
@@ -134,6 +142,15 @@ export async function listTrash(user: AuthUser) {
         retentionDays > 0 && row.deletedAt
           ? new Date(row.deletedAt.getTime() + retentionDays * 24 * 60 * 60 * 1000)
           : null,
+      /**
+       * สถานะการกำกับดูแล - หน้าจอใช้เลือกข้อความนับถอยหลังที่ตรงความจริง
+       *
+       * รายการที่ถูกคุ้มครองไว้จะไม่ถูกลบตอนครบอายุถังขยะ การแสดงว่า
+       * "เหลืออีก 3 วันก่อนลบอัตโนมัติ" จึงเป็นคำโกหกที่ทำให้ผู้ใช้ตกใจเปล่า ๆ
+       */
+      retentionUntil: row.retentionUntil,
+      retentionForever: row.retentionForever,
+      onLegalHold: heldIds.has(row.id),
     }));
 
   /**
@@ -271,7 +288,23 @@ export async function describePermanentDelete(id: string, user: AuthUser) {
     prisma.resourceVersion.count({ where: { resourceId: { in: ids } } }),
   ]);
 
-  return { resourceCount: ids.length, fileCount: files, versionCount: versions, type: resource.type };
+  /**
+   * บอกล่วงหน้าว่าลบได้หรือไม่ พร้อมเหตุผล
+   *
+   * หน้าจอจึงอธิบายให้ผู้ใช้เข้าใจได้ก่อนกด แทนที่จะให้กดแล้วเจอข้อผิดพลาด
+   * เหตุผลที่ส่งไปเป็นข้อความปลอดภัย ไม่มีรายละเอียดของ Legal Hold
+   */
+  const governance = await governanceForResources(ids);
+  const blocked = [...governance.values()].find((state) => state.blockedBy !== null);
+
+  return {
+    resourceCount: ids.length,
+    fileCount: files,
+    versionCount: versions,
+    type: resource.type,
+    canDelete: !blocked,
+    blockedBy: blocked?.blockedBy ?? null,
+  };
 }
 
 /**
@@ -310,6 +343,18 @@ export async function purgeTrashedResource(id: string, actor: PurgeActor, audit:
   assertNotLocked(resource);
 
   const ids = resource.type === 'FOLDER' ? await collectSubtreeIds(id, true) : [id];
+
+  /**
+   * ด่านกำกับดูแล - จุดเดียวที่ทุกเส้นทางการลบถาวรต้องผ่าน
+   *
+   * ตรวจทั้งกิ่ง ไม่ใช่แค่ตัวบนสุด เพราะการลบโฟลเดอร์คือการลบทุกอย่างข้างใน
+   * เอกสารที่ถูกระงับการลบไว้จึงต้องไม่หายไปพร้อมโฟลเดอร์แม่ที่ไม่มีใครระงับ
+   *
+   * อยู่ที่นี่เพราะเป็นแกนกลางที่ใช้ร่วมกันทั้งการกดลบเองและงานเก็บกวาดตามอายุ
+   * การวางไว้ที่ผู้เรียกแต่ละราย แปลว่าวันหนึ่งจะมีเส้นทางที่สามที่ลืมตรวจ
+   */
+  await assertDestructionAllowed(ids);
+
   const versions = await prisma.resourceVersion.findMany({
     where: { resourceId: { in: ids } },
     select: { storageKey: true, resourceId: true },

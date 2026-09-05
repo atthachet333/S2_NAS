@@ -204,6 +204,10 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
         uploadedFrom: isoDate,
         uploadedTo: isoDate,
         updatedPreset: z.enum(['today', 'last7', 'last30', 'thisMonth', 'custom']).optional(),
+        lifecycleState: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
+        retentionPolicyId: z.string().min(1).optional(),
+        retentionStatus: z.enum(['NONE', 'ACTIVE', 'EXPIRING', 'EXPIRED', 'FOREVER']).optional(),
+        legalHoldOnly: z.coerce.boolean().optional(),
         sort: z.enum(['relevance', 'newest', 'oldest', 'name', 'largest']).optional(),
       })
       .parse(request.query);
@@ -217,7 +221,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     const {
       fileKind, driveScope, createdById, untaggedOnly, documentCategoryId, uncategorizedOnly,
       textSource, ocrState, hasText, uploadedPreset, uploadedFrom, uploadedTo,
-      updatedPreset, sort, ...base
+      updatedPreset, sort, lifecycleState, retentionPolicyId, retentionStatus, legalHoldOnly, ...base
     } = query;
 
     return {
@@ -230,7 +234,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
             uncategorizedOnly, textSource, ocrState, hasText, uploadedPreset,
             uploadedFrom, uploadedTo, updatedPreset,
             updatedFrom: base.updatedFrom, updatedTo: base.updatedTo,
-            sort,
+            sort, lifecycleState, retentionPolicyId, retentionStatus, legalHoldOnly,
           },
         },
         request.authUser!,

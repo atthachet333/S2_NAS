@@ -19,6 +19,8 @@ import { AppError } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
 import { capabilities, resourceInclude } from './resource.service.js';
 import { addTagToResource, removeTagFromResource } from '../workspace/workspace.service.js';
+import { assignPolicy } from '../governance/retention.service.js';
+import { archiveResource } from '../governance/archive.service.js';
 import type { AuthUser } from '../auth/auth.service.js';
 
 /** จำนวนสูงสุดต่อหนึ่งคำขอ - งานที่ใหญ่กว่านี้ควรถูกแบ่ง ไม่ใช่ปล่อยให้คำขอค้าง */
@@ -353,4 +355,68 @@ function toOutcome(acc: Accumulator): BulkOutcome {
     failed: acc.failed,
     errors: acc.errors,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* วงจรชีวิตเอกสาร (F16)                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * กำหนดนโยบายการเก็บรักษาให้หลายรายการ
+ *
+ * เรียกบริการเดิมของ F16 ทีละรายการ ไม่เขียนฟิลด์ retention เอง
+ * บริการเดิมตรวจสิทธิ์ คำนวณวันหมดอายุ และเขียน audit ครบอยู่แล้ว
+ */
+export async function bulkAssignRetention(
+  resourceIds: string[],
+  policyId: string | null,
+  user: AuthUser,
+  audit: { ipAddress?: string; userAgent?: string },
+): Promise<BulkOutcome> {
+  assertBatch(resourceIds);
+  const acc = newAccumulator();
+
+  for (const resourceId of resourceIds) {
+    try {
+      await assignPolicy(resourceId, user, { policyId }, audit);
+      acc.succeeded += 1;
+    } catch (error) {
+      record(acc, resourceId, error);
+    }
+  }
+
+  await logBatch('RETENTION_POLICY_ASSIGNED', user, acc, audit, { policyId, bulk: true });
+  logger.info(`[BULK] กำหนดนโยบายการเก็บรักษาสำเร็จ ${acc.succeeded}/${resourceIds.length}`);
+  return toOutcome(acc);
+}
+
+/**
+ * เก็บหลายรายการเข้าคลัง
+ *
+ * รายการที่อยู่ในคลังอยู่แล้วนับเป็น "ข้าม" ไม่ใช่ "ล้มเหลว" - ผลลัพธ์ตรงกับ
+ * ที่ผู้ใช้ต้องการอยู่แล้ว การรายงานว่าล้มเหลวจะทำให้คนตกใจโดยไม่มีเหตุ
+ */
+export async function bulkArchive(
+  resourceIds: string[],
+  user: AuthUser,
+  audit: { ipAddress?: string; userAgent?: string },
+): Promise<BulkOutcome> {
+  assertBatch(resourceIds);
+  const acc = newAccumulator();
+
+  for (const resourceId of resourceIds) {
+    try {
+      await archiveResource(resourceId, user, audit);
+      acc.succeeded += 1;
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'RESOURCE_ALREADY_ARCHIVED') {
+        acc.skipped += 1;
+        continue;
+      }
+      record(acc, resourceId, error);
+    }
+  }
+
+  await logBatch('RESOURCE_ARCHIVED', user, acc, audit, { bulk: true });
+  return toOutcome(acc);
 }

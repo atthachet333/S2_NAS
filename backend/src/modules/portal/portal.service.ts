@@ -139,7 +139,18 @@ export async function portalHome(user: AuthUser, now: Date = new Date()): Promis
 
   const recent = folderIds.length
     ? await prisma.resource.findMany({
-        where: { parentId: { in: folderIds }, deletedAt: null, type: 'FILE' },
+        where: {
+          parentId: { in: folderIds },
+          deletedAt: null,
+          type: 'FILE',
+        /**
+         * เอกสารที่เก็บเข้าคลังไม่แสดงในพื้นที่ลูกค้า
+         *
+         * การเก็บเข้าคลังเป็นการตัดสินใจภายในว่างานชิ้นนั้นจบแล้ว
+         * ลูกค้าไม่จำเป็นต้องเห็นสถานะการทำงานภายในขององค์กร
+         */
+        lifecycleState: 'ACTIVE',
+        },
         select: portalResourceSelect,
         orderBy: { createdAt: 'desc' },
         take: 10,
@@ -174,7 +185,12 @@ export async function openPortalFolder(
   if (access.resource.type !== 'FOLDER') throw portalNotFound();
 
   const children = await prisma.resource.findMany({
-    where: { parentId: folderId, deletedAt: null },
+    where: {
+      parentId: folderId,
+      deletedAt: null,
+      // เอกสารที่เก็บเข้าคลังไม่แสดงในพื้นที่ลูกค้า
+      lifecycleState: 'ACTIVE',
+    },
     select: portalResourceSelect,
     orderBy: [{ type: 'asc' }, { name: 'asc' }],
     take: 500,
@@ -365,7 +381,7 @@ export async function clientPortalSummary(
       select: { id: true },
     }),
     prisma.resourceAccess.findMany({
-      where: { userId, resource: { deletedAt: null } },
+      where: { userId, resource: { deletedAt: null, lifecycleState: 'ACTIVE' } },
       select: {
         accessLevel: true,
         allowDownload: true,
