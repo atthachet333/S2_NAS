@@ -48,7 +48,7 @@ export function ocrActionFor(state: OcrStateDto | null): OcrAction {
   }
 
   // อ่านไปแล้ว - เสนอ "สแกนใหม่" ไม่ใช่ปุ่มเดิม
-  if (state.textSource === 'OCR' && state.status === 'READY') {
+  if ((state.textSource === 'OCR' || state.textSource === 'HUMAN_CORRECTED') && state.status === 'READY') {
     return { kind: 'RETRY', label: 'สแกนข้อความใหม่' };
   }
   if (state.ocrRequested && state.status === 'NO_TEXT') {
@@ -67,6 +67,7 @@ export function ocrStatusLabel(state: OcrStateDto | null): string | null {
 
   if (state.status === 'PENDING') return 'รอสแกนข้อความ';
   if (state.status === 'PROCESSING') return 'กำลังสแกนข้อความ';
+  if (state.textSource === 'HUMAN_CORRECTED') return 'ตรวจแก้แล้ว';
   if (state.textSource === 'OCR' && state.status === 'READY') return 'สแกนข้อความแล้ว';
   if (state.ocrRequested && state.status === 'NO_TEXT') return 'สแกนแล้วแต่ไม่พบข้อความ';
   if (state.ocrRequested && state.status === 'FAILED') return 'สแกนไม่สำเร็จ';
@@ -83,9 +84,19 @@ export function ocrAccuracyNotice(textSource: string | null | undefined): string
   return textSource === 'OCR' ? 'ข้อความจาก OCR อาจไม่ถูกต้องทั้งหมด' : null;
 }
 
+/** ข้อความที่ผ่านการตรวจแก้แล้ว บอกให้ผู้ใช้รู้ว่าเชื่อถือได้กว่าผลดิบ */
+export function correctedNotice(textSource: string | null | undefined): string | null {
+  return textSource === 'HUMAN_CORRECTED' ? 'ข้อความนี้ผ่านการตรวจแก้โดยผู้ใช้แล้ว' : null;
+}
 
-/** ป้ายสั้น ๆ ในผลการค้นหา บอกว่าข้อความที่ตรงกันมาจากการอ่านภาพ */
+/**
+ * ป้ายสั้น ๆ ในผลการค้นหา บอกที่มาของข้อความที่ตรงกัน
+ *
+ * "ตรวจแก้แล้ว" ต่างจาก "OCR" อย่างมีความหมาย - อันหนึ่งมีคนอ่านด้วยตาแล้วยืนยัน
+ * อีกอันเป็นการเดาของเครื่องล้วน ๆ ผู้ใช้ควรเห็นความต่างนี้ก่อนเชื่อผลลัพธ์
+ */
 export function textSourceBadge(textSource: string | null | undefined): string | null {
+  if (textSource === 'HUMAN_CORRECTED') return 'ตรวจแก้แล้ว';
   return textSource === 'OCR' ? 'OCR' : null;
 }
 
@@ -94,7 +105,8 @@ export function textSourceBadge(textSource: string | null | undefined): string |
  * คืน null เมื่อไม่มีอะไรน่าบอก - ไม่เติมข้อความให้รกโดยไม่จำเป็น
  */
 export function ocrSummary(state: OcrStateDto | null): string | null {
-  if (!state || state.textSource !== 'OCR') return null;
+  if (!state) return null;
+  if (state.textSource !== 'OCR' && state.textSource !== 'HUMAN_CORRECTED') return null;
 
   const parts: string[] = [];
   if (state.ocrPageCount !== null) parts.push(`${state.ocrPageCount} หน้า`);
@@ -106,4 +118,33 @@ export function ocrSummary(state: OcrStateDto | null): string | null {
   if (state.truncated) parts.push('อ่านได้ไม่ครบทั้งฉบับ');
 
   return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+
+/** ข้อความของเอกสารพร้อมข้อมูลการตรวจแก้ */
+export interface OcrTextDto {
+  available: boolean;
+  status: string | null;
+  textSource: string | null;
+  /** ข้อความที่มีผลใช้งาน - ฉบับที่ตรวจแก้แล้วถ้ามี */
+  text: string;
+  /** ผลดิบของเครื่อง ใช้เทียบเคียง */
+  rawText: string;
+  corrected: boolean;
+  correctionRevision: number;
+  correctedAt: string | null;
+  correctedBy: { id: string; name: string } | null;
+  characterCount: number;
+  truncated: boolean;
+  canEdit: boolean;
+  maxCharacters: number;
+  rawTextDiffersFromCorrection: boolean;
+}
+
+/** หนึ่งรายการในประวัติการตรวจแก้ - ไม่มีตัวข้อความ มีแต่ว่าใครแก้เมื่อไร */
+export interface CorrectionHistoryDto {
+  revision: number;
+  characterCount: number;
+  createdAt: string;
+  createdBy: { id: string; name: string };
 }

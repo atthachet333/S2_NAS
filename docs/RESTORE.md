@@ -105,3 +105,35 @@ A weekly staged restore proves the newest backup is still restorable without any
 
 ผู้ดูแลสั่งได้จาก `npm run ocr:eligible` แล้ว `npm run ocr:run -- <resourceId>`
 หรือจากหน้าผู้ดูแลผ่าน `POST /api/admin/ocr/bulk`
+
+---
+
+## F14 - หลังกู้คืน ข้อความที่คนตรวจแก้
+
+ต่างจากดัชนีข้อความและผลของ OCR ที่สร้างใหม่ได้ - **ข้อความที่คนตรวจแก้ต้องกลับมาครบ**
+
+หลังการกู้คืน ให้ตรวจสามอย่าง
+
+```sql
+-- 1. จำนวนเอกสารที่ถูกตรวจแก้
+SELECT COUNT(*) FROM resource_search_index WHERE textSource = 'HUMAN_CORRECTED';
+
+-- 2. ประวัติการแก้ยังอยู่ครบ
+SELECT COUNT(*) FROM resource_text_corrections;
+
+-- 3. ไม่มีแถวที่บอกว่าแก้แล้วแต่ไม่มีข้อความ
+SELECT COUNT(*) FROM resource_search_index
+WHERE textSource = 'HUMAN_CORRECTED' AND (extractedText IS NULL OR extractedText = '');
+```
+
+ข้อสามต้องได้ `0` เสมอ ถ้าไม่ใช่ แปลว่าชุดสำรองไม่สมบูรณ์ - **อย่าตัดสินใจว่า
+"เดี๋ยวสั่ง OCR ใหม่ก็ได้"** เพราะ OCR จะให้ผลดิบกลับมา ไม่ใช่ฉบับที่คนแก้ไว้
+
+### การซ้อมกู้คืนที่บังคับ
+
+`src/modules/backup/correction-restore.test.ts` สร้างชุดสำรองจริง กู้ดัมป์ลง
+ฐานข้อมูลพัก แล้วเทียบข้อความภาษาไทยทีละไบต์ผ่าน `HEX()` - ไม่ใช่แค่เทียบความยาว
+เพราะข้อความไทยที่ encoding เพี้ยนจะยาวเท่าเดิมแต่อ่านไม่ออก
+
+ชุดทดสอบนี้ **ไม่ข้ามตัวเองเมื่อสำรองไม่ผ่าน** ถ้าสำรองไม่ได้ ข้อความที่คนแก้
+ก็ไม่ได้รับการปกป้อง ซึ่งเป็นความล้มเหลวของสิ่งที่ต้องพิสูจน์พอดี

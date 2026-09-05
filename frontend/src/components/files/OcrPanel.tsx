@@ -1,9 +1,17 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, ScanText } from 'lucide-react';
+import { Loader2, PenLine, ScanText } from 'lucide-react';
 import { ApiError, resourceApi } from '@/lib/api';
-import { ocrActionFor, ocrStatusLabel, ocrSummary, ocrAccuracyNotice } from '@/lib/ocr';
+import {
+  correctedNotice,
+  ocrAccuracyNotice,
+  ocrActionFor,
+  ocrStatusLabel,
+  ocrSummary,
+} from '@/lib/ocr';
 import type { DriveEntry } from '@/lib/drive';
 import { useToast } from '@/hooks/useToast';
+import { OcrReviewDialog } from './OcrReviewDialog';
 
 const ERROR_TEXT: Record<string, string> = {
   OCR_NOT_CONFIGURED: 'ระบบยังไม่ได้ตั้งค่าเครื่องมืออ่านข้อความ กรุณาติดต่อผู้ดูแลระบบ',
@@ -23,6 +31,7 @@ const ERROR_TEXT: Record<string, string> = {
 export function OcrPanel({ entry }: { entry: DriveEntry }) {
   const queryClient = useQueryClient();
   const { notify } = useToast();
+  const [reviewing, setReviewing] = useState(false);
 
   const state = useQuery({
     queryKey: ['ocr', entry.id],
@@ -32,6 +41,13 @@ export function OcrPanel({ entry }: { entry: DriveEntry }) {
       const status = query.state.data?.data.status;
       return status === 'PENDING' || status === 'PROCESSING' ? 4000 : false;
     },
+    /**
+     * ถามซ้ำแล้วพลาดชั่วคราวต้องไม่ทำให้ทั้งแผงหายไปจากหน้าจอ
+     *
+     * ผู้ใช้ที่เพิ่งกดปุ่มแล้วเห็นแผงหายไปจะสรุปว่าคำสั่งของเขาล้มเหลว
+     * ทั้งที่งานกำลังทำอยู่เบื้องหลัง การคาข้อมูลชุดก่อนไว้ตรงกับความจริงมากกว่า
+     */
+    placeholderData: (previous) => previous,
   });
 
   const start = useMutation({
@@ -60,9 +76,12 @@ export function OcrPanel({ entry }: { entry: DriveEntry }) {
   const status = ocrStatusLabel(data);
   const summary = ocrSummary(data);
   const notice = ocrAccuracyNotice(data.textSource);
+  const corrected = correctedNotice(data.textSource);
+  /** มีข้อความให้เปิดอ่านหรือยัง - ปุ่มตรวจแก้ไม่มีความหมายถ้ายังไม่มีข้อความ */
+  const hasText = data.status === 'READY' && data.textSource !== null;
 
   // ไฟล์ที่ไม่เข้าเงื่อนไขและไม่มีอะไรจะบอก ก็ไม่ต้องมีแผงนี้เลย
-  if (action.kind === 'NONE' && !data.eligible && !notice) return null;
+  if (action.kind === 'NONE' && !data.eligible && !notice && !hasText) return null;
 
   return (
     <div className="rounded-xl border border-line bg-[var(--s2-surface-soft)] px-3 py-2.5">
@@ -85,8 +104,26 @@ export function OcrPanel({ entry }: { entry: DriveEntry }) {
         </p>
       ) : null}
 
+      {/* ตรงกันข้าม - ข้อความที่มีคนอ่านด้วยตาแล้วยืนยัน ควรบอกให้รู้ว่าเชื่อถือได้กว่า */}
+      {corrected ? (
+        <p className="mt-1 rounded-lg bg-emerald-50 px-2 py-1 text-[10.5px] leading-relaxed text-emerald-800">
+          {corrected}
+        </p>
+      ) : null}
+
+      {hasText ? (
+        <button
+          type="button"
+          onClick={() => setReviewing(true)}
+          className="s2-btn s2-btn-outline mt-2 h-8 w-full gap-1.5 text-[12px]"
+        >
+          <PenLine className="h-3.5 w-3.5" aria-hidden />
+          เปิดข้อความและตรวจแก้
+        </button>
+      ) : null}
+
       {action.kind === 'NONE' ? (
-        <p className="mt-1.5 text-[10.5px] leading-relaxed text-navy-400">{action.label}</p>
+        action.label ? <p className="mt-1.5 text-[10.5px] leading-relaxed text-navy-400">{action.label}</p> : null
       ) : (
         <button
           type="button"
@@ -102,6 +139,8 @@ export function OcrPanel({ entry }: { entry: DriveEntry }) {
           {start.isPending ? 'กำลังส่งคำขอ…' : action.label}
         </button>
       )}
+
+      {reviewing ? <OcrReviewDialog entry={entry} onClose={() => setReviewing(false)} /> : null}
     </div>
   );
 }

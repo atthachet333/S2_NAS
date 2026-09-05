@@ -292,6 +292,25 @@ export const resourceApi = {
   /** สั่งอ่านข้อความ - เข้าคิวเท่านั้น ไม่รอให้เสร็จ */
   requestOcr: (id: string) =>
     apiFetch<Ok<{ queued: boolean }>>(`/resources/${id}/ocr`, { method: 'POST' }),
+  /** ข้อความของเอกสาร - ผู้ที่เปิดไฟล์ดูได้ก็อ่านได้ */
+  ocrText: (id: string) => apiFetch<Ok<OcrTextDto>>(`/resources/${id}/ocr-text`),
+  /**
+   * บันทึกข้อความที่ตรวจแก้แล้ว
+   *
+   * expectedRevision คือเลขรุ่นที่หน้าจออ่านมาตอนเปิดฟอร์ม เซิร์ฟเวอร์ใช้มัน
+   * ปฏิเสธการบันทึกที่จะไปเขียนทับงานของคนอื่นที่บันทึกแทรกเข้ามาก่อน
+   */
+  saveOcrText: (id: string, input: { text: string; expectedRevision: number }) =>
+    apiFetch<Ok<{ correctionRevision: number; characterCount: number; truncated: boolean; created: boolean }>>(
+      `/resources/${id}/ocr-text`,
+      { method: 'PUT', body: JSON.stringify(input) },
+    ),
+  /** กลับไปใช้ผลดิบของ OCR */
+  resetOcrText: (id: string) =>
+    apiFetch<Ok<{ reset: boolean }>>(`/resources/${id}/ocr-text`, { method: 'DELETE' }),
+  /** ใครตรวจแก้เมื่อไร */
+  ocrTextHistory: (id: string) =>
+    apiFetch<Ok<CorrectionHistoryDto[]>>(`/resources/${id}/ocr-text/history`),
   list: (params: URLSearchParams) => apiFetch<ResourceListResponse>(`/resources?${params.toString()}`),
   get: (id: string) => apiFetch<ResourceResponse>(`/resources/${id}`),
   recent: (limit = 50) => apiFetch<{ success: true; data: ResourceDto[] }>(`/resources-recent?limit=${limit}`),
@@ -509,7 +528,11 @@ export interface OcrStateDto {
   reason: string | null;
   kind: 'IMAGE' | 'SCANNED_PDF' | null;
   status: string | null;
-  /** NATIVE_TEXT = ข้อความในไฟล์จริง · OCR = อ่านจากภาพ ซึ่งเป็นการคาดเดา */
+  /**
+   * NATIVE_TEXT = ข้อความในไฟล์จริง
+   * OCR = อ่านจากภาพ ซึ่งเป็นการคาดเดา
+   * HUMAN_CORRECTED = มีคนตรวจแก้ผลของ OCR แล้ว
+   */
   textSource: string | null;
   ocrRequested: boolean;
   ocrCompletedAt: string | null;
@@ -517,6 +540,38 @@ export interface OcrStateDto {
   ocrPageCount: number | null;
   truncated: boolean;
   engineAvailable: boolean;
+}
+
+/**
+ * ข้อความของเอกสารพร้อมสถานะการตรวจแก้
+ *
+ * ไม่มีฟิลด์ใดในนี้เป็น HTML - ทั้ง text และ rawText เป็นข้อความล้วนเสมอ
+ * หน้าจอจึงต้องแสดงมันด้วย {value} ของ React เท่านั้น ห้าม dangerouslySetInnerHTML
+ * เพราะเนื้อหามาจากไฟล์ที่ผู้ใช้อัปโหลดเอง ซึ่งควบคุมไม่ได้ว่าข้างในมีอะไร
+ */
+export interface OcrTextDto {
+  available: boolean;
+  status: string | null;
+  textSource: string | null;
+  text: string;
+  rawText: string;
+  corrected: boolean;
+  correctionRevision: number;
+  correctedAt: string | null;
+  correctedBy: { id: string; name: string } | null;
+  characterCount: number;
+  truncated: boolean;
+  canEdit: boolean;
+  maxCharacters: number;
+  rawTextDiffersFromCorrection: boolean;
+}
+
+/** ประวัติการตรวจแก้หนึ่งรายการ - ไม่มีตัวข้อความ */
+export interface CorrectionHistoryDto {
+  revision: number;
+  characterCount: number;
+  createdAt: string;
+  createdBy: { id: string; name: string };
 }
 
 export interface SearchHitDto extends ResourceDto {

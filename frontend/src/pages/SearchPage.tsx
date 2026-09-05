@@ -322,9 +322,19 @@ function ContentMatches({ hits, term }: { hits: SearchHitDto[]; term: string }) 
               <span className="rounded-md border border-line px-1.5 py-0.5 text-[10px] text-navy-500">
                 {matchReasonLabel(hit.matchReason)}
               </span>
-              {/* บอกว่าข้อความที่ตรงกันมาจากการอ่านภาพ ซึ่งเชื่อถือได้ไม่เท่าข้อความในไฟล์จริง */}
+              {/*
+                * ที่มาของข้อความที่ตรงกัน - สองกรณีนี้มีน้ำหนักต่างกันจึงใช้สีต่างกัน
+                * OCR เป็นการเดาของเครื่อง จึงเป็นสีเตือน
+                * ส่วนที่ตรวจแก้แล้วมีคนยืนยันด้วยตา จึงไม่ควรหน้าตาเหมือนคำเตือน
+                */}
               {textSourceBadge(hit.textSource) ? (
-                <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                <span
+                  className={
+                    hit.textSource === 'HUMAN_CORRECTED'
+                      ? 'rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700'
+                      : 'rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700'
+                  }
+                >
                   {textSourceBadge(hit.textSource)}
                 </span>
               ) : null}

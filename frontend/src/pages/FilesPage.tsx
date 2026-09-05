@@ -56,7 +56,7 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
   const [dialog, setDialog] = useState<{ mode: ResourceDialogMode; entry: DriveEntry | null; targetParentId?: string | null } | null>(null);
   const [externalDialog, setExternalDialog] = useState<{ type: ExternalResourceType; entry?: DriveEntry | null } | null>(null);
   const { notify } = useToast();
-  const { select, openDetails } = useDriveUi();
+  const { select, openDetails, selected } = useDriveUi();
   const { enqueue, enqueueVersion } = useUploadQueue();
   const { favoriteIds, pinnedIds, pinnedResources } = useWorkspaceMarks();
   const { handleWorkspaceAction, workspaceDialogs } = useWorkspaceActions();
@@ -335,8 +335,18 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
             onRename={() => setDialog({ mode: 'rename', entry: folderEntry })}
             onMove={() => setDialog({ mode: 'move', entry: folderEntry })}
             onTransferOwner={() => setDialog({ mode: 'owner', entry: folderEntry })}
+            /**
+             * เปิดแผงรายละเอียดโดย "ไม่ทับสิ่งที่ผู้ใช้เลือกไว้"
+             *
+             * ปุ่มนี้อยู่บนหัวโฟลเดอร์ จึงเคยบังคับให้แผงผูกกับโฟลเดอร์เสมอ
+             * ผลคือผู้ใช้ที่คลิกไฟล์ไว้แล้วกดปุ่มนี้ จะเห็นรายละเอียดของโฟลเดอร์แทน
+             * โดยไม่มีอะไรบอกว่าสิ่งที่เขาเลือกไว้ถูกเปลี่ยนไปแล้ว
+             *
+             * ตอนนี้โฟลเดอร์ถูกเลือกเฉพาะเมื่อยังไม่มีอะไรถูกเลือก ซึ่งเป็นตอนที่
+             * "รายละเอียดของที่นี่" หมายถึงโฟลเดอร์จริง ๆ
+             */
             onDetails={() => {
-              select(folderEntry);
+              if (!selected) select(folderEntry);
               openDetails();
             }}
           />

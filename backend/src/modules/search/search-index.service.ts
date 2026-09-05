@@ -90,6 +90,8 @@ export async function runJob(indexId: string): Promise<SearchIndexStatus> {
     select: {
       id: true,
       attempts: true,
+      // ข้อความที่คนตรวจแก้ไว้ต้องรอดจากการทำดัชนีซ้ำของเวอร์ชันเดียวกัน
+      correctionRevision: true,
       version: { select: { storageKey: true, mimeType: true } },
       resource: { select: { extension: true, deletedAt: true } },
     },
@@ -104,6 +106,13 @@ export async function runJob(indexId: string): Promise<SearchIndexStatus> {
 
   const base = { processingStartedAt: null, extractedAt: new Date(), extractorVersion: EXTRACTOR_VERSION };
 
+  /**
+   * การทำดัชนีซ้ำของ "เวอร์ชันเดิม" เกิดขึ้นได้เมื่อกติกาการสกัดเปลี่ยน
+   * ถ้าเวอร์ชันนั้นมีคนตรวจแก้ข้อความไว้แล้ว ผลรอบใหม่ของเครื่องจะไม่เขียนทับ
+   * ไฟล์เวอร์ชันใหม่เป็นคนละแถวและ correctionRevision ของมันเป็นศูนย์เสมอ
+   * การตรวจแก้ของเวอร์ชันเก่าจึงไม่ตามไปที่เวอร์ชันใหม่โดยอัตโนมัติ
+   */
+  const keepCorrection = row.correctionRevision > 0;
 
   if (outcome.kind === 'TEXT') {
     await prisma.resourceSearchIndex.update({
@@ -111,12 +120,17 @@ export async function runJob(indexId: string): Promise<SearchIndexStatus> {
       data: {
         ...base,
         status: 'READY',
-        // ข้อความที่ฝังอยู่ในไฟล์จริง เชื่อถือได้ต่างจากข้อความที่เครื่องอ่านจากภาพ
-        textSource: 'NATIVE_TEXT',
-        extractedText: outcome.text,
-        normalizedText: outcome.normalized,
-        characterCount: outcome.text.length,
-        truncated: outcome.truncated,
+        rawOcrText: outcome.text,
+        ...(keepCorrection
+          ? {}
+          : {
+              // ข้อความที่ฝังอยู่ในไฟล์จริง เชื่อถือได้ต่างจากข้อความที่เครื่องอ่านจากภาพ
+              textSource: 'NATIVE_TEXT' as const,
+              extractedText: outcome.text,
+              normalizedText: outcome.normalized,
+              characterCount: outcome.text.length,
+              truncated: outcome.truncated,
+            }),
         errorCode: null,
       },
     });
@@ -133,12 +147,17 @@ export async function runJob(indexId: string): Promise<SearchIndexStatus> {
       where: { id: indexId },
       data: {
         ...base,
-        status: outcome.kind,
-        textSource: null,
-        extractedText: null,
-        normalizedText: null,
-        characterCount: 0,
-        truncated: false,
+        rawOcrText: null,
+        ...(keepCorrection
+          ? {}
+          : {
+              status: outcome.kind,
+              textSource: null,
+              extractedText: null,
+              normalizedText: null,
+              characterCount: 0,
+              truncated: false,
+            }),
         errorCode: null,
       },
     });

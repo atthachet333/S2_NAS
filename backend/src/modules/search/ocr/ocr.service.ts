@@ -55,7 +55,13 @@ export function evaluateEligibility(input: {
   }
 
   const ext = (input.extension ?? '').toLowerCase().replace(/^\./, '');
-  const alreadyDone = input.textSource === 'OCR' && input.indexStatus === 'READY';
+  /**
+   * ข้อความที่คนตรวจแก้แล้วก็คือผลของ OCR ที่ถูกทำให้ถูกต้อง ไม่ใช่ที่มาชนิดอื่น
+   * จึงนับว่าเอกสารนี้ผ่าน OCR มาแล้วเหมือนกัน และยังสั่งอ่านใหม่ได้
+   */
+  const alreadyDone =
+    (input.textSource === 'OCR' || input.textSource === 'HUMAN_CORRECTED') &&
+    input.indexStatus === 'READY';
 
   if (IMAGE_EXTENSIONS.has(ext)) {
     return { eligible: true, kind: 'IMAGE', alreadyDone };
@@ -215,6 +221,8 @@ export async function runOcrJob(indexId: string): Promise<string> {
     select: {
       id: true,
       versionNumber: true,
+      // การตรวจแก้ของมนุษย์ห้ามถูกผลรอบใหม่ของเครื่องเขียนทับ
+      correctionRevision: true,
       version: { select: { storageKey: true, mimeType: true } },
       resource: { select: { id: true, extension: true, deletedAt: true, currentVersion: true } },
     },
@@ -240,6 +248,12 @@ export async function runOcrJob(indexId: string): Promise<string> {
     return 'FAILED';
   }
 
+  /**
+   * เอกสารที่มีคนตรวจแก้ไว้แล้วจะไม่ถูกผลรอบใหม่เขียนทับ
+   * ผู้ใช้สั่งอ่านใหม่ได้เสมอ และจะได้ผลใหม่ไว้เทียบ แต่ข้อความที่มีผลใช้งาน
+   * ยังเป็นฉบับที่คนยืนยันไว้ จนกว่าเขาจะเลือกเปลี่ยนเอง
+   */
+  const keepCorrection = row.correctionRevision > 0;
 
   try {
     const result = await performOcr(row.version.storageKey, row.resource.extension, probe);
@@ -253,13 +267,22 @@ export async function runOcrJob(indexId: string): Promise<string> {
       await prisma.resourceSearchIndex.update({
         where: { id: indexId },
         data: {
-          status: 'NO_TEXT',
-          textSource: null,
-          extractedText: null,
-          normalizedText: null,
-          characterCount: 0,
-          truncated: false,
-          errorCode: 'OCR_NO_TEXT_FOUND',
+          /**
+           * เครื่องอ่านรอบนี้ไม่เจอข้อความ แต่ถ้ามีคนพิมพ์ข้อความที่ถูกต้องไว้แล้ว
+           * ข้อความของเขายังใช้ได้อยู่ - การล้างทิ้งคือการลบงานของคนเพราะเครื่องอ่านไม่ออก
+           */
+          ...(keepCorrection
+            ? { rawOcrText: null }
+            : {
+                status: 'NO_TEXT' as const,
+                textSource: null,
+                extractedText: null,
+                normalizedText: null,
+                characterCount: 0,
+                truncated: false,
+                rawOcrText: null,
+              }),
+          errorCode: keepCorrection ? null : 'OCR_NO_TEXT_FOUND',
           processingStartedAt: null,
           ocrEngine: probe.version,
           ocrLanguages: env.S2_NAS_OCR_LANGUAGES,
@@ -277,12 +300,24 @@ export async function runOcrJob(indexId: string): Promise<string> {
       where: { id: indexId },
       data: {
         status: 'READY',
-        // ที่มาของข้อความต้องบันทึกไว้เสมอ - ข้อความจาก OCR เป็นการคาดเดา
-        textSource: 'OCR',
-        extractedText: text,
-        normalizedText: normalizeForSearch(text),
-        characterCount: text.length,
-        truncated: truncated || result.truncatedPages,
+        /**
+         * ผลดิบของรอบนี้ถูกเก็บไว้เสมอ
+         *
+         * ถ้าเอกสารนี้มีคนตรวจแก้ไว้แล้ว ข้อความที่มีผลใช้งานยังเป็นฉบับของเขา
+         * ผลรอบใหม่จะไปนั่งรออยู่ใน rawOcrText ให้เขาเปิดเทียบและตัดสินใจเอง
+         * เครื่องไม่มีสิทธิ์ลบงานของคนทิ้งอย่างเงียบ ๆ เพียงเพราะมันทำงานรอบใหม่
+         */
+        rawOcrText: text,
+        ...(keepCorrection
+          ? {}
+          : {
+              // ที่มาของข้อความต้องบันทึกไว้เสมอ - ข้อความจาก OCR เป็นการคาดเดา
+              textSource: 'OCR' as const,
+              extractedText: text,
+              normalizedText: normalizeForSearch(text),
+              characterCount: text.length,
+              truncated: truncated || result.truncatedPages,
+            }),
         errorCode: null,
         processingStartedAt: null,
         extractedAt: new Date(),

@@ -72,39 +72,41 @@ enum ResourceAccessLevel {
 }
 
 model User {
-  id                  String                @id @default(cuid())
-  email               String                @unique @db.VarChar(191)
-  displayName         String                @db.VarChar(191)
-  passwordHash        String?               @db.VarChar(191)
-  type                UserType              @default(INTERNAL)
-  status              UserStatus            @default(INVITED)
-  mustChangePassword  Boolean               @default(true)
-  tokenVersion        Int                   @default(0)
+  id                  String                   @id @default(cuid())
+  email               String                   @unique @db.VarChar(191)
+  displayName         String                   @db.VarChar(191)
+  passwordHash        String?                  @db.VarChar(191)
+  type                UserType                 @default(INTERNAL)
+  status              UserStatus               @default(INVITED)
+  mustChangePassword  Boolean                  @default(true)
+  tokenVersion        Int                      @default(0)
   lastLoginAt         DateTime?
   /// ชื่อบริษัท/หน่วยงานของผู้ใช้ภายนอก - ใช้แยกแยะลูกค้าในหน้าจัดการเท่านั้น
   /// ไม่ใช่ขอบเขตสิทธิ์ สิทธิ์มาจากการแชร์รายทรัพยากรเสมอ
-  organizationName    String?               @db.VarChar(191)
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+  organizationName    String?                  @db.VarChar(191)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
   roles               UserRole[]
   refreshTokens       RefreshToken[]
   activityLogs        ActivityLog[]
-  ownedResources      Resource[]            @relation("ResourceOwner")
-  createdResources    Resource[]            @relation("ResourceCreator")
-  updatedResources    Resource[]            @relation("ResourceUpdater")
-  deletedResources    Resource[]            @relation("ResourceDeleter")
-  lockedResources     Resource[]            @relation("ResourceLocker")
-  favorites           UserFavorite[]        @relation("UserFavorites")
-  pins                UserPinnedResource[]  @relation("UserPins")
-  createdTags         Tag[]                 @relation("TagCreator")
-  taggedResources     ResourceTag[]         @relation("ResourceTagCreator")
-  createdVersions     ResourceVersion[]     @relation("ResourceVersionCreator")
-  resourceAccess      ResourceAccess[]      @relation("ResourceAccessUser")
-  grantedAccess       ResourceAccess[]      @relation("ResourceAccessCreator")
-  integrationApp      IntegrationApp?       @relation("IntegrationActor")
-  triggeredBackups    BackupLog[]           @relation("BackupTrigger")
-  triggeredRehearsals RestoreRehearsalLog[] @relation("RehearsalTrigger")
-  identities          UserIdentity[]        @relation("UserIdentities")
+  ownedResources      Resource[]               @relation("ResourceOwner")
+  createdResources    Resource[]               @relation("ResourceCreator")
+  updatedResources    Resource[]               @relation("ResourceUpdater")
+  deletedResources    Resource[]               @relation("ResourceDeleter")
+  lockedResources     Resource[]               @relation("ResourceLocker")
+  favorites           UserFavorite[]           @relation("UserFavorites")
+  pins                UserPinnedResource[]     @relation("UserPins")
+  createdTags         Tag[]                    @relation("TagCreator")
+  taggedResources     ResourceTag[]            @relation("ResourceTagCreator")
+  createdVersions     ResourceVersion[]        @relation("ResourceVersionCreator")
+  resourceAccess      ResourceAccess[]         @relation("ResourceAccessUser")
+  grantedAccess       ResourceAccess[]         @relation("ResourceAccessCreator")
+  integrationApp      IntegrationApp?          @relation("IntegrationActor")
+  triggeredBackups    BackupLog[]              @relation("BackupTrigger")
+  triggeredRehearsals RestoreRehearsalLog[]    @relation("RehearsalTrigger")
+  identities          UserIdentity[]           @relation("UserIdentities")
+  textCorrections     ResourceTextCorrection[] @relation("TextCorrectionAuthor")
+  correctedIndexes    ResourceSearchIndex[]    @relation("TextCorrector")
 
   @@index([status])
   @@index([createdAt])
@@ -583,11 +585,13 @@ enum SearchJobKind {
 /// ที่มาของข้อความที่ค้นหาได้
 /// NATIVE_TEXT = สกัดจากข้อความที่ฝังอยู่ในไฟล์จริง เชื่อถือได้
 /// OCR         = อ่านจากภาพ เป็นการคาดเดาของเครื่อง อาจไม่ถูกต้องทั้งหมด
+/// HUMAN_CORRECTED = คนตรวจแก้ผลของ OCR แล้ว เชื่อถือได้กว่าผลดิบ
 ///
 /// ต้องแยกให้ชัด เพราะข้อความจาก OCR มีโอกาสผิด และผู้ใช้ควรรู้ว่ากำลังเชื่ออะไรอยู่
 enum SearchTextSource {
   NATIVE_TEXT
   OCR
+  HUMAN_CORRECTED
 }
 
 /// สถานะการสกัดข้อความของไฟล์หนึ่งเวอร์ชัน
@@ -657,11 +661,23 @@ model ResourceSearchIndex {
   /// จำนวนหน้าที่อ่านจริง - ต่างจากจำนวนหน้าทั้งหมดเมื่อชนเพดาน
   ocrPageCount   Int?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  // ---- การตรวจแก้โดยมนุษย์ ----
 
-  resource Resource        @relation(fields: [resourceId], references: [id], onDelete: Cascade)
-  version  ResourceVersion @relation(fields: [resourceVersionId], references: [id], onDelete: Cascade)
+  /// ผลดิบของ OCR ก่อนถูกตรวจแก้ - เก็บไว้ถาวรเพื่อการตรวจสอบและเทียบเคียงในอนาคต
+  /// การเขียนทับผลดิบทิ้งทำให้ตอบไม่ได้ว่าเครื่องอ่านผิดตรงไหน และวัดคุณภาพ OCR ไม่ได้อีกเลย
+  rawOcrText         String?   @db.MediumText
+  /// ผู้ที่ตรวจแก้ล่าสุด
+  correctedById      String?
+  correctedAt        DateTime?
+  /// เลขรุ่นของการตรวจแก้ - ใช้กันการเขียนทับกันเองเมื่อมีสองคนแก้พร้อมกัน
+  correctionRevision Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  resource    Resource                 @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  version     ResourceVersion          @relation(fields: [resourceVersionId], references: [id], onDelete: Cascade)
+  correctedBy User?                    @relation("TextCorrector", fields: [correctedById], references: [id], onDelete: SetNull)
+  corrections ResourceTextCorrection[]
 
   @@index([resourceId, versionNumber])
   @@index([status, createdAt])
@@ -669,6 +685,32 @@ model ResourceSearchIndex {
   /// ใช้หยิบงานตามชนิด โดยให้การสกัดปกติมาก่อน OCR เสมอ
   @@index([status, jobKind, createdAt])
   @@map("resource_search_index")
+}
+
+/// ประวัติการตรวจแก้ข้อความหนึ่งครั้ง
+///
+/// เก็บทุกครั้งที่มีคนกดบันทึก ไม่ใช่ทุกครั้งที่พิมพ์ - ประวัติจึงมีความหมาย ไม่ใช่กองข้อมูลขยะ
+///
+/// ข้อความที่คนตรวจแก้แล้วไม่ใช่ "ข้อมูลที่สร้างใหม่ได้" ต่างจากผลของ OCR
+/// มันคือแรงงานของมนุษย์ที่สร้างใหม่โดยอัตโนมัติไม่ได้ จึงต้องอยู่ในชุดสำรองเสมอ
+/// และการกู้คืนต้องได้มันกลับมาครบ
+model ResourceTextCorrection {
+  id                    String   @id @default(cuid())
+  resourceSearchIndexId String
+  /// เลขรุ่น เริ่มที่ 1 และเพิ่มทีละหนึ่งต่อการบันทึกหนึ่งครั้ง
+  revision              Int
+  text                  String   @db.MediumText
+  characterCount        Int      @default(0)
+  createdById           String
+  createdAt             DateTime @default(now())
+
+  searchIndex ResourceSearchIndex @relation(fields: [resourceSearchIndexId], references: [id], onDelete: Cascade)
+  createdBy   User                @relation("TextCorrectionAuthor", fields: [createdById], references: [id], onDelete: Restrict)
+
+  /// หนึ่งรุ่นต่อหนึ่งดัชนี - กันการบันทึกซ้ำจากการกดสองครั้ง
+  @@unique([resourceSearchIndexId, revision])
+  @@index([resourceSearchIndexId, revision])
+  @@map("resource_text_corrections")
 }
 
 /// ผู้ให้บริการยืนยันตัวตนภายนอก - F9 รองรับเฉพาะ Google
