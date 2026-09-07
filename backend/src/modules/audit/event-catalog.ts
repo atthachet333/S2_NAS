@@ -120,6 +120,38 @@ export const EVENT_CATALOG: Record<string, EventDefinition> = {
   EXTERNAL_ACCESS_GRANTED: { category: 'SHARING', label: 'ให้สิทธิ์ลูกค้าเข้าถึงเอกสาร', tone: 'WARNING' },
   EXTERNAL_ACCESS_REVOKED: { category: 'SHARING', label: 'เพิกถอนสิทธิ์ของลูกค้า' },
 
+  /* ---------------- ลิงก์แชร์ภายนอก (F18) ---------------- */
+  PUBLIC_SHARE_CREATED: {
+    category: 'SHARING',
+    label: 'สร้างลิงก์แชร์ภายนอก',
+    tone: 'WARNING',
+  },
+  PUBLIC_SHARE_REVOKED: { category: 'SHARING', label: 'ยกเลิกลิงก์แชร์ภายนอก' },
+  PUBLIC_SHARE_ACCESSED: { category: 'SHARING', label: 'แขกเปิดลิงก์แชร์ภายนอก' },
+  PUBLIC_SHARE_DOWNLOADED: {
+    category: 'SHARING',
+    label: 'แขกดาวน์โหลดผ่านลิงก์แชร์',
+    tone: 'WARNING',
+  },
+  PUBLIC_SHARE_PASSWORD_FAILED: {
+    category: 'SHARING',
+    label: 'ใส่รหัสผ่านลิงก์แชร์ไม่ถูกต้อง',
+    tone: 'DANGER',
+    failure: true,
+  },
+  PUBLIC_SHARE_EXPIRED_ACCESS_ATTEMPT: {
+    category: 'SHARING',
+    label: 'พยายามเปิดลิงก์แชร์ที่ใช้ไม่ได้แล้ว',
+    tone: 'DANGER',
+    failure: true,
+  },
+  PUBLIC_SHARE_LIMIT_REACHED: {
+    category: 'SHARING',
+    label: 'ลิงก์แชร์ใช้สิทธิ์ครบตามที่กำหนด',
+    tone: 'DANGER',
+    failure: true,
+  },
+
   /* ---------------- ลูกค้า ---------------- */
   EXTERNAL_FILE_UPLOADED: { category: 'CLIENT', label: 'ลูกค้าอัปโหลดไฟล์' },
   EXTERNAL_RESOURCE_VIEWED: { category: 'CLIENT', label: 'ลูกค้าเปิดดูเอกสาร' },
@@ -268,6 +300,20 @@ export const AUDIT_PRESETS: AuditPreset[] = [
     name: 'การแชร์และสิทธิ์',
     description: 'การให้และเพิกถอนสิทธิ์ รวมถึงการเปลี่ยนผู้ดูแล',
     actions: actionsInCategory('SHARING'),
+  },
+  {
+    slug: 'public-shares',
+    name: 'ลิงก์แชร์ภายนอก',
+    description: 'การสร้าง ยกเลิก และการใช้งานลิงก์ที่ส่งให้คนนอกองค์กร',
+    actions: [
+      'PUBLIC_SHARE_CREATED',
+      'PUBLIC_SHARE_REVOKED',
+      'PUBLIC_SHARE_ACCESSED',
+      'PUBLIC_SHARE_DOWNLOADED',
+      'PUBLIC_SHARE_PASSWORD_FAILED',
+      'PUBLIC_SHARE_EXPIRED_ACCESS_ATTEMPT',
+      'PUBLIC_SHARE_LIMIT_REACHED',
+    ],
   },
   {
     slug: 'downloads',

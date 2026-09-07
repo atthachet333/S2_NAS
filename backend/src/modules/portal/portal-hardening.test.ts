@@ -91,6 +91,17 @@ const SHARED_ROUTES = new Set([
 const INTEGRATION_ROUTES = (path: string) => path.startsWith('/api/integrations/');
 
 /**
+ * ลิงก์แชร์ภายนอก (F18) - เปิดสู่อินเทอร์เน็ตโดยตั้งใจ
+ *
+ * เส้นทางเหล่านี้ไม่มีด่านตรวจ session เลย เพราะผู้เรียกคือคนที่ไม่มีบัญชี
+ * สิทธิ์ทั้งหมดมาจากโทเคนในเส้นทาง ไม่ใช่จากตัวตนของผู้เรียก
+ *
+ * จึงไม่เข้าเกณฑ์ "เส้นทางภายใน" ของการตรวจด้านล่าง แต่มีการตรวจของตัวเองแยกไว้:
+ * บัญชีลูกค้าที่ล็อกอินอยู่ต้องได้รับการปฏิบัติเหมือนแขกทั่วไป ไม่มากไปกว่านั้น
+ */
+const GUEST_SHARE_ROUTES = (path: string) => path.startsWith('/api/public/shares/');
+
+/**
  * เส้นทางที่ไม่ใช่ API - CORS preflight ของ @fastify/cors ลงทะเบียนเป็น OPTIONS *
  * ไม่ได้ให้ข้อมูลใด ๆ และไม่มีด่านตรวจสิทธิ์โดยธรรมชาติ
  */
@@ -290,7 +301,8 @@ describe('F11 การทำให้พื้นที่ลูกค้าแ
           !NON_API_ROUTES(row.path) &&
           !PORTAL_ALLOWED(row.path) &&
           !SHARED_ROUTES.has(row.path) &&
-          !INTEGRATION_ROUTES(row.path),
+          !INTEGRATION_ROUTES(row.path) &&
+          !GUEST_SHARE_ROUTES(row.path),
       );
       assert.ok(routes.length > 30, `ควรมีเส้นทางภายในให้ตรวจจำนวนมาก แต่ได้ ${routes.length}`);
 
@@ -309,6 +321,49 @@ describe('F11 การทำให้พื้นที่ลูกค้าแ
       }
 
       assert.deepEqual(failures, [], `เส้นทางภายในที่ไม่ได้ปฏิเสธบัญชีลูกค้า:\n${failures.join('\n')}`);
+    });
+
+    /**
+     * ลิงก์แชร์ภายนอกไม่ใช่ประตูหลังของพื้นที่ลูกค้า (F18 §80)
+     *
+     * บัญชีลูกค้าที่ล็อกอินอยู่แล้วเปิดลิงก์แขก ต้องได้รับการปฏิบัติในฐานะ "ผู้ถือโทเคน"
+     * ไม่ใช่ในฐานะลูกค้าที่มีสิทธิ์อยู่แล้ว - ไม่เช่นนั้นลิงก์เดียวจะกลายเป็นช่องทาง
+     * ขยายสิทธิ์ของบัญชีที่มีอยู่ ซึ่งเป็นคนละเรื่องกับที่ผู้ส่งลิงก์ตั้งใจ
+     */
+    test('บัญชีลูกค้าที่ล็อกอินอยู่ไม่ได้สิทธิ์เพิ่มจากเส้นทางลิงก์แชร์', async () => {
+      const routes = registeredRoutes(app).filter((row) => GUEST_SHARE_ROUTES(row.path));
+      assert.ok(routes.length >= 5, `ควรมีเส้นทางของแขกหลายเส้น แต่ได้ ${routes.length}`);
+
+      // โทเคนที่ยาวพอผ่าน schema แต่ไม่มีอยู่จริง - ทุกคนต้องได้คำตอบเดียวกัน
+      const fakeToken = 'f11nonexistentsharetoken0000000000000000000';
+
+      for (const route of routes) {
+        const url = route.path.replace(':token', fakeToken).replace(/:[A-Za-z]+/g, 'x');
+
+        const asClient = await app.inject({
+          method: route.method as 'GET',
+          url,
+          headers: { ...asUser(tokenA), 'content-type': 'application/json' },
+          payload: route.method === 'POST' ? { password: 'x' } : undefined,
+        });
+        const asGuest = await app.inject({
+          method: route.method as 'GET',
+          url,
+          headers: { 'content-type': 'application/json' },
+          payload: route.method === 'POST' ? { password: 'x' } : undefined,
+        });
+
+        assert.equal(
+          asClient.statusCode,
+          asGuest.statusCode,
+          `${route.method} ${route.path}: ลูกค้าที่ล็อกอินได้ ${asClient.statusCode} แต่แขกได้ ${asGuest.statusCode}`,
+        );
+        assert.equal(
+          asClient.body,
+          asGuest.body,
+          `${route.method} ${route.path}: คำตอบต้องเหมือนกันทุกประการ`,
+        );
+      }
     });
 
     test('บัญชีของระบบเชื่อมต่อเข้าพื้นที่ลูกค้าไม่ได้', async () => {

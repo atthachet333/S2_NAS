@@ -19,6 +19,14 @@ const schema = z.object({
   BACKEND_HOST: z.string().min(1).default('0.0.0.0'),
 
   CORS_ORIGIN: z.string().default('http://localhost:8888'),
+  /**
+   * ที่อยู่สาธารณะของ S2 NAS สำหรับประกอบ URL ของลิงก์แชร์ภายนอก (F18)
+   *
+   * ต้องมาจากการตั้งค่า ไม่ใช่จาก Host header ของคำขอ - ผู้โจมตีกำหนด header นั้นได้
+   * และจะทำให้ระบบสร้างลิงก์ที่ชี้ไปโดเมนของเขาเอง แล้วส่งต่อให้เหยื่อโดยที่ลิงก์นั้น
+   * ดูเหมือนออกมาจากระบบของเราจริง ๆ
+   */
+  S2_NAS_PUBLIC_BASE_URL: z.string().url().optional(),
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required').optional(),
 
@@ -245,6 +253,11 @@ export const env = {
   isProduction: raw.NODE_ENV === 'production',
   isDevelopment: raw.NODE_ENV === 'development',
   isTest: raw.NODE_ENV === 'test',
+  /** ค่าเริ่มต้นคือ origin แรกที่อนุญาต ซึ่งคือที่อยู่ของหน้าเว็บอยู่แล้ว */
+  publicBaseUrl:
+    raw.S2_NAS_PUBLIC_BASE_URL ??
+    raw.CORS_ORIGIN.split(',')[0]?.trim() ??
+    'http://localhost:8888',
   corsOrigins: raw.CORS_ORIGIN.split(',')
     .map((o) => o.trim())
     .filter(Boolean),

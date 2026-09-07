@@ -1168,3 +1168,176 @@ export const auditApi = {
   /** การส่งออกดึงเป็นไฟล์ จึงผ่าน authorizedFetch ไม่ใช่ apiFetch */
   exportPath: '/api/audit/export',
 };
+
+/* ------------------------------------------------------------------ */
+/* ลิงก์แชร์ภายนอก (F18)                                                 */
+/* ------------------------------------------------------------------ */
+
+export type PublicShareStatus =
+  | 'ACTIVE'
+  | 'EXPIRED'
+  | 'REVOKED'
+  | 'LIMIT_REACHED'
+  | 'RESOURCE_UNAVAILABLE';
+
+/**
+ * ลิงก์แชร์ในมุมมองของคนภายใน
+ *
+ * ไม่มี token และไม่มี passwordHash โดยตั้งใจ - เซิร์ฟเวอร์ไม่ส่งมาให้เลย
+ * โทเคนดิบมีอยู่ครั้งเดียวใน `url` ที่คืนตอนสร้าง และไม่มีทางขอดูอีก
+ */
+export interface PublicShareLinkDto {
+  id: string;
+  resourceId: string;
+  resourceName: string;
+  resourceType: string;
+  label: string | null;
+  status: PublicShareStatus;
+  allowPreview: boolean;
+  allowDownload: boolean;
+  passwordProtected: boolean;
+  expiresAt: string | null;
+  maxViews: number | null;
+  viewCount: number;
+  maxDownloads: number | null;
+  downloadCount: number;
+  createdAt: string;
+  revokedAt: string | null;
+  lastAccessedAt: string | null;
+}
+
+export interface CreatedShareDto {
+  link: PublicShareLinkDto;
+  /** ปรากฏครั้งเดียว - ถ้าผู้ใช้ปิดกล่องไปแล้ว ต้องสร้างลิงก์ใหม่ */
+  url: string;
+}
+
+export interface CreateShareInput {
+  allowPreview?: boolean;
+  allowDownload?: boolean;
+  expiresAt?: string | null;
+  password?: string | null;
+  maxViews?: number | null;
+  maxDownloads?: number | null;
+  label?: string | null;
+}
+
+export interface AdminShareRow extends PublicShareLinkDto {
+  createdBy: { id: string; displayName: string; email: string };
+}
+
+export interface AdminSharePage {
+  items: AdminShareRow[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface AdminShareSummary {
+  active: number;
+  expiringSoon: number;
+  expired: number;
+  revoked: number;
+  downloadable: number;
+  passwordProtected: number;
+}
+
+export const publicShareApi = {
+  list: (resourceId: string) =>
+    apiFetch<Ok<PublicShareLinkDto[]>>(`/resources/${resourceId}/public-shares`),
+
+  create: (resourceId: string, input: CreateShareInput) =>
+    apiFetch<Ok<CreatedShareDto>>(`/resources/${resourceId}/public-shares`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+
+  revoke: (shareLinkId: string) =>
+    apiFetch<Ok<PublicShareLinkDto>>(`/public-share-links/${shareLinkId}`, { method: 'DELETE' }),
+
+  adminList: (params: URLSearchParams) =>
+    apiFetch<Ok<AdminSharePage>>(`/admin/public-shares?${params.toString()}`),
+
+  adminSummary: () => apiFetch<Ok<AdminShareSummary>>('/admin/public-shares/summary'),
+};
+
+/* ---------------- ฝั่งแขก ---------------- */
+
+export interface GuestItemDto {
+  id: string;
+  type: string;
+  name: string;
+  mimeType: string | null;
+  extension: string | null;
+  size: number | null;
+}
+
+export interface GuestShareDto {
+  passwordRequired: boolean;
+  resource?: GuestItemDto;
+  allowPreview?: boolean;
+  allowDownload?: boolean;
+  expiresAt?: string | null;
+}
+
+export interface GuestFolderDto {
+  folder: { id: string; name: string };
+  breadcrumb: Array<{ id: string; name: string }>;
+  items: GuestItemDto[];
+}
+
+/**
+ * คำขอฝั่งแขกไม่แนบ token ของ S2 NAS
+ *
+ * ใช้ fetch ตรง ๆ แทน apiFetch เพราะ apiFetch จะแนบ Authorization และพยายาม
+ * ต่ออายุ session เมื่อได้ 401 ซึ่งไม่มีความหมายเลยสำหรับคนที่ไม่มีบัญชี
+ * และจะทำให้หน้าจอเด้งไปหน้าเข้าสู่ระบบทั้งที่ลิงก์ยังใช้ได้ปกติ
+ *
+ * ใบผ่านของแขก (ถ้ามี) เดินทางผ่าน header ของตัวเอง ไม่ปนกับ Authorization
+ */
+async function guestFetch<T>(path: string, pass: string | null, init?: RequestInit): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    ...init,
+    headers: {
+      ...(pass ? { 'X-Guest-Pass': pass } : {}),
+      ...init?.headers,
+    },
+  });
+
+  const body = (await response.json().catch(() => null)) as
+    | { success?: boolean; data?: T; error?: { code?: string; message?: string } }
+    | null;
+
+  if (!response.ok || !body?.success) {
+    throw new ApiError(
+      body?.error?.code ?? `HTTP_${response.status}`,
+      body?.error?.message ?? 'ลิงก์นี้ไม่สามารถใช้งานได้แล้ว',
+      response.status,
+    );
+  }
+  return body.data as T;
+}
+
+export const guestShareApi = {
+  open: (token: string, pass: string | null) =>
+    guestFetch<GuestShareDto>(`/public/shares/${token}`, pass),
+
+  verifyPassword: (token: string, password: string) =>
+    guestFetch<{ pass: string | null }>(`/public/shares/${token}/verify-password`, null, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    }),
+
+  children: (token: string, pass: string | null, folderId?: string) =>
+    guestFetch<GuestFolderDto>(
+      `/public/shares/${token}/children${folderId ? `?folderId=${encodeURIComponent(folderId)}` : ''}`,
+      pass,
+    ),
+
+  /** เส้นทางของเนื้อหา - ต้องดึงผ่าน fetch ที่แนบใบผ่าน ไม่ใช่ใส่ใน src ตรง ๆ */
+  contentPath: (token: string, resourceId?: string) =>
+    `/api/public/shares/${token}/content${resourceId ? `?resourceId=${encodeURIComponent(resourceId)}` : ''}`,
+  downloadPath: (token: string, resourceId?: string) =>
+    `/api/public/shares/${token}/download${resourceId ? `?resourceId=${encodeURIComponent(resourceId)}` : ''}`,
+};

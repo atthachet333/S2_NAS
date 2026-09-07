@@ -1,9 +1,9 @@
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { driveRootLabel } from '@/lib/drive-labels';
 import { useQuery } from '@tanstack/react-query';
 import { Download, Eye, Info, Lock, MessageSquareText, Share2, ShieldCheck, SearchCheck, SquareArrowOutUpRight, Star, Tag, X } from 'lucide-react';
-import { workspaceApi } from '@/lib/api';
+import { publicShareApi, workspaceApi } from '@/lib/api';
 import { ActivityTimeline } from './ActivityTimeline';
 import { useWorkspaceMarks } from '@/hooks/useWorkspaceMarks';
 import { useWorkspaceActions } from '@/hooks/useWorkspaceActions';
@@ -17,6 +17,7 @@ import { ResourceSourceBadge, sourceLabel } from './ResourceSourceBadge';
 import { VersionList } from './VersionList';
 import { OcrPanel } from './OcrPanel';
 import { LifecyclePanel } from './LifecyclePanel';
+import { PublicShareDialog } from './PublicShareDialog';
 import { downloadResource } from '@/lib/download';
 import { isPreviewable } from '@/lib/file-types';
 import { useToast } from '@/hooks/useToast';
@@ -35,6 +36,7 @@ export function DetailsDrawer() {
   const { favoriteIds, toggleFavorite } = useWorkspaceMarks();
   const { handleWorkspaceAction, workspaceDialogs } = useWorkspaceActions();
   const { user } = useAuth();
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const tab = detailsTab;
   const setTab = setDetailsTab;
 
@@ -354,6 +356,28 @@ export function DetailsDrawer() {
                   )}
                 </div>
 
+
+                {/*
+                  การแชร์ภายนอกอยู่ในแท็บเดียวกับการแชร์ภายใน เพราะทั้งคู่ตอบคำถามเดียวกัน:
+                  "ตอนนี้ใครเข้าถึงเอกสารนี้ได้บ้าง" การแยกไปคนละที่จะทำให้คนตรวจสอบ
+                  เห็นแค่ครึ่งเดียวแล้วคิดว่าเห็นครบแล้ว
+                */}
+                {selected.capabilities.canShare ? (
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="s2-section-title">การแชร์ภายนอก</p>
+                      <button
+                        type="button"
+                        onClick={() => setShareDialogOpen(true)}
+                        className="text-[11.5px] text-brand-700 underline-offset-2 hover:underline"
+                      >
+                        จัดการลิงก์
+                      </button>
+                    </div>
+                    <ExternalShareSummary resourceId={selected.id} />
+                  </div>
+                ) : null}
+
                 <div>
                   <p className="s2-section-title">สิ่งที่คุณทำได้</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
@@ -409,6 +433,14 @@ export function DetailsDrawer() {
         </div>
       )}
 
+      {shareDialogOpen && selected ? (
+        <PublicShareDialog
+          resourceId={selected.id}
+          resourceName={selected.name}
+          onClose={() => setShareDialogOpen(false)}
+        />
+      ) : null}
+
       {workspaceDialogs}
     </aside>
   );
@@ -451,5 +483,49 @@ function QuickAction({
       {icon}
       {label}
     </button>
+  );
+}
+
+/**
+ * สรุปลิงก์แชร์ภายนอกของทรัพยากรหนึ่งชิ้น
+ *
+ * แสดงเฉพาะจำนวน ไม่แสดงตัวลิงก์ - แผงนี้กว้างไม่ถึงสี่ร้อยพิกเซล
+ * และคนที่เปิดดูรายละเอียดเอกสารส่วนใหญ่แค่อยากรู้ว่า "มีที่เปิดค้างไว้ไหม"
+ * ส่วนคนที่จะจัดการจริงกดเข้าไปในกล่องที่มีพื้นที่พอ
+ */
+function ExternalShareSummary({ resourceId }: { resourceId: string }) {
+  const links = useQuery({
+    queryKey: ['public-shares', resourceId],
+    queryFn: () => publicShareApi.list(resourceId),
+    retry: false,
+  });
+
+  if (links.isPending) {
+    return <p className="mt-2 text-[11.5px] text-navy-400">กำลังโหลด…</p>;
+  }
+  if (links.isError) {
+    return <p className="mt-2 text-[11.5px] text-navy-400">ดูข้อมูลลิงก์แชร์ไม่ได้</p>;
+  }
+
+  const rows = links.data?.data ?? [];
+  const active = rows.filter((row) => row.status === 'ACTIVE');
+
+  if (active.length === 0) {
+    return (
+      <p className="mt-2 rounded-xl border border-dashed border-line px-3 py-3 text-[11.5px] leading-relaxed text-navy-400">
+        ยังไม่มีลิงก์ที่เปิดให้คนนอกองค์กรเข้าถึงเอกสารนี้
+      </p>
+    );
+  }
+
+  const downloadable = active.filter((row) => row.allowDownload).length;
+
+  return (
+    <div className="mt-2 rounded-xl border border-line bg-[var(--s2-surface-soft)] px-3 py-2.5">
+      <p className="text-[12px] font-medium text-navy-700">{active.length} ลิงก์กำลังใช้งาน</p>
+      <p className="mt-0.5 text-[11px] text-navy-400">
+        {downloadable > 0 ? `${downloadable} ลิงก์ดาวน์โหลดไฟล์ได้` : 'ทุกลิงก์ดูได้อย่างเดียว'}
+      </p>
+    </div>
   );
 }

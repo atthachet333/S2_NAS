@@ -153,9 +153,16 @@ describe('F17 เครื่องมือตรวจสอบ', () => {
              * schedule-policy.ts ที่มี { action: 'SKIP' | 'RUN' } ซึ่งไม่ใช่เหตุการณ์
              * ที่ถูกบันทึก การนับรวมจะทำให้สารบัญมีรายการที่ไม่มีวันเกิดขึ้นจริง
              */
-            if (!text.includes('activityLog') && !text.includes('logActivity')) continue;
+            if (
+              !text.includes('activityLog') &&
+              !text.includes('logActivity') &&
+              !text.includes('logGuestEvent')
+            )
+              continue;
             for (const match of text.matchAll(/action:\s*'([A-Z][A-Z0-9_]+)'/g)) found.add(match[1]);
             for (const match of text.matchAll(/logActivity\(\s*'([A-Z][A-Z0-9_]+)'/g)) found.add(match[1]);
+            /* ตัวช่วยของ F18 รับรหัสเป็นอาร์กิวเมนต์แรกเช่นกัน */
+            for (const match of text.matchAll(/logGuestEvent\(\s*'([A-Z][A-Z0-9_]+)'/g)) found.add(match[1]);
           }
         }
         return found;

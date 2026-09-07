@@ -398,6 +398,22 @@ const DETAIL_ALLOWLIST: Record<string, string[]> = {
   LEGAL_HOLD_RELEASED: ['legalHoldId'],
   PERMANENT_DELETE_BLOCKED_RETENTION: ['blockedBy', 'retentionUntil'],
   PERMANENT_DELETE_BLOCKED_HOLD: ['blockedBy'],
+  /* ---- ลิงก์แชร์ภายนอก (F18): ตัวตนของลิงก์และเงื่อนไข ไม่มีโทเคนและไม่มีรหัสผ่าน ---- */
+  PUBLIC_SHARE_CREATED: [
+    'shareLinkId',
+    'allowPreview',
+    'allowDownload',
+    'hasAccessCode',
+    'expiresAt',
+    'maxViews',
+    'maxDownloads',
+  ],
+  PUBLIC_SHARE_REVOKED: ['shareLinkId', 'viewCount', 'downloadCount'],
+  PUBLIC_SHARE_ACCESSED: ['shareLinkId', 'resourceType'],
+  PUBLIC_SHARE_DOWNLOADED: ['shareLinkId', 'resourceId'],
+  PUBLIC_SHARE_PASSWORD_FAILED: ['shareLinkId'],
+  PUBLIC_SHARE_EXPIRED_ACCESS_ATTEMPT: ['shareLinkId', 'reason'],
+  PUBLIC_SHARE_LIMIT_REACHED: ['shareLinkId', 'limit', 'maxDownloads'],
   /* ---- สำรองและกู้คืน ---- */
   BACKUP_CREATED: ['backupId', 'fileCount', 'totalBytes', 'durationMs', 'trigger'],
   BACKUP_FAILED: ['backupId', 'errorCode'],

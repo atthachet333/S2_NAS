@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet } from 'react-router-dom';
-import { ArrowLeft, Building2, Database, HardDrive, Plug, ScrollText, SearchCheck, Settings, ShieldCheck, ShieldAlert, Tags, UserCog, Users } from 'lucide-react';
+import { ArrowLeft, Building2, Database, HardDrive, Plug, Link2, ScrollText, SearchCheck, Settings, ShieldCheck, ShieldAlert, Tags, UserCog, Users } from 'lucide-react';
 import { ServerStatus } from './ServerStatus';
 import { ThemeControl } from './ThemeControl';
 import { UserMenu } from './UserMenu';
@@ -14,6 +14,7 @@ const ADMIN_NAV = [
   { label: 'การเก็บรักษา', to: '/admin/retention', icon: ShieldAlert },
   { label: 'Activity Log', to: '/admin/activity', icon: ScrollText },
   { label: 'การตรวจสอบ', to: '/admin/audit', icon: SearchCheck },
+  { label: 'ลิงก์แชร์ภายนอก', to: '/admin/public-shares', icon: Link2 },
   { label: 'Storage', to: '/admin/storage', icon: HardDrive },
   { label: 'Backup', to: '/admin/backup', icon: Database },
   { label: 'Connected Apps', to: '/admin/integrations', icon: Plug },

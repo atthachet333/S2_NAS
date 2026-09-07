@@ -30,6 +30,8 @@ import AdminOwnershipPage from '@/pages/admin/AdminOwnershipPage';
 import AdminCategoriesPage from '@/pages/admin/AdminCategoriesPage';
 import AdminRetentionPage from '@/pages/admin/AdminRetentionPage';
 import AdminAuditPage from '@/pages/admin/AdminAuditPage';
+import GuestSharePage from '@/pages/guest/GuestSharePage';
+import AdminPublicSharesPage from '@/pages/admin/AdminPublicSharesPage';
 
 export default function App() {
   return (
@@ -46,6 +48,13 @@ export default function App() {
         <Route path="/portal/folders/:folderId" element={<PortalFolderPage />} />
         <Route path="/portal/resources/:folderId" element={<PortalFolderPage />} />
       </Route>
+
+      {/*
+        ลิงก์แชร์ภายนอก - อยู่นอกด่านตรวจสิทธิ์ทั้งหมดโดยตั้งใจ
+        ผู้เปิดหน้านี้ไม่มีบัญชี จึงต้องไม่ถูกส่งไปหน้าเข้าสู่ระบบ
+        และไม่ใช้เปลือกหน้าจอร่วมกับพื้นที่ภายในหรือพื้นที่ลูกค้า
+      */}
+      <Route path="/s/:token" element={<GuestSharePage />} />
 
       {/* พื้นที่ไฟล์ - หน้าแรกหลังเข้าใช้งานคือ ไดร์ฟของฉัน */}
       <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
@@ -80,6 +89,8 @@ export default function App() {
         <Route path="activity" element={<AdminActivityPage />} />
         {/* เครื่องมือของผู้ตรวจสอบ - ต่างจาก Activity Log ที่เป็นไทม์ไลน์อย่างเดียว */}
         <Route path="audit" element={<AdminAuditPage />} />
+        {/* ประตูที่เปิดสู่ภายนอก - ผู้ดูแลต้องเห็นทั้งหมดในที่เดียว */}
+        <Route path="public-shares" element={<AdminPublicSharesPage />} />
         <Route path="storage" element={<AdminStoragePage />} />
         <Route path="backup" element={<AdminBackupPage />} />
         <Route path="integrations" element={<AdminIntegrationsPage />} />

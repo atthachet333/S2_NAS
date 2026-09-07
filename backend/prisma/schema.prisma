@@ -112,6 +112,8 @@ model User {
   archivedResources   Resource[]               @relation("ResourceArchiver")
   legalHoldsCreated   LegalHold[]              @relation("LegalHoldCreator")
   legalHoldsReleased  LegalHold[]              @relation("LegalHoldReleaser")
+  publicSharesCreated PublicShareLink[]        @relation("PublicShareCreator")
+  publicSharesRevoked PublicShareLink[]        @relation("PublicShareRevoker")
   textCorrections     ResourceTextCorrection[] @relation("TextCorrectionAuthor")
   correctedIndexes    ResourceSearchIndex[]    @relation("TextCorrector")
 
@@ -199,6 +201,7 @@ model Resource {
   archivedBy              User?                    @relation("ResourceArchiver", fields: [archivedById], references: [id], onDelete: SetNull)
   legalHolds              LegalHold[]
   access                  ResourceAccess[]
+  publicShareLinks        PublicShareLink[]
   versions                ResourceVersion[]
   tags                    ResourceTag[]
   favoritedBy             UserFavorite[]
@@ -350,6 +353,62 @@ model ResourceAccess {
   @@index([userId])
   @@index([userId, expiresAt])
   @@map("resource_access")
+}
+
+/// ลิงก์แชร์ภายนอกสำหรับผู้รับที่ไม่มีบัญชี S2 NAS (F18)
+///
+/// เป็นคนละสิ่งกับ ResourceAccess โดยสิ้นเชิง - ที่นั่นคือการมอบสิทธิ์ให้ "คน"
+/// ที่ระบบรู้จัก ที่นี่คือการมอบสิทธิ์ให้ "ใครก็ตามที่ถือโทเคนนี้"
+/// การยัดสองความหมายลงตารางเดียวจะบังคับให้ต้องสร้าง User ปลอมสำหรับแขก
+/// ซึ่งทำให้ขอบเขตระหว่างพื้นที่ลูกค้ากับลิงก์แขกพังทันที
+model PublicShareLink {
+  id String @id @default(cuid())
+
+  resourceId String
+
+  /// เก็บเฉพาะค่าแฮชของโทเคน - โทเคนดิบมีอยู่ครั้งเดียวใน URL ที่คืนตอนสร้าง
+  ///
+  /// ฐานข้อมูลที่รั่วจึงไม่กลายเป็นพวงกุญแจที่เปิดเอกสารได้ทุกฉบับ
+  /// และการสำรองข้อมูลก็ไม่ได้พกโทเคนที่ใช้งานได้ติดไปด้วย
+  tokenHash String @unique @db.VarChar(191)
+
+  /// ชื่อกำกับไว้ให้คนภายในจำได้ว่าลิงก์นี้ส่งให้ใคร - แขกไม่เห็นค่านี้
+  label String? @db.VarChar(191)
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  /// null = ไม่หมดอายุ ซึ่งต้องเลือกอย่างตั้งใจเท่านั้น ไม่ใช่ค่าเริ่มต้น
+  expiresAt DateTime?
+
+  allowPreview  Boolean @default(true)
+  allowDownload Boolean @default(false)
+
+  /// แฮชของรหัสผ่านที่ผู้สร้างตั้งไว้ - ไม่มีทางอ่านกลับ ไม่มีเส้นทางแสดงซ้ำ
+  passwordHash String? @db.VarChar(191)
+
+  maxViews  Int?
+  viewCount Int  @default(0)
+
+  maxDownloads  Int?
+  downloadCount Int  @default(0)
+
+  revokedAt   DateTime?
+  revokedById String?
+
+  lastAccessedAt DateTime?
+
+  resource  Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  createdBy User     @relation("PublicShareCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  revokedBy User?    @relation("PublicShareRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@index([resourceId])
+  @@index([createdById])
+  /// ใช้โดยมุมมองผู้ดูแล "ใกล้หมดอายุ" และการกรองตามสถานะ
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@map("public_share_links")
 }
 
 model Role {

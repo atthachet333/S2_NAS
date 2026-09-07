@@ -267,3 +267,46 @@ HTTP status: `200` เมื่อ `ok` หรือ `degraded`, `503` เมื
 | `AUDIT_EVENT_NOT_FOUND` | 404 | ไม่พบเหตุการณ์ |
 
 ดู [AUDIT_EXPLORER.md](AUDIT_EXPLORER.md) และ [AUDIT_EXPORT.md](AUDIT_EXPORT.md)
+
+## ลิงก์แชร์ภายนอก (F18)
+
+### เส้นทางสาธารณะ - ไม่ต้องเข้าสู่ระบบ
+
+| Method | Path | หมายเหตุ |
+| --- | --- | --- |
+| GET | `/public/shares/:token` | ข้อมูลของลิงก์ นับการเปิดหนึ่งครั้ง |
+| POST | `/public/shares/:token/verify-password` | ตรวจรหัสผ่าน คืนใบผ่านชั่วคราว (10 ครั้ง/5 นาที) |
+| GET | `/public/shares/:token/children` | ลูกของโฟลเดอร์ในขอบเขต (`?folderId=`) |
+| GET | `/public/shares/:token/content` | เปิดดูเนื้อหา (`?resourceId=`) |
+| GET | `/public/shares/:token/download` | ดาวน์โหลด จองโควตาแบบอะตอมมิก |
+
+ใบผ่านของแขกเดินทางใน header `X-Guest-Pass` ไม่ใช่ `Authorization`
+
+### เส้นทางภายใน - ต้องเข้าสู่ระบบ
+
+| Method | Path | หมายเหตุ |
+| --- | --- | --- |
+| POST | `/resources/:id/public-shares` | สร้างลิงก์ - คำตอบมี URL เต็มครั้งเดียว |
+| GET | `/resources/:id/public-shares` | ลิงก์ทั้งหมดของทรัพยากรนั้น |
+| DELETE | `/public-share-links/:id` | ยกเลิกลิงก์ มีผลทันที |
+| GET | `/admin/public-shares` | ภาพรวมทั้งระบบ (ผู้ดูแลระบบเท่านั้น) |
+| GET | `/admin/public-shares/summary` | จำนวนตามสถานะ |
+
+| Code | HTTP | ความหมาย |
+| --- | --- | --- |
+| `SHARE_UNAVAILABLE` | 404 | ลิงก์ใช้ไม่ได้ (ทุกสาเหตุใช้รหัสเดียวกัน) |
+| `SHARE_PASSWORD_REQUIRED` | 401 | ต้องใส่รหัสผ่านก่อน |
+| `SHARE_PASSWORD_INVALID` | 401 | รหัสผ่านไม่ถูกต้อง |
+| `SHARE_PREVIEW_DENIED` | 403 | ลิงก์ไม่อนุญาตให้ดูตัวอย่าง |
+| `SHARE_DOWNLOAD_DENIED` | 403 | ลิงก์ไม่อนุญาตให้ดาวน์โหลด |
+| `SHARE_DOWNLOAD_LIMIT` | 403 | ใช้สิทธิ์ดาวน์โหลดครบแล้ว |
+| `PUBLIC_SHARE_DENIED` | 403 | ไม่มีสิทธิ์สร้าง/ดู/ยกเลิกลิงก์ |
+| `PUBLIC_SHARE_ADMIN_DENIED` | 403 | ไม่มีสิทธิ์ดูภาพรวมทั้งระบบ |
+| `SHARE_LINK_NOT_FOUND` | 404 | ไม่พบลิงก์ |
+| `SHARE_RESOURCE_TRASHED` | 409 | ทรัพยากรอยู่ในถังขยะ |
+| `SHARE_RESOURCE_ARCHIVED` | 409 | ทรัพยากรถูกเก็บเข้าคลัง |
+| `SHARE_TOO_MANY_LINKS` | 409 | ครบเพดานลิงก์ที่ใช้งานได้ต่อทรัพยากร |
+| `SHARE_INVALID_EXPIRY` | 400 | วันหมดอายุไม่ถูกต้อง |
+| `SHARE_NO_PERMISSION` | 400 | ต้องอนุญาตอย่างน้อยดูหรือดาวน์โหลด |
+
+ดู [PUBLIC_SHARE_LINKS.md](PUBLIC_SHARE_LINKS.md) และ [PUBLIC_SHARE_SECURITY.md](PUBLIC_SHARE_SECURITY.md)

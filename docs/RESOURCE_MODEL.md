@@ -105,3 +105,28 @@ retentionUntil · retentionForever
 เฉพาะกับเอกสารที่ยังไม่มีนโยบายของตัวเอง
 
 ดู [DOCUMENT_LIFECYCLE.md](DOCUMENT_LIFECYCLE.md)
+
+## PublicShareLink (F18)
+
+ลิงก์แชร์ภายนอกเป็นตารางของตัวเอง **ไม่ได้ใช้ `ResourceAccess` ร่วม**
+
+`ResourceAccess` บังคับให้มี `userId` และมีคีย์เอกลักษณ์ `(resourceId, userId)`
+ซึ่งแปลว่ามันคือ "การมอบสิทธิ์ให้คนที่ระบบรู้จัก" โดยนิยาม
+การยัดลิงก์แขกลงไปจะบังคับให้ต้องสร้าง User ปลอมสำหรับแขกทุกคน
+แล้วเส้นแบ่งระหว่างพื้นที่ลูกค้ากับลิงก์แขกจะพังทันที
+
+```
+PublicShareLink
+  resourceId  → Resource (Cascade)
+  createdById → User (Restrict)
+  revokedById → User (SetNull)
+  tokenHash UNIQUE
+```
+
+`Cascade` บน `resourceId` ทำให้การลบทรัพยากรถาวรไม่ทิ้งสิทธิ์ที่ไร้เจ้าของไว้
+`Restrict` บน `createdById` ใช้เกณฑ์เดียวกับ `ResourceAccess` - ผู้ใช้ในระบบนี้ถูกปิดใช้งาน ไม่ถูกลบ
+
+ดัชนี: `tokenHash` (UNIQUE ใช้ค้นทุกคำขอของแขก) · `resourceId` · `createdById` ·
+`expiresAt` และ `revokedAt` (ใช้โดยตัวกรองสถานะของหน้าผู้ดูแล)
+
+ดู [PUBLIC_SHARE_LINKS.md](PUBLIC_SHARE_LINKS.md)

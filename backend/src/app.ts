@@ -21,6 +21,8 @@ import { resourceRoutes } from './modules/resources/resource.routes.js';
 import { f15Routes } from './modules/search/f15.routes.js';
 import { governanceRoutes } from './modules/governance/governance.routes.js';
 import { auditRoutes } from './modules/audit/audit.routes.js';
+import { publicShareRoutes } from './modules/sharing/public-share.routes.js';
+import { adminShareRoutes } from './modules/sharing/admin-share.routes.js';
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js';
 import { fileRoutes } from './modules/files/file.routes.js';
 import { workspaceRoutes } from './modules/workspace/workspace.routes.js';
@@ -72,6 +74,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(f15Routes);
       await api.register(governanceRoutes);
       await api.register(auditRoutes);
+      await api.register(publicShareRoutes);
+      await api.register(adminShareRoutes);
     },
     { prefix: '/api' },
   );
