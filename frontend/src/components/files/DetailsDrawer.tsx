@@ -15,6 +15,7 @@ import { OwnerIdentity } from './OwnerIdentity';
 import { ResourceSourceBadge, sourceLabel } from './ResourceSourceBadge';
 import { VersionList } from './VersionList';
 import { OcrPanel } from './OcrPanel';
+import { LifecyclePanel } from './LifecyclePanel';
 import { downloadResource } from '@/lib/download';
 import { isPreviewable } from '@/lib/file-types';
 import { useToast } from '@/hooks/useToast';
@@ -273,6 +274,8 @@ export function DetailsDrawer() {
               </div>
             ) : tab === 'versions' ? (
               <div className="space-y-3">
+                {/* วงจรชีวิตอยู่คู่กับเวอร์ชัน เพราะทั้งคู่ตอบว่า "เอกสารนี้จะอยู่ต่อไปอย่างไร" */}
+                <LifecyclePanel entry={selected} />
                 {/* OCR อยู่คู่กับเวอร์ชัน เพราะทั้งคู่เป็นเรื่องของ "เนื้อในไฟล์" */}
                 <OcrPanel entry={selected} />
                 <VersionList entry={selected} />

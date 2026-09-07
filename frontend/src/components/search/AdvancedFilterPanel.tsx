@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
-import { categoryApi, workspaceApi } from '@/lib/api';
+import { categoryApi, retentionApi, workspaceApi } from '@/lib/api';
 import {
   DATE_PRESET_LABELS,
   DRIVE_SCOPE_LABELS,
   FILE_KIND_LABELS,
   OCR_STATE_LABELS,
+  LIFECYCLE_STATE_LABELS,
+  RETENTION_STATUS_FILTER_LABELS,
   SORT_LABELS,
   SOURCE_TYPE_LABELS,
   TEXT_SOURCE_LABELS,
@@ -88,6 +90,11 @@ export function AdvancedFilterPanel({ filters, onChange, onClear, onClose }: Pro
   /** ตัวเลือกที่ต้องดึงจากเซิร์ฟเวอร์ - ผู้ดูแล แท็ก และประเภทเอกสาร */
   const facets = useQuery({ queryKey: ['search-facets'], queryFn: workspaceApi.facets });
   const categories = useQuery({ queryKey: ['document-categories'], queryFn: () => categoryApi.list() });
+  const policies = useQuery({
+    queryKey: ['retention-policies'],
+    queryFn: () => retentionApi.list(),
+    staleTime: 5 * 60_000,
+  });
 
   const owners = Object.fromEntries(
     (facets.data?.data.owners ?? []).map((owner) => [owner.id, owner.displayName]),
@@ -189,6 +196,26 @@ export function AdvancedFilterPanel({ filters, onChange, onClear, onClose }: Pro
           allLabel="ทุกช่วงเวลา"
         />
         <Select
+          label="สถานะเอกสาร"
+          value={filters.lifecycleState}
+          options={LIFECYCLE_STATE_LABELS}
+          onChange={(value) => onChange('lifecycleState', value)}
+        />
+        <Select
+          label="การเก็บรักษา"
+          value={filters.retentionStatus}
+          options={RETENTION_STATUS_FILTER_LABELS}
+          onChange={(value) => onChange('retentionStatus', value)}
+        />
+        <Select
+          label="นโยบายการเก็บรักษา"
+          value={filters.retentionPolicyId}
+          options={Object.fromEntries(
+            (policies.data?.data ?? []).map((policy) => [policy.id, policy.name]),
+          )}
+          onChange={(value) => onChange('retentionPolicyId', value)}
+        />
+        <Select
           label="เรียงตาม"
           value={filters.sort}
           options={SORT_LABELS}
@@ -241,6 +268,11 @@ export function AdvancedFilterPanel({ filters, onChange, onClear, onClose }: Pro
           label="เฉพาะรายการโปรด"
           checked={filters.favoriteOnly === true}
           onChange={(checked) => onChange('favoriteOnly', checked ? true : null)}
+        />
+        <Toggle
+          label="ถูกระงับการลบ"
+          checked={filters.legalHoldOnly === true}
+          onChange={(checked) => onChange('legalHoldOnly', checked ? true : null)}
         />
       </div>
     </section>

@@ -12,7 +12,7 @@ import {
 } from '../resources/resource.service.js';
 import type { AuthUser } from '../auth/auth.service.js';
 import type { AuditContext } from './file.service.js';
-import { assertDestructionAllowed, governanceForResources } from '../governance/governance.guard.js';
+import { assertDestructionAllowed, governanceForResources, hasActiveLegalHold } from '../governance/governance.guard.js';
 
 import { siblingKey } from '../resources/sibling-key.js';
 
@@ -64,6 +64,19 @@ export async function trashResource(id: string, user: AuthUser, audit: AuditCont
   }
 
   const ids = resource.type === 'FOLDER' ? await collectSubtreeIds(id, false) : [id];
+
+  /**
+   * การระงับการลบขวางแม้แต่การย้ายลงถังขยะ
+   *
+   * ต่างจากนโยบายการเก็บรักษาซึ่งยอมให้ย้ายลงถังขยะได้ เพราะถังขยะกู้คืนได้
+   * จึงไม่ใช่การทำลาย - แต่ Legal Hold ใช้ตอนมีการตรวจสอบหรือข้อพิพาท
+   * ซึ่งเอกสารต้องอยู่ที่เดิมและหาเจอได้ตลอดเวลา การซ่อนมันไว้ในถังขยะ
+   * ทำให้คนที่มาตรวจหาไม่เจอ และดูเหมือนการตั้งใจทำให้หลักฐานหาย
+   */
+  if (await hasActiveLegalHold(ids)) {
+    throw new AppError('LEGAL_HOLD_ACTIVE', 'เอกสารนี้ถูกระงับการลบตาม Legal Hold', 409);
+  }
+
   const deletedAt = new Date();
 
   await prisma.$transaction(async (tx) => {

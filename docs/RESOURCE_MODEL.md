@@ -79,3 +79,29 @@ All modules share one `resourceInclude` definition exported from `resource.servi
 ชุดค้นหาเป็นของส่วนตัว ไม่มีความหมายเมื่อเจ้าของถูกลบ
 
 ดู [DOCUMENT_CLASSIFICATION.md](DOCUMENT_CLASSIFICATION.md)
+
+---
+
+## F16 - วงจรชีวิตและการคุ้มครอง
+
+`Resource` เพิ่มฟิลด์สองกลุ่มที่ **แยกจาก `deletedAt` โดยสิ้นเชิง**
+
+```
+lifecycleState (ACTIVE | ARCHIVED) · archivedAt · archivedById
+retentionPolicyId · retentionStartAt · retentionStartBasis
+retentionUntil · retentionForever
+```
+
+`retentionUntil` เป็น **ภาพนิ่ง** ที่คำนวณตอนกำหนดนโยบาย ไม่คำนวณใหม่จากนโยบาย
+ทุกครั้งที่อ่าน - การแก้นิยามนโยบายจึงไม่เปลี่ยนวันหมดอายุของเอกสารที่กำหนดไว้แล้ว
+
+`retentionForever` แยก "เก็บถาวร" ออกจาก "ไม่มีนโยบาย" ซึ่งทั้งคู่มี
+`retentionUntil = null` เหมือนกันแต่ความหมายตรงข้าม
+
+`LegalHold` เป็นตารางแยก หนึ่งแถวต่อการวางหนึ่งครั้ง ไม่ใช่ธงบนทรัพยากร
+`onDelete: Cascade` จาก `Resource` - ประวัติหายพร้อมเอกสารเท่านั้น
+
+`DocumentCategory.defaultRetentionPolicyId` ใช้เป็นค่าตั้งต้นเมื่อจัดประเภท
+เฉพาะกับเอกสารที่ยังไม่มีนโยบายของตัวเอง
+
+ดู [DOCUMENT_LIFECYCLE.md](DOCUMENT_LIFECYCLE.md)

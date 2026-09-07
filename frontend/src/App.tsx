@@ -28,6 +28,7 @@ import PortalUploadsPage from '@/pages/portal/PortalUploadsPage';
 import AdminIntegrationsPage from '@/pages/admin/AdminIntegrationsPage';
 import AdminOwnershipPage from '@/pages/admin/AdminOwnershipPage';
 import AdminCategoriesPage from '@/pages/admin/AdminCategoriesPage';
+import AdminRetentionPage from '@/pages/admin/AdminRetentionPage';
 
 export default function App() {
   return (
@@ -74,6 +75,7 @@ export default function App() {
         <Route path="permissions" element={<AdminPermissionsPage />} />
         <Route path="ownership" element={<AdminOwnershipPage />} />
         <Route path="categories" element={<AdminCategoriesPage />} />
+        <Route path="retention" element={<AdminRetentionPage />} />
         <Route path="activity" element={<AdminActivityPage />} />
         <Route path="storage" element={<AdminStoragePage />} />
         <Route path="backup" element={<AdminBackupPage />} />

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, X } from 'lucide-react';
-import { ApiError, bulkApi, categoryApi, workspaceApi, type BulkOutcomeDto } from '@/lib/api';
+import { ApiError, bulkApi, categoryApi, retentionApi, workspaceApi, type BulkOutcomeDto } from '@/lib/api';
 import type { DriveEntry } from '@/lib/drive';
 import { useToast } from '@/hooks/useToast';
 
@@ -13,12 +13,14 @@ import { useToast } from '@/hooks/useToast';
  * คือการโกหกที่ผู้ใช้จะไปเจอเองทีหลังในเวลาที่แย่กว่า
  */
 
-type Mode = 'tag' | 'category' | 'owner';
+type Mode = 'tag' | 'category' | 'owner' | 'retention' | 'archive';
 
 const MODE_LABELS: Record<Mode, string> = {
   tag: 'เพิ่มแท็ก',
-  category: 'กำหนดประเภทเอกสาร',
-  owner: 'เปลี่ยนผู้ดูแล',
+  category: 'ประเภทเอกสาร',
+  owner: 'ผู้ดูแล',
+  retention: 'นโยบายการเก็บรักษา',
+  archive: 'เก็บเข้าคลัง',
 };
 
 const ERROR_TEXT: Record<string, string> = {
@@ -51,6 +53,8 @@ export function BulkMetadataDialog({
 
   const categories = useQuery({ queryKey: ['document-categories'], queryFn: () => categoryApi.list() });
   const facets = useQuery({ queryKey: ['search-facets'], queryFn: workspaceApi.facets });
+  const policies = useQuery({ queryKey: ['retention-policies'], queryFn: () => retentionApi.list() });
+  const [policyId, setPolicyId] = useState<string>('');
 
   const ids = entries.map((entry) => entry.id);
   const fileCount = entries.filter((entry) => entry.kind !== 'folder').length;
@@ -59,11 +63,13 @@ export function BulkMetadataDialog({
     mutationFn: async () => {
       if (mode === 'tag') return bulkApi.addTag(ids, tagName.trim());
       if (mode === 'category') return bulkApi.setCategory(ids, categoryId || null);
+      if (mode === 'retention') return bulkApi.setRetention(ids, policyId || null);
+      if (mode === 'archive') return bulkApi.archive(ids);
       return bulkApi.setOwner(ids, ownerId);
     },
     onSuccess: (result) => {
       setOutcome(result.data);
-      void queryClient.invalidateQueries({ queryKey: ['resources'] });
+      void queryClient.invalidateQueries({ queryKey: ['drive'] });
       void queryClient.invalidateQueries({ queryKey: ['search'] });
       if (result.data.failed === 0) {
         notify({
@@ -77,7 +83,9 @@ export function BulkMetadataDialog({
 
   const canRun =
     (mode === 'tag' && tagName.trim().length > 0) ||
-    (mode === 'category' && (categoryId !== '' || categoryId === '')) ||
+    mode === 'category' ||
+    mode === 'retention' ||
+    mode === 'archive' ||
     (mode === 'owner' && ownerId !== '');
 
   return (
@@ -204,6 +212,34 @@ export function BulkMetadataDialog({
                     ใช้ได้กับไฟล์เท่านั้น โฟลเดอร์ {entries.length - fileCount} รายการจะถูกข้าม
                   </span>
                 </label>
+              ) : mode === 'retention' ? (
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11.5px] font-medium text-navy-600">
+                    นโยบายการเก็บรักษา
+                  </span>
+                  <select
+                    value={policyId}
+                    onChange={(event) => setPolicyId(event.target.value)}
+                    className="s2-input h-9 text-[12.5px]"
+                  >
+                    <option value="">— ล้างนโยบาย —</option>
+                    {(policies.data?.data ?? []).map((policy) => (
+                      <option key={policy.id} value={policy.id}>
+                        {policy.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[10.5px] text-navy-400">
+                    วันหมดอายุถูกคำนวณจากวันที่นำเข้าระบบของแต่ละเอกสาร
+                  </span>
+                </label>
+              ) : mode === 'archive' ? (
+                <p className="rounded-lg bg-[var(--s2-surface-soft)] px-2 py-2 text-[11.5px] leading-relaxed text-navy-500">
+                  เก็บ {entries.length} รายการเข้าคลัง เอกสารจะยังค้นเจอและเปิดได้ตามปกติ
+                  แต่จะไม่ขึ้นในมุมมองการทำงานประจำวัน
+                  <br />
+                  รายการที่อยู่ในคลังอยู่แล้วจะถูกข้าม
+                </p>
               ) : (
                 <label className="flex flex-col gap-1">
                   <span className="text-[11.5px] font-medium text-navy-600">ผู้ดูแลคนใหม่</span>

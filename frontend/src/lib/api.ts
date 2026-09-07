@@ -242,6 +242,14 @@ export interface ResourceDto {
   isLocked: boolean; itemCount: number; createdAt: string; updatedAt: string;
   /** ประเภทเอกสารที่คนกำหนดไว้ - null คือยังไม่ได้จัดประเภท */
   documentCategory?: { id: string; name: string } | null;
+  /* ---- วงจรชีวิตเอกสาร (F16) ---- */
+  lifecycleState?: 'ACTIVE' | 'ARCHIVED';
+  archivedAt?: string | null;
+  retentionPolicy?: { id: string; name: string } | null;
+  retentionUntil?: string | null;
+  retentionForever?: boolean;
+  /** ถูกระงับการลบอยู่หรือไม่ - ไม่บอกเหตุผล เหตุผลมีเส้นทางของตัวเอง */
+  onLegalHold?: boolean;
   visibility: 'ORGANIZATION' | 'RESTRICTED';
   /** ไดร์ฟที่ทรัพยากรนี้สังกัด - ตัดสินนโยบายการเขียนได้จากแถวเดียว */
   driveScope: 'MY_DRIVE' | 'SYSTEM_DRIVE';
@@ -985,5 +993,114 @@ export const bulkApi = {
     apiFetch<Ok<BulkOutcomeDto>>('/resources/bulk/owner', {
       method: 'POST',
       body: JSON.stringify({ resourceIds, newOwnerId }),
+    }),
+  /** กำหนดนโยบายการเก็บรักษาให้หลายรายการ */
+  setRetention: (resourceIds: string[], policyId: string | null) =>
+    apiFetch<Ok<BulkOutcomeDto>>('/resources/bulk/retention', {
+      method: 'POST',
+      body: JSON.stringify({ resourceIds, policyId }),
+    }),
+  /** เก็บหลายรายการเข้าคลัง */
+  archive: (resourceIds: string[]) =>
+    apiFetch<Ok<BulkOutcomeDto>>('/resources/bulk/archive', {
+      method: 'POST',
+      body: JSON.stringify({ resourceIds }),
+    }),
+};
+
+/* ---------------- F16 ---------------- */
+
+export interface RetentionPolicyDto {
+  id: string;
+  name: string;
+  description: string | null;
+  /** null เมื่อเก็บถาวร */
+  retentionDays: number | null;
+  retainForever: boolean;
+  isActive: boolean;
+  sortOrder: number;
+  resourceCount: number;
+}
+
+export interface LegalHoldDto {
+  id: string;
+  resourceId: string;
+  resourceName: string;
+  /** null เมื่อผู้เรียกไม่มีสิทธิ์จัดการการระงับ - รู้ว่าถูกระงับ แต่ไม่รู้ว่าเพราะอะไร */
+  reason: string | null;
+  caseReference: string | null;
+  createdBy: { id: string; displayName: string };
+  createdAt: string;
+  releasedBy: { id: string; displayName: string } | null;
+  releasedAt: string | null;
+  releaseReason: string | null;
+  isActive: boolean;
+}
+
+/** เหตุผลที่ลบถาวรไม่ได้ - ข้อความปลอดภัย ไม่มีรายละเอียดของการระงับ */
+export interface DeleteBlockDto {
+  kind: 'LEGAL_HOLD' | 'RETAIN_FOREVER' | 'RETENTION_ACTIVE';
+  until?: string;
+}
+
+/** นโยบายการเก็บรักษา - ไม่ใช่เรื่องเดียวกับอายุของชุดสำรอง (F6) */
+export const retentionApi = {
+  list: (includeInactive = false) =>
+    apiFetch<Ok<RetentionPolicyDto[]>>(
+      `/retention-policies${includeInactive ? '?includeInactive=true' : ''}`,
+    ),
+  create: (input: {
+    name: string;
+    description?: string | null;
+    retentionDays?: number | null;
+    retainForever?: boolean;
+  }) =>
+    apiFetch<Ok<RetentionPolicyDto>>('/retention-policies', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  update: (id: string, input: Record<string, unknown>) =>
+    apiFetch<Ok<RetentionPolicyDto>>(`/retention-policies/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+  remove: (id: string) =>
+    apiFetch<Ok<{ deleted: boolean }>>(`/retention-policies/${id}`, { method: 'DELETE' }),
+  /** คำนวณวันหมดอายุใหม่ให้เอกสารที่ใช้นโยบายนี้ - ต้องกดเอง ไม่ใช่ผลข้างเคียงของการแก้นิยาม */
+  reapply: (id: string) =>
+    apiFetch<Ok<{ updated: number }>>(`/retention-policies/${id}/reapply`, { method: 'POST' }),
+  seedDefaults: () =>
+    apiFetch<Ok<{ created: number }>>('/retention-policies/seed-defaults', { method: 'POST' }),
+  /** กำหนดนโยบายให้เอกสารหนึ่งฉบับ - policyId = null คือล้างนโยบายออก */
+  assign: (resourceId: string, input: { policyId: string | null; startAt?: string | null }) =>
+    apiFetch<Ok<{ resourceId: string; retentionUntil: string | null; retentionForever: boolean }>>(
+      `/resources/${resourceId}/retention`,
+      { method: 'PUT', body: JSON.stringify(input) },
+    ),
+};
+
+/** คลังเอกสาร - ไม่ใช่ถังขยะ */
+export const archiveApi = {
+  archive: (resourceId: string) =>
+    apiFetch<ResourceResponse>(`/resources/${resourceId}/archive`, { method: 'POST' }),
+  unarchive: (resourceId: string) =>
+    apiFetch<ResourceResponse>(`/resources/${resourceId}/unarchive`, { method: 'POST' }),
+};
+
+/** การระงับการลบ */
+export const legalHoldApi = {
+  list: (includeReleased = false) =>
+    apiFetch<Ok<LegalHoldDto[]>>(`/legal-holds${includeReleased ? '?includeReleased=true' : ''}`),
+  forResource: (resourceId: string) =>
+    apiFetch<Ok<LegalHoldDto[]>>(`/resources/${resourceId}/legal-holds`),
+  place: (resourceId: string, input: { reason: string; caseReference?: string | null }) =>
+    apiFetch<Ok<LegalHoldDto>>(`/resources/${resourceId}/legal-hold`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  release: (holdId: string, input: { releaseReason?: string | null } = {}) =>
+    apiFetch<Ok<LegalHoldDto>>(`/legal-holds/${holdId}/release`, {
+      method: 'POST',
+      body: JSON.stringify(input),
     }),
 };

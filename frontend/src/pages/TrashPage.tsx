@@ -126,7 +126,15 @@ export default function TrashPage() {
             <ul className="overflow-hidden rounded-2xl border border-[var(--s2-card-border)] bg-[var(--s2-layer-card)]">
               {items.map((item) => {
                 const entry = toDriveEntry(item);
-                const countdown = trashCountdown(item.expiresAt);
+                /**
+                 * ส่งสถานะการกำกับดูแลเข้าไปด้วย เพื่อไม่ให้แสดงเวลานับถอยหลัง
+                 * กับเอกสารที่ระบบไม่มีวันลบให้จริง
+                 */
+                const countdown = trashCountdown(item.expiresAt, new Date(), {
+                  retentionUntil: item.retentionUntil,
+                  retentionForever: item.retentionForever,
+                  onLegalHold: item.onLegalHold,
+                });
                 return (
                   <li key={item.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-0">
                     <FileTypeIcon

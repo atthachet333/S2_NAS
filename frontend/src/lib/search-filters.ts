@@ -29,6 +29,11 @@ export interface SearchFilters {
   updatedPreset?: string;
   updatedFrom?: string;
   updatedTo?: string;
+  /* ---- วงจรชีวิตเอกสาร (F16) ---- */
+  lifecycleState?: string;
+  retentionPolicyId?: string;
+  retentionStatus?: string;
+  legalHoldOnly?: boolean;
   sort?: string;
 }
 
@@ -56,13 +61,23 @@ export const FILTER_KEYS = [
   'updatedPreset',
   'updatedFrom',
   'updatedTo',
+  'lifecycleState',
+  'retentionPolicyId',
+  'retentionStatus',
+  'legalHoldOnly',
   'sort',
 ] as const;
 
 export type FilterKey = (typeof FILTER_KEYS)[number];
 
 /** คีย์ที่เป็นค่าจริง/เท็จ - ต้องแปลงกลับเป็น boolean เมื่ออ่านจาก URL */
-const BOOLEAN_KEYS = new Set<string>(['untaggedOnly', 'uncategorizedOnly', 'hasText', 'favoriteOnly']);
+const BOOLEAN_KEYS = new Set<string>([
+  'untaggedOnly',
+  'uncategorizedOnly',
+  'hasText',
+  'favoriteOnly',
+  'legalHoldOnly',
+]);
 
 /* ------------------------------------------------------------------ */
 /* ป้ายภาษาไทย                                                          */
@@ -117,6 +132,26 @@ export const DATE_PRESET_LABELS: Record<string, string> = {
   last30: '30 วันที่ผ่านมา',
   thisMonth: 'เดือนนี้',
   custom: 'กำหนดเอง',
+};
+
+/** สถานะวงจรชีวิต - "เก็บเข้าคลัง" ไม่ใช่ "ลบแล้ว" */
+export const LIFECYCLE_STATE_LABELS: Record<string, string> = {
+  ACTIVE: 'ใช้งานอยู่',
+  ARCHIVED: 'เก็บเข้าคลัง',
+};
+
+/**
+ * สถานะการเก็บรักษา
+ *
+ * "หมดอายุการเก็บรักษา" ไม่ได้แปลว่าถูกลบแล้ว - แปลว่าลบได้แล้วถ้ากติกาอื่นอนุญาต
+ * ระบบไม่เคยลบเอกสารเองเพียงเพราะนโยบายหมดอายุ
+ */
+export const RETENTION_STATUS_FILTER_LABELS: Record<string, string> = {
+  NONE: 'ไม่มีนโยบาย',
+  ACTIVE: 'อยู่ในช่วงเก็บรักษา',
+  EXPIRING: 'ใกล้ครบกำหนด',
+  EXPIRED: 'หมดอายุการเก็บรักษา',
+  FOREVER: 'เก็บถาวร',
 };
 
 export const SORT_LABELS: Record<string, string> = {
@@ -214,6 +249,16 @@ export function activeChips(
   if (filters.ocrState) add('ocrState', OCR_STATE_LABELS[filters.ocrState] ?? filters.ocrState);
   if (filters.hasText) add('hasText', 'มีข้อความในเอกสาร');
   if (filters.favoriteOnly) add('favoriteOnly', 'รายการโปรด');
+  if (filters.lifecycleState) {
+    add('lifecycleState', LIFECYCLE_STATE_LABELS[filters.lifecycleState] ?? filters.lifecycleState);
+  }
+  if (filters.retentionStatus) {
+    add(
+      'retentionStatus',
+      RETENTION_STATUS_FILTER_LABELS[filters.retentionStatus] ?? filters.retentionStatus,
+    );
+  }
+  if (filters.legalHoldOnly) add('legalHoldOnly', 'ระงับการลบ');
   if (filters.uploadedPreset) {
     add('uploadedPreset', `อัปโหลด: ${DATE_PRESET_LABELS[filters.uploadedPreset] ?? filters.uploadedPreset}`);
   }

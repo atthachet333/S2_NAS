@@ -27,6 +27,13 @@ export interface DriveEntry {
   capabilities: ResourceCapabilities;
   location?: string; sharedBy?: string; sharedAt?: string; permission?: SharePermission;
   deletedBy?: string; deletedAt?: string;
+  /* ---- วงจรชีวิตเอกสาร (F16) ---- */
+  lifecycleState?: 'ACTIVE' | 'ARCHIVED';
+  archivedAt?: string | null;
+  retentionPolicy?: { id: string; name: string } | null;
+  retentionUntil?: string | null;
+  retentionForever?: boolean;
+  onLegalHold?: boolean;
 }
 export interface BreadcrumbNode { id: string | null; name: string }
 export type DriveScope = 'files' | 'shared' | 'recent' | 'favorites' | 'trash';
@@ -58,6 +65,12 @@ export function toDriveEntry(resource: ResourceDto): DriveEntry {
     createdByIntegrationApp: resource.createdByIntegrationApp,
     driveRoot: resource.driveScope ?? 'MY_DRIVE',
     source: SOURCE_MAP[resource.sourceType], capabilities: resource.capabilities,
+    lifecycleState: resource.lifecycleState,
+    archivedAt: resource.archivedAt,
+    retentionPolicy: resource.retentionPolicy,
+    retentionUntil: resource.retentionUntil,
+    retentionForever: resource.retentionForever,
+    onLegalHold: resource.onLegalHold,
   };
 }
 

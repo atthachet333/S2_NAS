@@ -19,6 +19,12 @@ export type TrashUrgency = 'GREEN' | 'YELLOW' | 'RED';
 export interface TrashCountdown {
   urgency: TrashUrgency;
   label: string;
+  /**
+   * ถูกคุ้มครองไว้จนลบอัตโนมัติไม่ได้ (F16)
+   *
+   * หน้าจอใช้เลิกแสดงความเร่งด่วน - เอกสารที่ไม่มีวันถูกลบไม่ควรขึ้นป้ายสีแดง
+   */
+  protectedFromPurge?: boolean;
   /** จำนวนวันที่เหลือแบบปัดขึ้น - null เมื่อเลยกำหนดแล้ว หรือไม่มีนโยบายลบอัตโนมัติ */
   remainingDays: number | null;
   expired: boolean;
@@ -29,7 +35,66 @@ export interface TrashCountdown {
  *
  * expiresAt = null แปลว่าปิดการลบอัตโนมัติไว้ จึงไม่แสดงตัวนับถอยหลังที่ไม่มีวันเกิดขึ้นจริง
  */
-export function trashCountdown(expiresAt: string | null, now: Date = new Date()): TrashCountdown | null {
+/**
+ * สถานะการกำกับดูแลที่มีผลต่อการลบอัตโนมัติ (F16)
+ *
+ * เอกสารที่ถูกคุ้มครองจะไม่ถูกงานเก็บกวาดถังขยะลบ แม้จะพ้นอายุถังขยะแล้ว
+ * การแสดง "เหลือ 3 วัน" กับเอกสารเหล่านี้จึงเป็นคำโกหกที่ทำให้ผู้ใช้ตกใจเปล่า ๆ
+ * และอาจไปกู้คืนเอกสารที่ไม่ได้กำลังจะหายไปไหน
+ */
+export interface PurgeGuard {
+  retentionUntil?: string | null;
+  retentionForever?: boolean;
+  onLegalHold?: boolean;
+}
+
+function thaiDate(value: string | Date): string {
+  const date = typeof value === 'string' ? new Date(value) : value;
+  return date.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+export function trashCountdown(
+  expiresAt: string | null,
+  now: Date = new Date(),
+  guard: PurgeGuard = {},
+): TrashCountdown | null {
+  /**
+   * การคุ้มครองมาก่อนเวลาเสมอ
+   *
+   * ตรวจก่อน expiresAt เพราะเอกสารที่ถูกระงับการลบไม่มีกำหนดลบเลย
+   * ไม่ว่าถังขยะจะบอกว่าอย่างไร
+   */
+  if (guard.onLegalHold) {
+    return {
+      urgency: 'GREEN',
+      label: 'ระงับการลบ',
+      remainingDays: null,
+      expired: false,
+      protectedFromPurge: true,
+    };
+  }
+  if (guard.retentionForever) {
+    return {
+      urgency: 'GREEN',
+      label: 'เก็บถาวรตามนโยบาย',
+      remainingDays: null,
+      expired: false,
+      protectedFromPurge: true,
+    };
+  }
+  if (guard.retentionUntil) {
+    const until = new Date(guard.retentionUntil);
+    if (until > now) {
+      return {
+        urgency: 'GREEN',
+        label: `เก็บตามนโยบายถึง ${thaiDate(until)}`,
+        remainingDays: null,
+        expired: false,
+        protectedFromPurge: true,
+      };
+    }
+  }
+
   if (!expiresAt) return null;
 
   const remaining = new Date(expiresAt).getTime() - now.getTime();

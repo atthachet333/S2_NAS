@@ -148,7 +148,31 @@ describe('F16 การกำกับดูแลวงจรชีวิตเ
       await prisma.resource.deleteMany({ where: { parentId: null, id: { in: all } } });
     }
     await prisma.documentCategory.deleteMany({ where: { createdById: adminId } });
-    await prisma.retentionPolicy.deleteMany({ where: { createdById: adminId } });
+
+    /**
+     * ตัดการอ้างอิงถึงนโยบายของชุดทดสอบนี้ให้หมดก่อนลบ
+     *
+     * ทรัพยากรของชุดทดสอบถูกลบไปแล้วข้างบน แต่ถ้ามีอะไรนอกชุดทดสอบมาอ้างถึง
+     * (เช่นข้อมูล QA ที่สร้างทีหลัง) การลบจะเงียบ ๆ ไม่สำเร็จและทิ้งขยะไว้
+     * ซึ่งจะไปขวางการลบบัญชีผู้ใช้ต่อไปด้วย เพราะ createdBy เป็น Restrict
+     */
+    const policies = await prisma.retentionPolicy.findMany({
+      where: { createdById: adminId },
+      select: { id: true },
+    });
+    const policyIds = policies.map((row) => row.id);
+    if (policyIds.length > 0) {
+      await prisma.resource.updateMany({
+        where: { retentionPolicyId: { in: policyIds } },
+        data: { retentionPolicyId: null },
+      });
+      await prisma.documentCategory.updateMany({
+        where: { defaultRetentionPolicyId: { in: policyIds } },
+        data: { defaultRetentionPolicyId: null },
+      });
+      await prisma.retentionPolicy.deleteMany({ where: { id: { in: policyIds } } });
+    }
+
     await prisma.user.deleteMany({ where: { id: { in: [adminId, staffId, outsiderId] } } });
   });
 
@@ -573,8 +597,9 @@ describe('F16 การกำกับดูแลวงจรชีวิตเ
   describe('การระงับการลบ', () => {
     test('วางแล้วขวางการลบถาวร โดยข้อความไม่บอกเหตุผลของการระงับ', async () => {
       const id = await upload(`${prefix}-ระงับ.txt`);
-      await placeLegalHold(id, admin, { reason: 'ตรวจสอบภาษีปี 2569', caseReference: 'AUD-001' }, audit);
+      // ย้ายลงถังขยะก่อน แล้วจึงมีคำสั่งระงับการลบตามมา
       await trashResource(id, admin, audit);
+      await placeLegalHold(id, admin, { reason: 'ตรวจสอบภาษีปี 2569', caseReference: 'AUD-001' }, audit);
 
       await assert.rejects(
         () => permanentlyDelete(id, admin, audit),
@@ -591,6 +616,38 @@ describe('F16 การกำกับดูแลวงจรชีวิตเ
       );
     });
 
+    test('การระงับขวางแม้แต่การย้ายลงถังขยะ - ต่างจากนโยบายการเก็บรักษา', async () => {
+      const id = await upload(`${prefix}-ระงับห้ามทิ้ง.txt`);
+      await placeLegalHold(id, admin, { reason: 'ต้องอยู่ที่เดิมระหว่างตรวจสอบ' }, audit);
+
+      /**
+       * Legal Hold ขวางการย้ายลงถังขยะด้วย
+       *
+       * ใช้ตอนมีการตรวจสอบหรือข้อพิพาท ซึ่งเอกสารต้องอยู่ที่เดิมและหาเจอได้ตลอด
+       * การซ่อนไว้ในถังขยะทำให้คนที่มาตรวจหาไม่เจอ และดูเหมือนตั้งใจทำให้หลักฐานหาย
+       */
+      await assert.rejects(
+        () => trashResource(id, admin, audit),
+        (error: unknown) => error instanceof AppError && error.code === 'LEGAL_HOLD_ACTIVE',
+      );
+
+      const row = await prisma.resource.findUnique({ where: { id }, select: { deletedAt: true } });
+      assert.equal(row!.deletedAt, null, 'ต้องยังอยู่ที่เดิม ไม่ใช่ถูกซ่อนไว้ในถังขยะ');
+
+      /**
+       * ต่างจากนโยบายการเก็บรักษา ซึ่งยอมให้ย้ายลงถังขยะได้
+       * เพราะถังขยะกู้คืนได้ จึงไม่ใช่การทำลาย
+       */
+      const underPolicy = await upload(`${prefix}-นโยบายทิ้งได้.txt`);
+      await assignPolicy(underPolicy, admin, { policyId: policyForever }, audit);
+      await trashResource(underPolicy, admin, audit);
+      const trashed = await prisma.resource.findUnique({
+        where: { id: underPolicy },
+        select: { deletedAt: true },
+      });
+      assert.ok(trashed!.deletedAt, 'นโยบายการเก็บรักษาต้องไม่ขวางการย้ายลงถังขยะ');
+    });
+
     test('การระงับชนะนโยบายที่หมดอายุแล้ว', async () => {
       const id = await upload(`${prefix}-ระงับเหนือกว่า.txt`);
       await assignPolicy(id, admin, { policyId: policy5y }, audit);
@@ -598,8 +655,8 @@ describe('F16 การกำกับดูแลวงจรชีวิตเ
         where: { id },
         data: { retentionUntil: new Date(Date.now() - DAY) },
       });
-      await placeLegalHold(id, admin, { reason: 'ข้อพิพาท' }, audit);
       await trashResource(id, admin, audit);
+      await placeLegalHold(id, admin, { reason: 'ข้อพิพาท' }, audit);
 
       await assert.rejects(
         () => permanentlyDelete(id, admin, audit),
@@ -609,8 +666,8 @@ describe('F16 การกำกับดูแลวงจรชีวิตเ
 
     test('ปลดแล้วลบได้ และประวัติยังอยู่ครบ', async () => {
       const id = await upload(`${prefix}-ปลด.txt`);
-      const hold = await placeLegalHold(id, admin, { reason: 'ตรวจสอบภายใน' }, audit);
       await trashResource(id, admin, audit);
+      const hold = await placeLegalHold(id, admin, { reason: 'ตรวจสอบภายใน' }, audit);
 
       const released = await releaseLegalHold(hold.id, admin, { releaseReason: 'ตรวจสอบเสร็จแล้ว' }, audit);
       assert.equal(released.isActive, false);
@@ -847,5 +904,61 @@ describe('F16 การกำกับดูแลวงจรชีวิตเ
       assert.ok(names.includes('RESOURCE_ARCHIVED'));
       assert.ok(names.includes('RESOURCE_UNARCHIVED'));
     });
+  });
+});
+
+/**
+ * การคุ้มครองเวอร์ชันเก่า และการแยกพื้นที่ลูกค้า
+ *
+ * แยกออกมาเป็น describe ของตัวเอง เพราะทั้งสองเรื่องเป็นการยืนยัน
+ * "สิ่งที่ต้องไม่มี" ซึ่งอ่านง่ายกว่าเมื่ออยู่ด้วยกัน
+ */
+describe('F16 การคุ้มครองเวอร์ชันและพื้นที่ลูกค้า', () => {
+  test('ไม่มีเส้นทางลบเวอร์ชันเดี่ยว - เวอร์ชันเก่าจึงถูกคุ้มครองโดยโครงสร้าง', async () => {
+    const { readFileSync, readdirSync, statSync } = await import('node:fs');
+    const { join } = await import('node:path');
+
+    /**
+     * เวอร์ชันเก่าถูกลบได้ทางเดียวคือผ่าน purgeTrashedResource ซึ่งมีด่านกำกับดูแลอยู่แล้ว
+     *
+     * ชุดทดสอบนี้กันไม่ให้มีใครเพิ่มเส้นทางลบเวอร์ชันเดี่ยวในอนาคตโดยลืมใส่ด่าน
+     * ถ้าวันหนึ่งจำเป็นต้องมีจริง ผู้เพิ่มจะเห็นการทดสอบนี้ล้มและรู้ว่าต้องใส่ด่านด้วย
+     */
+    const scan = (dir: string, hits: string[] = []): string[] => {
+      for (const name of readdirSync(dir)) {
+        const full = join(dir, name);
+        if (statSync(full).isDirectory()) scan(full, hits);
+        else if (name.endsWith('.ts') && !name.endsWith('.test.ts')) {
+          const text = readFileSync(full, 'utf8');
+          if (/prisma\.resourceVersion\.delete\b/.test(text)) hits.push(full);
+        }
+      }
+      return hits;
+    };
+
+    const offenders = scan(join(process.cwd(), 'src'));
+    assert.deepEqual(
+      offenders,
+      [],
+      'การลบเวอร์ชันเดี่ยวต้องผ่านด่านกำกับดูแลก่อนเสมอ ดู governance.guard.ts',
+    );
+  });
+
+  test('พื้นที่ลูกค้าไม่แสดงเอกสารที่เก็บเข้าคลัง', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+
+    /**
+     * ตรวจที่ระดับซอร์ส เพราะการสร้างบัญชีลูกค้าพร้อมการแชร์ครบชุดในชุดทดสอบนี้
+     * จะทำซ้ำสิ่งที่ชุดทดสอบของ F10/F11 ทำอยู่แล้ว สิ่งที่ต้องยืนยันตรงนี้คือ
+     * "ทุกคำสั่งที่ดึงทรัพยากรของพื้นที่ลูกค้ามีเงื่อนไข lifecycleState อยู่จริง"
+     */
+    for (const file of ['portal.service.ts', 'portal-search.ts']) {
+      const text = readFileSync(join(process.cwd(), 'src/modules/portal', file), 'utf8');
+      assert.ok(
+        text.includes('lifecycleState'),
+        `${file} ต้องกรองเอกสารที่เก็บเข้าคลังออกจากพื้นที่ลูกค้า`,
+      );
+    }
   });
 });

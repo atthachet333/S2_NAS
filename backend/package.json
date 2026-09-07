@@ -34,7 +34,9 @@
     "ocr:retry-failed": "tsx scripts/ocr-cli.ts retry-failed",
     "ocr:eligible": "tsx scripts/ocr-cli.ts eligible",
     "qa:f15": "tsx scripts/f15-qa-fixture.ts create",
-    "qa:f15-clean": "tsx scripts/f15-qa-fixture.ts destroy"
+    "qa:f15-clean": "tsx scripts/f15-qa-fixture.ts destroy",
+    "qa:f16": "tsx scripts/f16-qa-fixture.ts create",
+    "qa:f16-clean": "tsx scripts/f16-qa-fixture.ts destroy"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
