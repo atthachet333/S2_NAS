@@ -1,7 +1,8 @@
 import { type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { driveRootLabel } from '@/lib/drive-labels';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Eye, Info, Lock, MessageSquareText, Share2, ShieldCheck, SquareArrowOutUpRight, Star, Tag, X } from 'lucide-react';
+import { Download, Eye, Info, Lock, MessageSquareText, Share2, ShieldCheck, SearchCheck, SquareArrowOutUpRight, Star, Tag, X } from 'lucide-react';
 import { workspaceApi } from '@/lib/api';
 import { ActivityTimeline } from './ActivityTimeline';
 import { useWorkspaceMarks } from '@/hooks/useWorkspaceMarks';
@@ -19,6 +20,7 @@ import { LifecyclePanel } from './LifecyclePanel';
 import { downloadResource } from '@/lib/download';
 import { isPreviewable } from '@/lib/file-types';
 import { useToast } from '@/hooks/useToast';
+import { useAuth } from '@/hooks/useAuth';
 import { externalResourceLabel, isExternalEntry, openExternalUrl } from '@/lib/external-resources';
 
 /**
@@ -32,6 +34,7 @@ export function DetailsDrawer() {
   const { notify } = useToast();
   const { favoriteIds, toggleFavorite } = useWorkspaceMarks();
   const { handleWorkspaceAction, workspaceDialogs } = useWorkspaceActions();
+  const { user } = useAuth();
   const tab = detailsTab;
   const setTab = setDetailsTab;
 
@@ -43,6 +46,16 @@ export function DetailsDrawer() {
   });
 
   if (!detailsOpen) return null;
+
+  /**
+   * ทางเข้าสู่เครื่องมือตรวจสอบ แสดงเฉพาะผู้ที่เปิดหน้านั้นได้จริง
+   * ปุ่มที่กดแล้วเจอหน้าปฏิเสธสิทธิ์ ไม่ช่วยใครเลย
+   */
+  const canAudit =
+    user?.roles.includes('SUPER_ADMIN') ||
+    user?.roles.includes('ADMIN') ||
+    user?.permissions.includes('system:audit:view') ||
+    false;
 
   const isFolder = selected?.kind === 'folder';
   const isExternal = selected ? isExternalEntry(selected) : false;
@@ -367,7 +380,22 @@ export function DetailsDrawer() {
                 </div>
               </div>
             ) : (
-              <ActivityTimeline resourceId={selected.id} />
+              <div className="space-y-3">
+                <ActivityTimeline resourceId={selected.id} />
+                {/*
+                  ไทม์ไลน์ในแผงนี้เป็นฉบับย่อสำหรับผู้ใช้ทั่วไป
+                  ผู้ตรวจสอบที่ต้องการ IP อุปกรณ์ และการส่งออก ให้ไปที่เครื่องมือตรวจสอบเต็มรูปแบบ
+                */}
+                {canAudit ? (
+                  <Link
+                    to={`/admin/audit?resourceId=${encodeURIComponent(selected.id)}`}
+                    className="s2-btn s2-btn-outline h-8 w-full gap-1.5 text-[12px]"
+                  >
+                    <SearchCheck className="h-3.5 w-3.5" aria-hidden />
+                    ดูกิจกรรมทั้งหมดของทรัพยากรนี้
+                  </Link>
+                ) : null}
+              </div>
             )}
           </div>
         </>

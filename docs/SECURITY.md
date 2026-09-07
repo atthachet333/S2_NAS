@@ -66,3 +66,18 @@ Logger ตั้ง redact ไว้แล้วที่ `backend/src/core/logg
 - Phase แรกแชร์ภายในระบบเท่านั้น
 - รองรับ `expiresAt` สำหรับลิงก์หมดอายุ
 - ห้ามเปิด public share ที่ไม่มีการตรวจสิทธิ์เป็นค่า default
+
+## บันทึกการตรวจสอบ (F17)
+
+- `/admin/audit` ต้องมี `system:audit:view` การส่งออกต้องมี `system:audit:export` แยกอีกใบ
+- บัญชี EXTERNAL และ SERVICE เข้าไม่ถึงเลย กันสองชั้น (`requireInternal` + `canViewAudit`)
+- ไม่มี API แก้หรือลบเหตุการณ์ - บันทึกที่แก้ได้ไม่ใช่หลักฐาน
+- ไม่ส่ง `ActivityLog.metadata` ดิบออกไป ทุกฟิลด์ผ่านบัญชีอนุญาตรายเหตุการณ์ + ตัวกรองคำต้องห้าม
+- ห้ามหลุด: รหัสผ่าน แฮช refresh/access token Authorization header client secret credential hash storageKey เส้นทางไฟล์จริง
+- ไม่ค้นเนื้อหาเอกสารหรือข้อความ OCR - สิทธิ์ตรวจสอบต้องไม่กลายเป็นสิทธิ์อ่านทุกเอกสาร
+- IP แสดงเฉพาะผู้มีสิทธิ์ตรวจสอบ user agent สรุปในระบบเอง ไม่ส่งออกไปบริการภายนอก
+- CSV ป้องกันสูตร spreadsheet (`= + - @`) และครอบอัญประกาศทุกค่า
+- การส่งออกทุกครั้งถูกบันทึกเป็น `AUDIT_LOG_EXPORTED`
+- ตัวกรองที่ถูกแก้ใน URL หรือ body ไม่ขยายสิทธิ์ และไม่มี IDOR ที่ `GET /audit/events/:id`
+
+ดู [COMPLIANCE_AUDIT.md](COMPLIANCE_AUDIT.md)

@@ -341,7 +341,56 @@ export async function permanentlyDelete(id: string, user: AuthUser, audit: Audit
   if (!capabilities(resource, user).canDelete) {
     throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์ลบทรัพยากรนี้', 403);
   }
-  return purgeTrashedResource(id, { userId: user.id, reason: 'USER' }, audit);
+
+  try {
+    return await purgeTrashedResource(id, { userId: user.id, reason: 'USER' }, audit);
+  } catch (error) {
+    /**
+     * ความพยายามลบที่ถูกปฏิเสธเป็นเหตุการณ์ที่ผู้ตรวจสอบต้องเห็น
+     *
+     * "มีคนพยายามลบเอกสารที่อยู่ระหว่างการตรวจสอบ" คือสิ่งที่ต้องตอบได้
+     * ในการสอบสวน และตอบไม่ได้เลยถ้าระบบเพียงแต่ปฏิเสธไปเงียบ ๆ
+     *
+     * บันทึกเฉพาะตอน "คนกด" เท่านั้น งานเก็บกวาดถังขยะข้ามเอกสารเหล่านี้
+     * ทุกวันโดยไม่บันทึก มิฉะนั้นเหตุการณ์ที่มีความหมายจะจมหายในเสียงรบกวน
+     */
+    await logBlockedDeletion(error, id, user, audit);
+    throw error;
+  }
+}
+
+/**
+ * บันทึกว่าการลบถูกปฏิเสธเพราะการกำกับดูแล
+ *
+ * ไม่บันทึกเหตุผลของ Legal Hold - เหตุผลอยู่ในตาราง legal_holds ซึ่งมีด่านสิทธิ์
+ * ของตัวเอง ส่วน activity log ถูกอ่านโดยคนกลุ่มที่กว้างกว่า
+ */
+async function logBlockedDeletion(
+  error: unknown,
+  resourceId: string,
+  user: AuthUser,
+  audit: AuditContext,
+): Promise<void> {
+  if (!(error instanceof AppError)) return;
+
+  const action =
+    error.code === 'LEGAL_HOLD_ACTIVE'
+      ? 'PERMANENT_DELETE_BLOCKED_HOLD'
+      : error.code === 'RETENTION_ACTIVE'
+        ? 'PERMANENT_DELETE_BLOCKED_RETENTION'
+        : null;
+  if (!action) return;
+
+  await prisma.activityLog.create({
+    data: {
+      userId: user.id,
+      action,
+      resourceId,
+      ipAddress: audit.ipAddress,
+      userAgent: audit.userAgent?.slice(0, 500),
+      metadata: { blockedBy: error.code },
+    },
+  });
 }
 
 /**

@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, KeyRound, Plus, Search, ShieldCheck, UserPlus } from 'lucide-react';
+import { Building2, KeyRound, Plus, Search, SearchCheck, ShieldCheck, UserPlus } from 'lucide-react';
 import { ApiError, usersApi, type PublicUser } from '@/lib/api';
 import { accountTypeLabel } from '@/lib/portal';
 import { PageTitle } from '@/components/ui/PageTitle';
@@ -99,6 +100,7 @@ export default function AdminClientsPage() {
                 <th className="px-4 py-2.5 font-medium">สร้างเมื่อ</th>
                 <th className="px-4 py-2.5 font-medium">จัดการ</th>
                 <th className="px-4 py-2.5 font-medium">สิทธิ์เข้าถึง</th>
+                <th className="px-4 py-2.5 font-medium">การตรวจสอบ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -153,6 +155,16 @@ export default function AdminClientsPage() {
                       <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
                       ดูสิทธิ์
                     </button>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {/* กรองเครื่องมือตรวจสอบไว้ที่ลูกค้ารายนี้ให้เลย */}
+                    <Link
+                      to={`/admin/audit?actorId=${encodeURIComponent(row.id)}`}
+                      className="s2-btn s2-btn-ghost h-8 gap-1.5 px-2 text-[12px]"
+                    >
+                      <SearchCheck className="h-3.5 w-3.5" aria-hidden />
+                      ดูกิจกรรม
+                    </Link>
                   </td>
                 </tr>
               ))}

@@ -29,6 +29,7 @@ import AdminIntegrationsPage from '@/pages/admin/AdminIntegrationsPage';
 import AdminOwnershipPage from '@/pages/admin/AdminOwnershipPage';
 import AdminCategoriesPage from '@/pages/admin/AdminCategoriesPage';
 import AdminRetentionPage from '@/pages/admin/AdminRetentionPage';
+import AdminAuditPage from '@/pages/admin/AdminAuditPage';
 
 export default function App() {
   return (
@@ -77,6 +78,8 @@ export default function App() {
         <Route path="categories" element={<AdminCategoriesPage />} />
         <Route path="retention" element={<AdminRetentionPage />} />
         <Route path="activity" element={<AdminActivityPage />} />
+        {/* เครื่องมือของผู้ตรวจสอบ - ต่างจาก Activity Log ที่เป็นไทม์ไลน์อย่างเดียว */}
+        <Route path="audit" element={<AdminAuditPage />} />
         <Route path="storage" element={<AdminStoragePage />} />
         <Route path="backup" element={<AdminBackupPage />} />
         <Route path="integrations" element={<AdminIntegrationsPage />} />

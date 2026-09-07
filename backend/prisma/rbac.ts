@@ -17,6 +17,8 @@ export const PERMISSIONS = [
   ['system:settings:manage', 'จัดการค่าตั้งค่าการทำงานของระบบ'],
   ['system:backup:manage', 'สำรองและกู้คืนข้อมูลของระบบ'],
   ['system:retention:manage', 'จัดการนโยบายการเก็บรักษาและการระงับการลบ'],
+  ['system:audit:view', 'ดูบันทึกกิจกรรมเพื่อการตรวจสอบ'],
+  ['system:audit:export', 'ส่งออกบันทึกกิจกรรมเพื่อการตรวจสอบ'],
 ] as const;
 
 /**

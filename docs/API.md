@@ -244,3 +244,26 @@ HTTP status: `200` เมื่อ `ok` หรือ `degraded`, `503` เมื
 | `LAST_SUPER_ADMIN` | 409 | ต้องเหลือผู้ดูแลสูงสุดที่เปิดใช้งานอย่างน้อยหนึ่งคน |
 | `CANNOT_DISABLE_SELF` | 400 | ปิดบัญชีตัวเองไม่ได้ |
 | `INTERNAL_ERROR` | 500 | ข้อผิดพลาดภายในระบบ |
+
+## บันทึกการตรวจสอบ (F17)
+
+ทุกเส้นทางต้องเป็นบัญชีภายในที่มี `system:audit:view` (การส่งออกต้องมี `system:audit:export`)
+
+| Method | Path | หมายเหตุ |
+| --- | --- | --- |
+| GET | `/audit/catalog` | สารบัญเหตุการณ์ หมวดหมู่ ชุดสำเร็จรูป และสิทธิ์ของผู้เรียก |
+| GET | `/audit/events` | ค้นหา รองรับ cursor (`limit` 1-100 ค่าเริ่มต้น 50) |
+| GET | `/audit/events/:id` | รายละเอียดเหตุการณ์เดียว |
+| GET | `/audit/resources/:id` | ไทม์ไลน์ของทรัพยากร (คำสั่งค้นหาเดียวกับด้านบน) |
+| POST | `/audit/export` | ส่งออก CSV เขียนเหตุการณ์ `AUDIT_LOG_EXPORTED` |
+
+ตัวกรอง: `q`, `action`, `category`, `preset`, `actorId`, `actorType`, `resourceId`, `from`, `to`, `failuresOnly`
+
+| Code | HTTP | ความหมาย |
+| --- | --- | --- |
+| `AUDIT_DENIED` | 403 | ไม่มีสิทธิ์ดูบันทึกการตรวจสอบ |
+| `AUDIT_EXPORT_DENIED` | 403 | ไม่มีสิทธิ์ส่งออก |
+| `AUDIT_EXPORT_TOO_LARGE` | 413 | เกิน 50,000 แถว ต้องแคบตัวกรอง |
+| `AUDIT_EVENT_NOT_FOUND` | 404 | ไม่พบเหตุการณ์ |
+
+ดู [AUDIT_EXPLORER.md](AUDIT_EXPLORER.md) และ [AUDIT_EXPORT.md](AUDIT_EXPORT.md)

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { KeyRound, Pencil, Search, ShieldCheck, UserCheck, UserRoundCog, Users, UserX } from 'lucide-react';
+import { KeyRound, Pencil, Search, SearchCheck, ShieldCheck, UserCheck, UserRoundCog, Users, UserX } from 'lucide-react';
 import { Panel, PanelBody, PanelHeader } from '@/components/ui/Panel';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/States';
 import { PageTitle } from '@/components/ui/PageTitle';
@@ -224,6 +224,14 @@ export default function AdminUsersPage() {
                                 label="บทบาท"
                                 onClick={() => setDialog({ mode: 'roles', user: row })}
                               />
+                              {/* พาไปที่เครื่องมือตรวจสอบโดยกรองผู้ดำเนินการไว้ให้แล้ว */}
+                              <Link
+                                to={`/admin/audit?actorId=${encodeURIComponent(row.id)}`}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-[11.5px] text-navy-500 hover:bg-navy-50 hover:text-navy-800"
+                              >
+                                <SearchCheck className="h-3.5 w-3.5" aria-hidden />
+                                ดูกิจกรรม
+                              </Link>
                               <Link
                                 to="/admin/ownership"
                                 className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-[11.5px] text-navy-500 hover:bg-navy-50 hover:text-navy-800"

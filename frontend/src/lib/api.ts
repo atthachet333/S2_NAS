@@ -1104,3 +1104,67 @@ export const legalHoldApi = {
       body: JSON.stringify(input),
     }),
 };
+
+/* ---------------- F17 ---------------- */
+
+export interface AuditActorDto {
+  id: string | null;
+  displayName: string;
+  email: string | null;
+  type: 'INTERNAL' | 'EXTERNAL' | 'SERVICE' | 'SYSTEM' | 'INTEGRATION';
+}
+
+export interface AuditResourceDto {
+  id: string;
+  /** null เมื่อทรัพยากรถูกลบไปแล้ว */
+  name: string | null;
+  type: string | null;
+  deleted: boolean;
+}
+
+export interface AuditEventDto {
+  id: string;
+  createdAt: string;
+  /** รหัสดิบ - แสดงในรายละเอียดสำหรับผู้ดูแล ไม่ใช่ในตารางหลัก */
+  action: string;
+  label: string;
+  category: string;
+  tone: string;
+  actor: AuditActorDto;
+  resource: AuditResourceDto | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  /** ผ่านบัญชีอนุญาตของเหตุการณ์นั้นแล้ว ไม่ใช่ metadata ดิบ */
+  details: Record<string, string | number | boolean>;
+}
+
+export interface AuditPageDto {
+  items: AuditEventDto[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface AuditCatalogDto {
+  categories: Array<{ code: string; label: string }>;
+  events: Array<{ code: string; label: string; category: string }>;
+  presets: Array<{ slug: string; name: string; description: string }>;
+  canView: boolean;
+  canExport: boolean;
+}
+
+/**
+ * เครื่องมือตรวจสอบ
+ *
+ * อ่านอย่างเดียวทั้งหมด ยกเว้นการส่งออกซึ่งไม่แก้บันทึกเดิม
+ * แต่เพิ่มบันทึกใหม่ว่ามีการส่งออกเกิดขึ้น
+ */
+export const auditApi = {
+  catalog: () => apiFetch<Ok<AuditCatalogDto>>('/audit/catalog'),
+  events: (params: URLSearchParams) => apiFetch<Ok<AuditPageDto>>(`/audit/events?${params.toString()}`),
+  event: (id: string) => apiFetch<Ok<AuditEventDto>>(`/audit/events/${id}`),
+  /** ไทม์ไลน์ของทรัพยากรหนึ่งชิ้น */
+  resource: (resourceId: string, params: URLSearchParams) =>
+    apiFetch<Ok<AuditPageDto>>(`/audit/resources/${resourceId}?${params.toString()}`),
+  /** การส่งออกดึงเป็นไฟล์ จึงผ่าน authorizedFetch ไม่ใช่ apiFetch */
+  exportPath: '/api/audit/export',
+};
