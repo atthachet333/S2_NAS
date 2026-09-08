@@ -151,6 +151,50 @@ export const EVENT_CATALOG: Record<string, EventDefinition> = {
     tone: 'DANGER',
     failure: true,
   },
+  /* ---------------- Google Drive (F19) ---------------- */
+  GOOGLE_DRIVE_CONNECTED: {
+    category: 'INTEGRATION',
+    label: 'เชื่อมต่อ Google Drive',
+    tone: 'WARNING',
+  },
+  GOOGLE_DRIVE_DISCONNECTED: { category: 'INTEGRATION', label: 'ยกเลิกการเชื่อมต่อ Google Drive' },
+  GOOGLE_DRIVE_REAUTH_REQUIRED: {
+    category: 'INTEGRATION',
+    label: 'Google Drive ต้องเชื่อมต่อใหม่',
+    tone: 'DANGER',
+    failure: true,
+  },
+  GOOGLE_DRIVE_IMPORT_STARTED: { category: 'INTEGRATION', label: 'เริ่มนำเข้าจาก Google Drive' },
+  GOOGLE_DRIVE_IMPORTED: {
+    category: 'INTEGRATION',
+    label: 'นำเข้าจาก Google Drive สำเร็จ',
+    tone: 'SUCCESS',
+  },
+  GOOGLE_DRIVE_IMPORT_FAILED: {
+    category: 'INTEGRATION',
+    label: 'นำเข้าจาก Google Drive ไม่สำเร็จ',
+    tone: 'DANGER',
+    failure: true,
+  },
+  GOOGLE_DRIVE_SYNCED: { category: 'INTEGRATION', label: 'ซิงก์เวอร์ชันใหม่จาก Google Drive' },
+  GOOGLE_DRIVE_SYNC_FAILED: {
+    category: 'INTEGRATION',
+    label: 'ซิงก์จาก Google Drive ไม่สำเร็จ',
+    tone: 'DANGER',
+    failure: true,
+  },
+  GOOGLE_DRIVE_SYNC_DETACHED: {
+    category: 'INTEGRATION',
+    label: 'หยุดซิงก์จาก Google Drive',
+    tone: 'WARNING',
+  },
+  GOOGLE_DRIVE_SOURCE_MISSING: {
+    category: 'INTEGRATION',
+    label: 'ไฟล์ต้นทางใน Google Drive ไม่พบแล้ว',
+    tone: 'DANGER',
+    failure: true,
+  },
+
 
   /* ---------------- ลูกค้า ---------------- */
   EXTERNAL_FILE_UPLOADED: { category: 'CLIENT', label: 'ลูกค้าอัปโหลดไฟล์' },
@@ -313,6 +357,23 @@ export const AUDIT_PRESETS: AuditPreset[] = [
       'PUBLIC_SHARE_PASSWORD_FAILED',
       'PUBLIC_SHARE_EXPIRED_ACCESS_ATTEMPT',
       'PUBLIC_SHARE_LIMIT_REACHED',
+    ],
+  },
+  {
+    slug: 'google-drive',
+    name: 'Google Drive',
+    description: 'การเชื่อมต่อ การนำเข้า และการซิงก์กับ Google Drive',
+    actions: [
+      'GOOGLE_DRIVE_CONNECTED',
+      'GOOGLE_DRIVE_DISCONNECTED',
+      'GOOGLE_DRIVE_REAUTH_REQUIRED',
+      'GOOGLE_DRIVE_IMPORT_STARTED',
+      'GOOGLE_DRIVE_IMPORTED',
+      'GOOGLE_DRIVE_IMPORT_FAILED',
+      'GOOGLE_DRIVE_SYNCED',
+      'GOOGLE_DRIVE_SYNC_FAILED',
+      'GOOGLE_DRIVE_SYNC_DETACHED',
+      'GOOGLE_DRIVE_SOURCE_MISSING',
     ],
   },
   {

@@ -32,6 +32,8 @@ import AdminRetentionPage from '@/pages/admin/AdminRetentionPage';
 import AdminAuditPage from '@/pages/admin/AdminAuditPage';
 import GuestSharePage from '@/pages/guest/GuestSharePage';
 import AdminPublicSharesPage from '@/pages/admin/AdminPublicSharesPage';
+import SettingsIntegrationsPage from '@/pages/SettingsIntegrationsPage';
+import AdminGoogleDrivePage from '@/pages/admin/AdminGoogleDrivePage';
 
 export default function App() {
   return (
@@ -73,6 +75,8 @@ export default function App() {
         <Route path="/smart-views/:slug" element={<SmartViewPage />} />
         <Route path="/ocr-review" element={<OcrReviewPage />} />
         <Route path="/trash" element={<TrashPage />} />
+        {/* การเชื่อมต่อของผู้ใช้เอง - ไม่ต้องเป็นผู้ดูแลระบบ เพราะเป็นบัญชี Google ของเขาเอง */}
+        <Route path="/settings/integrations" element={<SettingsIntegrationsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
 
@@ -91,6 +95,7 @@ export default function App() {
         <Route path="audit" element={<AdminAuditPage />} />
         {/* ประตูที่เปิดสู่ภายนอก - ผู้ดูแลต้องเห็นทั้งหมดในที่เดียว */}
         <Route path="public-shares" element={<AdminPublicSharesPage />} />
+        <Route path="google-drive" element={<AdminGoogleDrivePage />} />
         <Route path="storage" element={<AdminStoragePage />} />
         <Route path="backup" element={<AdminBackupPage />} />
         <Route path="integrations" element={<AdminIntegrationsPage />} />

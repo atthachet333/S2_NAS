@@ -10,6 +10,9 @@ import {
 import { checkDatabase, disconnectDatabase } from './core/database.js';
 import { startTrashRetentionWorker } from './modules/files/trash-retention.js';
 import { startIndexWorker } from './modules/search/index.worker.js';
+import { initCredentialCipher } from './modules/integrations/integration-crypto.js';
+import { isDriveConfigured } from './modules/integrations/google-drive/google-api.js';
+import { startDriveSyncWorker } from './modules/integrations/google-drive/sync.worker.js';
 import { startBackupScheduler } from './modules/backup/schedule.service.js';
 import { backupOperator } from './modules/backup/operator.js';
 import { verifyBackupRoot } from './modules/backup/backup-root.js';
@@ -123,6 +126,39 @@ async function start(): Promise<void> {
     printLine('SEARCH', 'Content index', `${env.S2_NAS_EXTRACT_CONCURRENCY} worker · ทุก ${env.S2_NAS_EXTRACT_POLL_SECONDS}s`);
   }
 
+
+  /**
+   * การเชื่อมต่อ Google Drive (F19)
+   *
+   * ตรวจกุญแจเข้ารหัสตอนเริ่มระบบ ไม่ใช่ตอนที่ผู้ใช้กดเชื่อมต่อ
+   *
+   * กุญแจที่หายหรือผิดรูปแบบต้องปรากฏในบรรทัดเริ่มระบบ ไม่ใช่ปรากฏเป็นข้อผิดพลาด
+   * ให้ผู้ใช้คนแรกที่บังเอิญกดปุ่มในอีกสามสัปดาห์ข้างหน้า
+   *
+   * **ไม่สร้างกุญแจใหม่ให้อัตโนมัติ** กุญแจใหม่ทำให้ข้อมูลรับรองที่เข้ารหัสไว้เดิม
+   * อ่านไม่ออกทั้งหมด และระบบจะดูปกติดีจนกว่าจะถึงรอบซิงก์
+   */
+  const encryption = initCredentialCipher(env.S2_NAS_INTEGRATION_ENCRYPTION_KEY);
+  if (!isDriveConfigured()) {
+    printLine('DRIVE', 'Google Drive', 'NOT CONFIGURED', 'warn');
+  } else if (!encryption.ready) {
+    printLine('DRIVE', 'Google Drive', `DISABLED (${encryption.reason})`, 'warn');
+  } else {
+    printLine('DRIVE', 'Google Drive', 'READY');
+  }
+
+  const driveWorker =
+    env.DATABASE_URL && db.status === 'CONNECTED' ? startDriveSyncWorker() : null;
+  if (driveWorker) {
+    printLine(
+      'DRIVE',
+      'Drive sync',
+      `${env.S2_NAS_DRIVE_SYNC_CONCURRENCY} worker · ทุก ${env.S2_NAS_DRIVE_SYNC_POLL_SECONDS}s`,
+    );
+  } else {
+    printLine('DRIVE', 'Drive sync', 'DISABLED', 'warn');
+  }
+
   printBannerFooter('Backend ready');
 
   const shutdown = async (signal: string): Promise<void> => {
@@ -131,6 +167,7 @@ async function start(): Promise<void> {
       retention?.stop();
       scheduler?.stop();
       indexWorker?.stop();
+      driveWorker?.stop();
       await app.close();
       await disconnectDatabase();
     } finally {

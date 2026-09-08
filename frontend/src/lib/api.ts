@@ -1341,3 +1341,174 @@ export const guestShareApi = {
   downloadPath: (token: string, resourceId?: string) =>
     `/api/public/shares/${token}/download${resourceId ? `?resourceId=${encodeURIComponent(resourceId)}` : ''}`,
 };
+
+/* ------------------------------------------------------------------ */
+/* Google Drive (F19)                                                  */
+/* ------------------------------------------------------------------ */
+
+export type DriveConnectionState =
+  | 'ACTIVE'
+  | 'REAUTH_REQUIRED'
+  | 'CREDENTIAL_UNREADABLE'
+  | 'DISCONNECTED';
+
+/**
+ * การเชื่อมต่อในมุมมองของหน้าจอ
+ *
+ * ไม่มีฟิลด์ token ใด ๆ โดยตั้งใจ - เซิร์ฟเวอร์ไม่ส่งมาให้เลย
+ * หน้าจอรู้ได้แค่ว่าเชื่อมต่ออยู่กับบัญชีไหนและสถานะเป็นอย่างไร
+ */
+export interface DriveConnectionDto {
+  id: string;
+  googleAccountEmail: string;
+  state: DriveConnectionState;
+  connectedAt: string;
+  lastSuccessfulSyncAt: string | null;
+  lastErrorCode: string | null;
+  scope: string | null;
+  /** ซิงก์ระยะยาวได้หรือไม่ - ขึ้นกับว่ามี refresh token หรือเปล่า */
+  syncCapable: boolean;
+  syncCount: number;
+}
+
+export interface DriveStatusDto {
+  configured: boolean;
+  encryptionReady: boolean;
+  connection: DriveConnectionDto | null;
+}
+
+export type DriveEntryKind =
+  | 'FOLDER'
+  | 'BINARY'
+  | 'GOOGLE_DOC'
+  | 'GOOGLE_SHEET'
+  | 'GOOGLE_SLIDES'
+  | 'SHORTCUT'
+  | 'UNSUPPORTED';
+
+export interface DriveEntryDto {
+  id: string;
+  name: string;
+  kind: DriveEntryKind;
+  mimeType: string;
+  size: number | null;
+  modifiedTime: string | null;
+  webViewLink: string | null;
+}
+
+export interface DriveFilePageDto {
+  items: DriveEntryDto[];
+  nextPageToken: string | null;
+}
+
+export interface DriveImportItemDto {
+  googleFileId: string;
+  name: string;
+  outcome: 'IMPORTED' | 'SKIPPED' | 'FAILED';
+  resourceId?: string;
+  reason?: string;
+}
+
+export interface DriveImportSummaryDto {
+  imported: number;
+  skipped: number;
+  failed: number;
+  items: DriveImportItemDto[];
+}
+
+export type DriveSyncStatus =
+  | 'SYNCED'
+  | 'UPDATE_AVAILABLE'
+  | 'PAUSED_LIFECYCLE'
+  | 'PAUSED_LEGAL_HOLD'
+  | 'SOURCE_MISSING'
+  | 'ERROR'
+  | 'REAUTH_REQUIRED'
+  | 'DISCONNECTED'
+  | 'DETACHED';
+
+export interface ResourceSyncDto {
+  id: string;
+  status: DriveSyncStatus;
+  mode: string;
+  remoteName: string | null;
+  remoteWebUrl: string | null;
+  googleAccountEmail: string;
+  lastCheckedAt: string | null;
+  lastSyncedAt: string | null;
+  message: string | null;
+}
+
+export interface DriveCheckResultDto {
+  outcome: string;
+  status: DriveSyncStatus;
+  message: string;
+}
+
+export interface AdminDriveConnectionDto {
+  id: string;
+  googleAccountEmail: string;
+  state: DriveConnectionState;
+  connectedAt: string;
+  lastSuccessfulSyncAt: string | null;
+  lastErrorCode: string | null;
+  user: { id: string; displayName: string; email: string };
+  syncCount: number;
+}
+
+export interface AdminDriveOverviewDto {
+  configured: boolean;
+  encryptionReady: boolean;
+  pollSeconds: number;
+  failingSyncs: number;
+  connections: AdminDriveConnectionDto[];
+}
+
+export const googleDriveApi = {
+  status: () => apiFetch<Ok<DriveStatusDto>>('/integrations/google-drive/status'),
+
+  /** คืน URL ให้หน้าจอพาผู้ใช้ไปเอง - ไม่ใช่ redirect เพราะคำขอนี้มาจาก fetch */
+  connect: (forceConsent?: boolean) =>
+    apiFetch<Ok<{ url: string }>>('/integrations/google-drive/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(forceConsent === undefined ? {} : { forceConsent }),
+    }),
+
+  disconnect: (connectionId: string) =>
+    apiFetch<Ok<{ preservedResources: number }>>('/integrations/google-drive/disconnect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connectionId }),
+    }),
+
+  files: (params: URLSearchParams) =>
+    apiFetch<Ok<DriveFilePageDto>>(`/integrations/google-drive/files?${params.toString()}`),
+
+  import: (input: {
+    fileIds: string[];
+    destinationParentId: string | null;
+    mode: 'IMPORT_ONCE' | 'SYNCED';
+    driveScope?: 'MY_DRIVE' | 'SYSTEM_DRIVE';
+  }) =>
+    apiFetch<Ok<DriveImportSummaryDto>>('/integrations/google-drive/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+
+  resourceSync: (resourceId: string) =>
+    apiFetch<Ok<ResourceSyncDto | null>>(`/resources/${resourceId}/google-drive`),
+
+  checkSync: (resourceId: string) =>
+    apiFetch<Ok<DriveCheckResultDto>>(`/resources/${resourceId}/google-drive/check-sync`, {
+      method: 'POST',
+    }),
+
+  detach: (resourceId: string) =>
+    apiFetch<Ok<{ detached: true }>>(`/resources/${resourceId}/google-drive/detach`, {
+      method: 'POST',
+    }),
+
+  adminOverview: () => apiFetch<Ok<AdminDriveOverviewDto>>('/admin/integrations/google-drive'),
+};

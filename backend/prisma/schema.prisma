@@ -72,50 +72,51 @@ enum ResourceAccessLevel {
 }
 
 model User {
-  id                  String                   @id @default(cuid())
-  email               String                   @unique @db.VarChar(191)
-  displayName         String                   @db.VarChar(191)
-  passwordHash        String?                  @db.VarChar(191)
-  type                UserType                 @default(INTERNAL)
-  status              UserStatus               @default(INVITED)
-  mustChangePassword  Boolean                  @default(true)
-  tokenVersion        Int                      @default(0)
-  lastLoginAt         DateTime?
+  id                     String                   @id @default(cuid())
+  email                  String                   @unique @db.VarChar(191)
+  displayName            String                   @db.VarChar(191)
+  passwordHash           String?                  @db.VarChar(191)
+  type                   UserType                 @default(INTERNAL)
+  status                 UserStatus               @default(INVITED)
+  mustChangePassword     Boolean                  @default(true)
+  tokenVersion           Int                      @default(0)
+  lastLoginAt            DateTime?
   /// ชื่อบริษัท/หน่วยงานของผู้ใช้ภายนอก - ใช้แยกแยะลูกค้าในหน้าจัดการเท่านั้น
   /// ไม่ใช่ขอบเขตสิทธิ์ สิทธิ์มาจากการแชร์รายทรัพยากรเสมอ
-  organizationName    String?                  @db.VarChar(191)
-  createdAt           DateTime                 @default(now())
-  updatedAt           DateTime                 @updatedAt
-  roles               UserRole[]
-  refreshTokens       RefreshToken[]
-  activityLogs        ActivityLog[]
-  ownedResources      Resource[]               @relation("ResourceOwner")
-  createdResources    Resource[]               @relation("ResourceCreator")
-  updatedResources    Resource[]               @relation("ResourceUpdater")
-  deletedResources    Resource[]               @relation("ResourceDeleter")
-  lockedResources     Resource[]               @relation("ResourceLocker")
-  favorites           UserFavorite[]           @relation("UserFavorites")
-  pins                UserPinnedResource[]     @relation("UserPins")
-  createdTags         Tag[]                    @relation("TagCreator")
-  taggedResources     ResourceTag[]            @relation("ResourceTagCreator")
-  createdVersions     ResourceVersion[]        @relation("ResourceVersionCreator")
-  resourceAccess      ResourceAccess[]         @relation("ResourceAccessUser")
-  grantedAccess       ResourceAccess[]         @relation("ResourceAccessCreator")
-  integrationApp      IntegrationApp?          @relation("IntegrationActor")
-  triggeredBackups    BackupLog[]              @relation("BackupTrigger")
-  triggeredRehearsals RestoreRehearsalLog[]    @relation("RehearsalTrigger")
-  identities          UserIdentity[]           @relation("UserIdentities")
-  savedSearches       SavedSearch[]            @relation("SavedSearchOwner")
-  documentCategories  DocumentCategory[]       @relation("DocumentCategoryCreator")
-  reviewedIndexes     ResourceSearchIndex[]    @relation("OcrReviewer")
-  retentionPolicies   RetentionPolicy[]        @relation("RetentionPolicyCreator")
-  archivedResources   Resource[]               @relation("ResourceArchiver")
-  legalHoldsCreated   LegalHold[]              @relation("LegalHoldCreator")
-  legalHoldsReleased  LegalHold[]              @relation("LegalHoldReleaser")
-  publicSharesCreated PublicShareLink[]        @relation("PublicShareCreator")
-  publicSharesRevoked PublicShareLink[]        @relation("PublicShareRevoker")
-  textCorrections     ResourceTextCorrection[] @relation("TextCorrectionAuthor")
-  correctedIndexes    ResourceSearchIndex[]    @relation("TextCorrector")
+  organizationName       String?                  @db.VarChar(191)
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  roles                  UserRole[]
+  refreshTokens          RefreshToken[]
+  activityLogs           ActivityLog[]
+  ownedResources         Resource[]               @relation("ResourceOwner")
+  createdResources       Resource[]               @relation("ResourceCreator")
+  updatedResources       Resource[]               @relation("ResourceUpdater")
+  deletedResources       Resource[]               @relation("ResourceDeleter")
+  lockedResources        Resource[]               @relation("ResourceLocker")
+  favorites              UserFavorite[]           @relation("UserFavorites")
+  pins                   UserPinnedResource[]     @relation("UserPins")
+  createdTags            Tag[]                    @relation("TagCreator")
+  taggedResources        ResourceTag[]            @relation("ResourceTagCreator")
+  createdVersions        ResourceVersion[]        @relation("ResourceVersionCreator")
+  resourceAccess         ResourceAccess[]         @relation("ResourceAccessUser")
+  grantedAccess          ResourceAccess[]         @relation("ResourceAccessCreator")
+  integrationApp         IntegrationApp?          @relation("IntegrationActor")
+  triggeredBackups       BackupLog[]              @relation("BackupTrigger")
+  triggeredRehearsals    RestoreRehearsalLog[]    @relation("RehearsalTrigger")
+  identities             UserIdentity[]           @relation("UserIdentities")
+  savedSearches          SavedSearch[]            @relation("SavedSearchOwner")
+  documentCategories     DocumentCategory[]       @relation("DocumentCategoryCreator")
+  reviewedIndexes        ResourceSearchIndex[]    @relation("OcrReviewer")
+  retentionPolicies      RetentionPolicy[]        @relation("RetentionPolicyCreator")
+  archivedResources      Resource[]               @relation("ResourceArchiver")
+  legalHoldsCreated      LegalHold[]              @relation("LegalHoldCreator")
+  legalHoldsReleased     LegalHold[]              @relation("LegalHoldReleaser")
+  publicSharesCreated    PublicShareLink[]        @relation("PublicShareCreator")
+  publicSharesRevoked    PublicShareLink[]        @relation("PublicShareRevoker")
+  googleDriveConnections GoogleDriveConnection[]  @relation("GoogleDriveConnectionOwner")
+  textCorrections        ResourceTextCorrection[] @relation("TextCorrectionAuthor")
+  correctedIndexes       ResourceSearchIndex[]    @relation("TextCorrector")
 
   @@index([status])
   @@index([createdAt])
@@ -202,6 +203,7 @@ model Resource {
   legalHolds              LegalHold[]
   access                  ResourceAccess[]
   publicShareLinks        PublicShareLink[]
+  googleDriveSyncs        GoogleDriveSync[]
   versions                ResourceVersion[]
   tags                    ResourceTag[]
   favoritedBy             UserFavorite[]
@@ -1011,4 +1013,139 @@ model UserIdentity {
   @@unique([provider, userId])
   @@index([providerEmailNormalized])
   @@map("user_identities")
+}
+
+/// สถานะของการเชื่อมต่อ Google Drive
+enum GoogleDriveConnectionState {
+  ACTIVE
+  /// refresh token ใช้ไม่ได้แล้ว - ผู้ใช้ต้องกดเชื่อมต่อใหม่ ไฟล์ใน NAS ไม่ได้รับผลกระทบ
+  REAUTH_REQUIRED
+  /// ถอดรหัสข้อมูลรับรองไม่ได้ (กุญแจหายหรือเปลี่ยน) - ล้มแบบปิดประตู ไม่ใช่ลบข้อมูล
+  CREDENTIAL_UNREADABLE
+  /// ผู้ใช้ตัดการเชื่อมต่อเอง
+  DISCONNECTED
+}
+
+/// โหมดของการนำเข้าจาก Google Drive
+enum GoogleDriveSyncMode {
+  /// คัดลอกครั้งเดียว หลังจากนั้นสำเนาใน NAS เป็นอิสระจาก Google โดยสิ้นเชิง
+  IMPORT_ONCE
+  /// Google ยังเป็นต้นทาง การเปลี่ยนแปลงฝั่งนั้นจะกลายเป็นเวอร์ชันใหม่ใน NAS
+  SYNCED
+}
+
+/// เหตุที่การซิงก์หยุด - เก็บเป็นค่าเพราะผู้ใช้ต้องอ่านออกว่าทำไมไฟล์ถึงไม่อัปเดต
+enum GoogleDriveSyncIssue {
+  /// ไฟล์ต้นทางหายไปจาก Google - **ไม่ลบสำเนาใน NAS**
+  SOURCE_MISSING
+  /// บัญชีที่เชื่อมต่อไม่มีสิทธิ์อ่านไฟล์นั้นแล้ว
+  PERMISSION_LOST
+  /// ต้องเชื่อมต่อบัญชี Google ใหม่
+  AUTH_REQUIRED
+  /// ชนิดไฟล์ที่ส่งออกไม่ได้
+  UNSUPPORTED
+  /// ขัดข้องชั่วคราว - จะลองใหม่รอบถัดไป
+  TRANSIENT
+}
+
+/// การเชื่อมต่อบัญชี Google Drive ของผู้ใช้ภายในหนึ่งคน (F19)
+///
+/// **แยกจากการเข้าสู่ระบบด้วย Google โดยสิ้นเชิง** การเข้าสู่ระบบตอบว่า "คุณคือใคร"
+/// และไม่เก็บ token ไว้เลย ส่วนที่นี่ถือกุญแจที่อ่านไฟล์ทั้งหมดใน Drive ของผู้ใช้ได้
+/// เป็นเวลาหลายเดือน สองอย่างนี้จึงมีตาราง ขอบเขตสิทธิ์ และ OAuth client ของตัวเอง
+model GoogleDriveConnection {
+  id     String @id @default(cuid())
+  userId String
+
+  /// ตัวระบุถาวรของบัญชี Google - อีเมลเปลี่ยนได้ ค่านี้ไม่เปลี่ยน
+  ///
+  /// การผูกด้วยอีเมลอย่างเดียวทำให้เกิดกรณีที่ผู้ใช้เปลี่ยนอีเมลแล้วระบบคิดว่า
+  /// เป็นคนละบัญชี หรือแย่กว่านั้นคือมีคนได้อีเมลเดิมต่อแล้วรับช่วงการเชื่อมต่อไป
+  providerSubject    String @db.VarChar(191)
+  googleAccountEmail String @db.VarChar(191)
+
+  /// ข้อมูลรับรองเข้ารหัสด้วย AES-256-GCM เสมอ - ไม่มีเส้นทางใดเก็บเป็นข้อความธรรมดา
+  accessTokenEncrypted  String?   @db.Text
+  refreshTokenEncrypted String?   @db.Text
+  tokenExpiresAt        DateTime?
+
+  scope String? @db.VarChar(500)
+
+  state GoogleDriveConnectionState @default(ACTIVE)
+
+  connectedAt          DateTime  @default(now())
+  lastSuccessfulSyncAt DateTime?
+  lastErrorCode        String?   @db.VarChar(64)
+  revokedAt            DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User              @relation("GoogleDriveConnectionOwner", fields: [userId], references: [id], onDelete: Cascade)
+  syncs GoogleDriveSync[]
+
+  /// หนึ่งการเชื่อมต่อที่ยังใช้งานได้ต่อผู้ใช้หนึ่งคนในเฟสนี้
+  ///
+  /// ไม่ได้ใช้ unique บน userId เพียว ๆ เพราะการเชื่อมต่อที่ตัดไปแล้วยังต้องเก็บไว้
+  /// เพื่อการตรวจสอบ และเพื่อให้รองรับหลายบัญชีในอนาคตได้โดยไม่ต้องย้ายข้อมูล
+  @@unique([userId, providerSubject])
+  @@index([userId])
+  @@index([providerSubject])
+  @@index([state])
+  @@map("google_drive_connections")
+}
+
+/// การผูกทรัพยากรใน NAS หนึ่งชิ้นกับไฟล์ใน Google Drive หนึ่งไฟล์ (F19)
+model GoogleDriveSync {
+  id           String @id @default(cuid())
+  connectionId String
+  resourceId   String
+
+  /// ตัวระบุของ Google ซึ่งไม่เปลี่ยนแม้ไฟล์จะถูกเปลี่ยนชื่อหรือย้ายโฟลเดอร์
+  /// ห้ามใช้ชื่อหรือเส้นทางเป็นตัวระบุ เพราะทั้งคู่เปลี่ยนได้ตลอดเวลา
+  googleFileId String @db.VarChar(191)
+
+  mode GoogleDriveSyncMode @default(SYNCED)
+
+  /// ชื่อไฟล์ฝั่ง Google ล่าสุดที่เห็น - ใช้แสดงต้นทาง ไม่ใช่เพื่อเปลี่ยนชื่อใน NAS
+  remoteName     String? @db.VarChar(191)
+  remoteMimeType String? @db.VarChar(191)
+  remoteWebUrl   String? @db.Text
+
+  /// เบาะแสการเปลี่ยนแปลงฝั่ง Google - ใช้ตัดสินว่าควรดาวน์โหลดมาเทียบหรือไม่
+  lastRemoteModifiedTime DateTime?
+  lastRemoteVersion      String?   @db.VarChar(64)
+
+  lastCheckedAt DateTime?
+  lastSyncedAt  DateTime?
+
+  /// ลายนิ้วมือเนื้อหาของไฟล์ที่ส่งออกครั้งล่าสุด - ใช้ตัดสินว่าเนื้อหาเปลี่ยนจริงหรือไม่
+  ///
+  /// ต่างจาก ResourceVersion.checksum ซึ่งเป็น SHA-256 ของไบต์ที่เก็บจริงเสมอ
+  /// ค่านี้มองข้ามเปลือกของ ZIP (เวลา ลำดับ การบีบอัด) เพราะ Google ประทับเวลา
+  /// ที่ส่งออกลงในคอนเทนเนอร์ ทำให้ไบต์ต่างกันทั้งที่เอกสารไม่มีใครแก้
+  lastContentFingerprint String? @db.VarChar(191)
+
+  /// ปิดได้โดยไม่ลบแถว - ประวัติว่าเคยผูกกับไฟล์ไหนยังมีค่าต่อการตรวจสอบ
+  syncEnabled Boolean   @default(true)
+  /// ผู้ใช้กด "หยุดซิงก์" - ต่างจาก syncEnabled=false ชั่วคราวของระบบ
+  detachedAt  DateTime?
+
+  lastIssue     GoogleDriveSyncIssue?
+  lastErrorCode String?               @db.VarChar(64)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  connection GoogleDriveConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  resource   Resource              @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  /// ไฟล์ Google หนึ่งไฟล์ผูกกับทรัพยากรได้ครั้งเดียวต่อหนึ่งการเชื่อมต่อ
+  /// กันการนำเข้าซ้ำจนเกิดสองสำเนาที่ต่างคนต่างซิงก์แล้วแข่งกันเป็นเจ้าของความจริง
+  @@unique([connectionId, googleFileId])
+  @@index([resourceId])
+  @@index([connectionId])
+  /// ใช้โดยตัวทำงานเบื้องหลังเพื่อหยิบงานที่ถึงคิวตรวจ
+  @@index([syncEnabled, lastCheckedAt])
+  @@map("google_drive_syncs")
 }

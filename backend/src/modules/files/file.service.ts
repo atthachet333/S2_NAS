@@ -24,6 +24,7 @@ import { assertCanCreateInSystemDrive } from '../resources/system-drive.js';
 import { resolveMimeType, sanitizeFileName } from './file-security.js';
 import { enqueueExtraction } from '../search/search-index.service.js';
 import type { AuthUser } from '../auth/auth.service.js';
+import { assertNotGoogleSynced } from '../integrations/google-drive/sync.service.js';
 
 const ownerSelect = { id: true, displayName: true, email: true } as const;
 export type NameConflictPolicy = 'FAIL' | 'NEW_VERSION' | 'KEEP_BOTH';
@@ -330,13 +331,46 @@ export async function uploadVersion(
   user: AuthUser,
   resourceId: string,
   source: Readable,
-  input: { remark?: string | null; declaredMime?: string; integrationAppId?: string },
+  input: {
+    remark?: string | null;
+    declaredMime?: string;
+    integrationAppId?: string;
+    /**
+     * เนื้อหานี้มาจากการซิงก์ Google Drive เอง (F19)
+     *
+     * ด่านด้านล่างมีไว้กันคน **อัปโหลดทับ** ไฟล์ที่ Google เป็นต้นทาง
+     * ตัวการซิงก์เองคือฝ่ายที่ด่านนั้นปกป้องอยู่ จึงต้องผ่านได้
+     * ตั้งค่านี้ได้จาก modules/integrations/google-drive เท่านั้น
+     * เส้นทางของเบราว์เซอร์และ Integration API ไม่รับค่านี้จากผู้เรียก
+     */
+    fromGoogleSync?: boolean;
+    /**
+     * ไม่สร้างเวอร์ชันใหม่ถ้าเนื้อหาเหมือนเวอร์ชันปัจจุบันทุกไบต์ (F19)
+     *
+     * ใช้โดยการซิงก์จากต้นทางภายนอก ซึ่งบอกได้แค่ว่า "เมทาดาทาขยับ" ไม่ใช่
+     * "เนื้อหาเปลี่ยน" - Google ขยับ modifiedTime เมื่อมีคนเปลี่ยนชื่อหรือ
+     * ย้ายโฟลเดอร์ด้วย ถ้าสร้างเวอร์ชันทุกครั้ง ประวัติจะเต็มไปด้วยเวอร์ชัน
+     * ที่เนื้อหาเหมือนกันจนหาเวอร์ชันที่เปลี่ยนจริงไม่เจอ
+     *
+     * การอัปโหลดด้วยมือไม่ใช้ตัวเลือกนี้ - คนที่ตั้งใจอัปโหลดไฟล์เดิมซ้ำ
+     * อาจต้องการหมุดเวลาไว้ในประวัติ ซึ่งเป็นเจตนาที่ต่างออกไป
+     */
+    skipIfUnchanged?: boolean;
+  },
   audit: AuditContext,
 ): Promise<ReturnType<typeof toResourceDto>> {
   const resource = await loadResource(resourceId);
   if (resource.deletedAt) throw notFound('RESOURCE_NOT_FOUND', 'ไม่พบทรัพยากร');
   if (resource.type !== 'FILE') throw new AppError('INVALID_RESOURCE_TYPE', 'อัปโหลดเวอร์ชันได้เฉพาะไฟล์', 400);
   assertNotLocked(resource);
+  /**
+   * ทรัพยากรที่กำลังซิงก์จาก Google มีต้นทางเป็น Google อยู่แล้ว (F19)
+   *
+   * ถ้าปล่อยให้อัปโหลดทับได้ จะมีสองฝ่ายอ้างเป็นเจ้าของความจริงของเอกสารเดียวกัน
+   * แล้วรอบซิงก์ถัดไปจะทับงานที่คนเพิ่งอัปโหลดโดยไม่ถามใคร และเจ้าตัวจะไม่มีทาง
+   * รู้ว่างานหายไปตอนไหน ผู้ใช้ต้องเลือกอย่างชัดเจนว่าจะหยุดซิงก์ก่อน
+   */
+  if (!input.fromGoogleSync) await assertNotGoogleSynced(resourceId);
   if (!capabilities(resource, user).canUploadVersion) {
     throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์อัปโหลดเวอร์ชันใหม่ของไฟล์นี้', 403);
   }
@@ -348,6 +382,16 @@ export async function uploadVersion(
     const { createReadStream } = await import('node:fs');
     const head = await readHead(createReadStream(staged.tempPath, { start: 0, end: 63 }));
     const mime = resolveMimeType(head, resource.extension, input.declaredMime);
+
+    /**
+     * เนื้อหาเหมือนเวอร์ชันปัจจุบันทุกไบต์ - ไม่สร้างเวอร์ชันใหม่ (F19)
+     *
+     * เทียบกับ checksum ของทรัพยากรซึ่งสะท้อนเวอร์ชันปัจจุบันอยู่แล้ว
+     * ไฟล์ชั่วคราวถูกทิ้งใน finally ตามปกติ จึงไม่มีอะไรตกค้างบนดิสก์
+     */
+    if (input.skipIfUnchanged && resource.checksum === staged.checksum) {
+      return toResourceDto(resource, user);
+    }
 
     const dto = await addVersionFromStaged(
       user,

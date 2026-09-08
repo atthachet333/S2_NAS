@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Download, Eye, FileUp } from 'lucide-react';
-import { authorizedFetch, fileApi } from '@/lib/api';
+import { authorizedFetch, fileApi, googleDriveApi } from '@/lib/api';
 import { downloadResource } from '@/lib/download';
 import { isPreviewable } from '@/lib/file-types';
 import { useToast } from '@/hooks/useToast';
@@ -27,11 +27,20 @@ export function VersionList({ entry }: { entry: DriveEntry }) {
     queryKey: ['versions', entry.id],
     queryFn: () => fileApi.versions(entry.id),
   });
+  const sync = useQuery({
+    queryKey: ['drive-sync', entry.id],
+    queryFn: () => googleDriveApi.resourceSync(entry.id),
+    retry: false,
+  });
 
   if (isPending) return <TextSkeleton lines={5} />;
   if (isError) return <ErrorState message="โหลดประวัติเวอร์ชันไม่สำเร็จ" onRetry={() => void refetch()} />;
 
   const versions = data.data;
+  const syncStatus = sync.data?.data?.status;
+  const googleIsAuthoritative = Boolean(
+    syncStatus && syncStatus !== 'DETACHED' && syncStatus !== 'DISCONNECTED',
+  );
 
   /** เปิดเวอร์ชันเก่าในแท็บใหม่ผ่าน blob ที่ดึงมาแบบมีสิทธิ์ */
   const openVersion = async (versionNumber: number) => {
@@ -56,7 +65,12 @@ export function VersionList({ entry }: { entry: DriveEntry }) {
 
   return (
     <div className="space-y-3">
-      {entry.capabilities.canUploadVersion ? (
+      {entry.capabilities.canUploadVersion && sync.isPending ? null : entry.capabilities.canUploadVersion && googleIsAuthoritative ? (
+        <p className="rounded-xl border border-line bg-[var(--s2-surface-soft)] p-3 text-[11px] leading-relaxed text-navy-500">
+          Google Drive เป็นต้นทางของไฟล์นี้ หากต้องการอัปโหลดเวอร์ชันด้วยตนเอง ให้กด
+          “หยุดซิงก์” ก่อน
+        </p>
+      ) : entry.capabilities.canUploadVersion ? (
         <>
           <button
             type="button"

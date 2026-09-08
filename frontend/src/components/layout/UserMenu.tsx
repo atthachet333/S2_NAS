@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronDown, KeyRound, LogOut, Monitor, Moon, ShieldCheck, Sun, UserRound } from 'lucide-react';
+import { ChevronDown, KeyRound, Link2, LogOut, Monitor, Moon, ShieldCheck, Sun, UserRound } from 'lucide-react';
 import { MenuItem, MenuSeparator } from '@/components/ui/Menu';
 import { AnchoredMenu } from '@/components/ui/AnchoredMenu';
 import { useToast } from '@/hooks/useToast';
@@ -79,6 +79,15 @@ export function UserMenu() {
               window.dispatchEvent(new Event('s2-open-password-dialog'));
             }}
           />
+          <Link
+            to="/settings/integrations"
+            className="s2-menu-item"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+          >
+            <span className="shrink-0 text-navy-400"><Link2 className="h-4 w-4" /></span>
+            <span className="flex-1">การเชื่อมต่อภายนอก</span>
+          </Link>
 
           {/* สลับธีมบนจอเล็ก ซึ่งไม่มีปุ่มธีมบน header */}
           <div className="px-2.5 py-2 sm:hidden">

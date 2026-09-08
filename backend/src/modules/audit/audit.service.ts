@@ -414,6 +414,17 @@ const DETAIL_ALLOWLIST: Record<string, string[]> = {
   PUBLIC_SHARE_PASSWORD_FAILED: ['shareLinkId'],
   PUBLIC_SHARE_EXPIRED_ACCESS_ATTEMPT: ['shareLinkId', 'reason'],
   PUBLIC_SHARE_LIMIT_REACHED: ['shareLinkId', 'limit', 'maxDownloads'],
+  /* ---- Google Drive (F19): ตัวตนของการเชื่อมต่อและผลลัพธ์ ไม่มี token ใด ๆ ---- */
+  GOOGLE_DRIVE_CONNECTED: ['connectionId', 'reconnected', 'syncCapable'],
+  GOOGLE_DRIVE_DISCONNECTED: ['connectionId', 'pausedSyncs'],
+  GOOGLE_DRIVE_REAUTH_REQUIRED: ['connectionId', 'errorCode'],
+  GOOGLE_DRIVE_IMPORT_STARTED: ['connectionId', 'itemCount', 'mode'],
+  GOOGLE_DRIVE_IMPORTED: ['connectionId', 'googleFileId', 'mode', 'remoteMimeType', 'exported'],
+  GOOGLE_DRIVE_IMPORT_FAILED: ['connectionId', 'googleFileId', 'errorCode'],
+  GOOGLE_DRIVE_SYNCED: ['connectionId', 'googleFileId', 'versionNumber'],
+  GOOGLE_DRIVE_SYNC_FAILED: ['connectionId', 'googleFileId', 'issue', 'errorCode'],
+  GOOGLE_DRIVE_SYNC_DETACHED: ['connectionId', 'googleFileId'],
+  GOOGLE_DRIVE_SOURCE_MISSING: ['connectionId', 'googleFileId', 'issue', 'errorCode'],
   /* ---- สำรองและกู้คืน ---- */
   BACKUP_CREATED: ['backupId', 'fileCount', 'totalBytes', 'durationMs', 'trigger'],
   BACKUP_FAILED: ['backupId', 'errorCode'],

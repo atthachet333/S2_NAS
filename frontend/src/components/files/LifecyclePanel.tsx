@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, ArchiveRestore, Loader2, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { ApiError, archiveApi, legalHoldApi, retentionApi } from '@/lib/api';
+import { lifecycleInvalidationKeys } from '@/lib/lifecycle-invalidation';
 import type { DriveEntry } from '@/lib/drive';
 import { LIFECYCLE_LABELS, retentionBadge, thaiDate } from '@/lib/lifecycle';
 import { useAuth } from '@/hooks/useAuth';
@@ -66,10 +67,9 @@ export function LifecyclePanel({ entry }: { entry: DriveEntry }) {
   const activeHold = holds.data?.data.find((hold) => hold.isActive) ?? null;
 
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ['drive'] });
-    void queryClient.invalidateQueries({ queryKey: ['legal-holds'] });
-    void queryClient.invalidateQueries({ queryKey: ['search'] });
-    void queryClient.invalidateQueries({ queryKey: ['trash'] });
+    for (const queryKey of lifecycleInvalidationKeys(entry.id)) {
+      void queryClient.invalidateQueries({ queryKey });
+    }
   };
 
   const assign = useMutation({

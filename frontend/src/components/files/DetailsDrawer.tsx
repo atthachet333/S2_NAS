@@ -18,6 +18,7 @@ import { VersionList } from './VersionList';
 import { OcrPanel } from './OcrPanel';
 import { LifecyclePanel } from './LifecyclePanel';
 import { PublicShareDialog } from './PublicShareDialog';
+import { GoogleDrivePanel } from './GoogleDrivePanel';
 import { downloadResource } from '@/lib/download';
 import { isPreviewable } from '@/lib/file-types';
 import { useToast } from '@/hooks/useToast';
@@ -290,6 +291,8 @@ export function DetailsDrawer() {
             ) : tab === 'versions' ? (
               <div className="space-y-3">
                 {/* วงจรชีวิตอยู่คู่กับเวอร์ชัน เพราะทั้งคู่ตอบว่า "เอกสารนี้จะอยู่ต่อไปอย่างไร" */}
+                {/* ต้นทางภายนอกอยู่คู่กับวงจรชีวิต เพราะทั้งคู่ตอบว่าเนื้อหานี้มาจากไหนและจะอยู่ต่ออย่างไร */}
+                <GoogleDrivePanel resourceId={selected.id} />
                 <LifecyclePanel entry={selected} />
                 {/* OCR อยู่คู่กับเวอร์ชัน เพราะทั้งคู่เป็นเรื่องของ "เนื้อในไฟล์" */}
                 <OcrPanel entry={selected} />

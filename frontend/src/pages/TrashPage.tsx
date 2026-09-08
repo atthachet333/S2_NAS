@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, RotateCcw, Trash2, Clock } from 'lucide-react';
 import { ApiError, fileApi, type TrashEntryDto } from '@/lib/api';
 import { toDriveEntry } from '@/lib/drive';
+import { trashInvalidationKeys } from '@/lib/lifecycle-invalidation';
 import { uploadErrorText } from '@/lib/error-text';
 import { FileTypeIcon } from '@/components/files/FileTypeIcon';
 import { FolderPicker } from '@/components/files/FolderPicker';
@@ -24,10 +25,9 @@ export default function TrashPage() {
   const { data, isPending, isError, refetch } = useQuery({ queryKey: ['trash'], queryFn: fileApi.trash });
 
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ['trash'] });
-    void queryClient.invalidateQueries({ queryKey: ['drive'] });
-    void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
-    void queryClient.invalidateQueries({ queryKey: ['managed-storage'] });
+    for (const queryKey of trashInvalidationKeys()) {
+      void queryClient.invalidateQueries({ queryKey });
+    }
   };
 
   const restore = useMutation({

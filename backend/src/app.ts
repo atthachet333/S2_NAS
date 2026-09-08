@@ -23,6 +23,7 @@ import { governanceRoutes } from './modules/governance/governance.routes.js';
 import { auditRoutes } from './modules/audit/audit.routes.js';
 import { publicShareRoutes } from './modules/sharing/public-share.routes.js';
 import { adminShareRoutes } from './modules/sharing/admin-share.routes.js';
+import { googleDriveRoutes } from './modules/integrations/google-drive/google-drive.routes.js';
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js';
 import { fileRoutes } from './modules/files/file.routes.js';
 import { workspaceRoutes } from './modules/workspace/workspace.routes.js';
@@ -76,6 +77,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(auditRoutes);
       await api.register(publicShareRoutes);
       await api.register(adminShareRoutes);
+      await api.register(googleDriveRoutes);
     },
     { prefix: '/api' },
   );

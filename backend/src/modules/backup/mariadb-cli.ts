@@ -64,13 +64,14 @@ interface ExecuteResult {
   code: number;
   stdout: string;
   stderr: string;
+  stdoutTruncated: boolean;
 }
 
 function execute(
   file: string,
   args: string[],
   extraEnv: Record<string, string>,
-  options: { stdinFile?: string; stdoutFile?: string } = {},
+  options: { stdinFile?: string; stdoutFile?: string; stdoutLimitBytes?: number } = {},
 ): Promise<ExecuteResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, {
@@ -80,8 +81,11 @@ function execute(
     });
 
     let stdout = '';
+    let stdoutBytes = 0;
+    let stdoutTruncated = false;
     let stderr = '';
     let settled = false;
+    const stdoutLimitBytes = options.stdoutLimitBytes ?? 64_000;
 
     const fail = (error: Error): void => {
       if (settled) return;
@@ -95,8 +99,16 @@ function execute(
       sink.on('error', fail);
     } else {
       child.stdout.on('data', (chunk: Buffer) => {
-        // จำกัดขนาดที่เก็บไว้ในหน่วยความจำ เอาต์พุตจริงของ dump ถูกเขียนลงไฟล์เสมอ
-        if (stdout.length < 64_000) stdout += chunk.toString();
+        // จำกัดหน่วยความจำ แต่ห้ามตัดผลลัพธ์เงียบ ๆ เพราะผู้เรียกอาจนำข้อมูลไปกระทบยอด
+        const remaining = stdoutLimitBytes - stdoutBytes;
+        if (remaining <= 0) {
+          stdoutTruncated = true;
+          return;
+        }
+        const kept = chunk.subarray(0, remaining);
+        stdout += kept.toString();
+        stdoutBytes += kept.length;
+        if (kept.length < chunk.length) stdoutTruncated = true;
       });
     }
 
@@ -114,7 +126,7 @@ function execute(
     child.on('close', (code) => {
       if (settled) return;
       settled = true;
-      resolve({ code: code ?? -1, stdout, stderr });
+      resolve({ code: code ?? -1, stdout, stderr, stdoutTruncated });
     });
   });
 }
@@ -218,9 +230,19 @@ export async function runSql(target: DatabaseTarget, sql: string, database?: str
   if (database) args.push(database);
   args.push('-e', sql);
 
-  const result = await execute(binary('mariadb'), args, { MYSQL_PWD: target.password });
+  const result = await execute(binary('mariadb'), args, { MYSQL_PWD: target.password }, {
+    // การกระทบยอด restore อ่านทุก resource version; 64 KB ไม่พอเมื่อใช้งานจริงนานขึ้น
+    stdoutLimitBytes: 64 * 1024 * 1024,
+  });
   if (result.code !== 0) {
     throw new AppError('RESTORE_DATABASE_FAILED', safeDatabaseError(result.stderr), 500);
+  }
+  if (result.stdoutTruncated) {
+    throw new AppError(
+      'RESTORE_DATABASE_OUTPUT_TOO_LARGE',
+      'ผลลัพธ์จากฐานข้อมูลมีขนาดใหญ่เกินขีดจำกัดที่ปลอดภัย',
+      500,
+    );
   }
   return result.stdout;
 }

@@ -127,6 +127,31 @@ const schema = z.object({
   /** ความลับนี้ต้องอยู่ฝั่ง backend เท่านั้น ห้ามส่งออกไปที่เบราว์เซอร์ */
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
   GOOGLE_OAUTH_REDIRECT_URI: z.string().optional(),
+
+  /**
+   * OAuth client แยกสำหรับการเชื่อมต่อ Google Drive (F19)
+   *
+   * ตั้งใจไม่ถอยไปใช้ client ของการเข้าสู่ระบบเมื่อไม่ได้ตั้งค่า - สองอย่างนี้
+   * ขอสิทธิ์คนละระดับ ถ้าใช้ร่วมกัน หน้าจอยินยอมตอนล็อกอินจะขอสิทธิ์อ่าน Drive
+   * ไปด้วยทุกครั้ง ซึ่งผู้ใช้ไม่ได้ขอและไม่ควรต้องยอมรับเพื่อจะเข้าระบบ
+   */
+  GOOGLE_DRIVE_CLIENT_ID: z.string().optional(),
+  GOOGLE_DRIVE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_DRIVE_REDIRECT_URI: z.string().optional(),
+
+  /**
+   * กุญแจเข้ารหัสข้อมูลรับรองของการเชื่อมต่อภายนอก - base64 หรือ hex ที่ถอดแล้วได้ 32 ไบต์
+   *
+   * ถ้าไม่มี การเชื่อมต่อ Google Drive จะถูกปิดทั้งฟีเจอร์ แทนที่จะเก็บ token
+   * เป็นข้อความธรรมดา
+   */
+  S2_NAS_INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
+
+  /** รอบตรวจการเปลี่ยนแปลงฝั่ง Google - ค่าเริ่มต้น 15 นาที */
+  S2_NAS_DRIVE_SYNC_POLL_SECONDS: z.coerce.number().int().min(60).max(86400).default(900),
+  S2_NAS_DRIVE_SYNC_ENABLED: z.coerce.number().int().min(0).max(1).default(1),
+  /** จำนวนไฟล์ที่ดาวน์โหลดพร้อมกัน - มากเกินไปจะชนโควตาของ Google */
+  S2_NAS_DRIVE_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
   /** ที่อยู่ของหน้าเว็บ ใช้พาผู้ใช้กลับหลังจบขั้นตอนกับ Google */
   S2_NAS_APP_ORIGIN: z.string().default('http://localhost:8888'),
 

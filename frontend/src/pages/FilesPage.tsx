@@ -8,6 +8,8 @@ import { FileToolbar, type SortKey } from '@/components/files/FileToolbar';
 import { FolderHeader } from '@/components/files/FolderHeader';
 import { BulkMetadataDialog } from '@/components/files/BulkMetadataDialog';
 import { ResourceDialog, type ResourceDialogMode } from '@/components/files/ResourceDialog';
+import { resourceMutationInvalidationKeys } from '@/lib/lifecycle-invalidation';
+import { focusDecision } from '@/lib/focus-param';
 import { WorkspaceOnboarding } from '@/components/files/WorkspaceOnboarding';
 import { ApiError, fileApi, resourceApi } from '@/lib/api';
 import { useDriveUi } from '@/hooks/useDriveUi';
@@ -73,6 +75,8 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
   const folderPickerRef = useRef<HTMLInputElement>(null);
   const versionPickerRef = useRef<HTMLInputElement>(null);
   const versionTargetRef = useRef<DriveEntry | null>(null);
+  /** กัน query `focus` เดิมถูกประมวลผลซ้ำระหว่างที่ router กำลังลบพารามิเตอร์ออก */
+  const handledFocusRef = useRef<string | null>(null);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -195,10 +199,9 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
   const success = (message: string) => {
     setDialog(null);
     notify({ tone: 'success', title: message });
-    void queryClient.invalidateQueries({ queryKey: ['drive'] });
-    void queryClient.invalidateQueries({ queryKey: ['resource'] });
-    void queryClient.invalidateQueries({ queryKey: ['folder-picker'] });
-    void queryClient.invalidateQueries({ queryKey: ['admin-ownership'] });
+    for (const queryKey of resourceMutationInvalidationKeys()) {
+      void queryClient.invalidateQueries({ queryKey });
+    }
   };
 
   const folder = currentFolder?.data;
@@ -304,9 +307,25 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
 
   const focusId = searchParams.get('focus');
   useEffect(() => {
-    if (!focusId || entries.length === 0) return;
+    const decision = focusDecision({
+      focusId,
+      handledId: handledFocusRef.current,
+      entryIds: entries.map((entry) => entry.id),
+    });
+
+    // ไม่มีพารามิเตอร์แล้ว จึงลืมได้ - ถ้าผู้ใช้กดลิงก์เดิมซ้ำต้องทำงานอีกครั้ง
+    if (decision === 'IDLE') {
+      handledFocusRef.current = null;
+      return;
+    }
+    if (decision !== 'HANDLE') return;
+
     const match = entries.find((entry) => entry.id === focusId);
     if (!match) return;
+
+    // ทำเครื่องหมายก่อน setState หลายตัวด้านล่าง เพราะ navigation แบบ replace
+    // ไม่ได้เอา `focus` ออกจาก render ปัจจุบันทันที
+    handledFocusRef.current = focusId;
     select(match);
     openDetails('details');
     // ล้างพารามิเตอร์ทิ้ง เพื่อไม่ให้รีเฟรชหน้าแล้วเด้งกลับมาเลือกซ้ำอีก

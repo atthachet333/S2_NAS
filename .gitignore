@@ -14,3 +14,6 @@ Thumbs.db
 .vscode/
 .idea/
 coverage/
+
+# Local machine environment notes - never commit (contains live credentials)
+ค่า env ในเครื่องทำงาน.txt
