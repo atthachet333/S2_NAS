@@ -8,6 +8,7 @@ import { statStoredFile } from '../../../core/file-storage.js';
 import { resolveStorageKey } from '../../../core/storage-provider.js';
 import { cleanExtractedText, normalizeForSearch, truncateText } from '../extract/normalize.js';
 import { EXTRACTOR_VERSION } from '../extract/index.js';
+import { invalidateAndEnqueueSemantic } from '../../semantic/semantic-index.service.js';
 import {
   OcrError,
   ocrImageFileWithConfidence,
@@ -220,6 +221,7 @@ export async function runOcrJob(indexId: string): Promise<string> {
     where: { id: indexId },
     select: {
       id: true,
+      resourceVersionId: true,
       versionNumber: true,
       // การตรวจแก้ของมนุษย์ห้ามถูกผลรอบใหม่ของเครื่องเขียนทับ
       correctionRevision: true,
@@ -291,6 +293,7 @@ export async function runOcrJob(indexId: string): Promise<string> {
           ocrCompletedAt: new Date(),
         },
       });
+      await invalidateAndEnqueueSemantic(row.resourceVersionId);
       return 'NO_TEXT';
     }
 
@@ -331,6 +334,7 @@ export async function runOcrJob(indexId: string): Promise<string> {
     });
 
     logger.info(`[OCR] อ่านข้อความสำเร็จ (${result.pageCount} หน้า)`);
+    await invalidateAndEnqueueSemantic(row.resourceVersionId);
     return 'READY';
   } catch (error) {
     const code =

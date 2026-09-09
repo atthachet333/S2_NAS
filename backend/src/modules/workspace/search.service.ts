@@ -1,4 +1,4 @@
-import type { Prisma, ResourceSourceType, ResourceType, ResourceVisibility } from '@prisma/client';
+import type { Prisma, ResourceSourceType, ResourceType, ResourceVisibility, SearchMode } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
 import { badRequest, forbidden } from '../../core/errors.js';
 import { capabilities, resourceInclude, toResourceDto } from '../resources/resource.service.js';
@@ -21,6 +21,9 @@ import {
   type SearchFilters,
 } from '../search/search-filters.js';
 import type { AuthUser } from '../auth/auth.service.js';
+import { semanticCandidates, semanticSnippets, type SemanticCandidate } from '../semantic/vector-search.js';
+import { env } from '../../config/env.js';
+import { reciprocalRankFusion } from '../semantic/ranking.js';
 
 /**
  * การค้นหาทั่วทั้งพื้นที่ทำงาน
@@ -34,6 +37,8 @@ import type { AuthUser } from '../auth/auth.service.js';
 
 export interface SearchInput {
   q?: string;
+  /** API default stays lexical for backward compatibility; the Search UI explicitly sends HYBRID. */
+  mode?: SearchMode;
   type?: ResourceType;
   sourceType?: ResourceSourceType;
   ownerId?: string;
@@ -86,18 +91,6 @@ export async function searchResources(input: SearchInput, user: AuthUser) {
    */
   const contentIds = term ? await contentMatchResourceIds(term) : [];
 
-  if (term) {
-    const normalized = term.normalize('NFC').toLocaleLowerCase();
-    // ค้นจากชื่อและหมายเหตุ ไม่ค้นจาก storageKey เพราะเป็นข้อมูลภายในของเซิร์ฟเวอร์
-    filters.push({
-      OR: [
-        { normalizedName: { contains: normalized } },
-        { remark: { contains: term } },
-        { tags: { some: { tag: { normalizedName: { contains: normalized } } } } },
-        ...(contentIds.length > 0 ? [{ id: { in: contentIds } }] : []),
-      ],
-    });
-  }
   if (input.type) filters.push({ type: input.type });
   if (input.sourceType) filters.push({ sourceType: input.sourceType });
   if (input.ownerId) filters.push({ ownerId: input.ownerId });
@@ -164,6 +157,47 @@ export async function searchResources(input: SearchInput, user: AuthUser) {
     });
   }
 
+  const requestedMode = input.mode ?? 'LEXICAL';
+  let effectiveMode: SearchMode = requestedMode;
+  let fallbackReason: 'SEMANTIC_NOT_CONFIGURED' | 'SEMANTIC_ERROR' | null = null;
+  let semantic: SemanticCandidate[] = [];
+
+  if (term && requestedMode !== 'LEXICAL') {
+    if (env.S2_NAS_SEMANTIC_ENABLED !== 1) {
+      effectiveMode = 'LEXICAL';
+      fallbackReason = 'SEMANTIC_NOT_CONFIGURED';
+    } else {
+      try {
+        // Exact server-side authorization and filters are resolved before query embedding/vector search.
+        const allowed = await prisma.resource.findMany({
+          where: { AND: filters }, select: { id: true },
+        });
+        semantic = await semanticCandidates(term, allowed.map((row) => row.id));
+      } catch {
+        effectiveMode = 'LEXICAL';
+        fallbackReason = 'SEMANTIC_ERROR';
+      }
+    }
+  }
+
+  if (term) {
+    const normalized = term.normalize('NFC').toLocaleLowerCase();
+    const lexical: Prisma.ResourceWhereInput[] = [
+      { normalizedName: { contains: normalized } },
+      { remark: { contains: term } },
+      { tags: { some: { tag: { normalizedName: { contains: normalized } } } } },
+      ...(contentIds.length > 0 ? [{ id: { in: contentIds } } as Prisma.ResourceWhereInput] : []),
+    ];
+    const semanticIds = semantic.map((item) => item.resourceId);
+    // Exact/partial filename stays available in SEMANTIC mode and wins ranking below.
+    const match = effectiveMode === 'SEMANTIC'
+      ? [{ normalizedName: { contains: normalized } }, ...(semanticIds.length ? [{ id: { in: semanticIds } }] : [])]
+      : effectiveMode === 'HYBRID'
+        ? [...lexical, ...(semanticIds.length ? [{ id: { in: semanticIds } }] : [])]
+        : lexical;
+    filters.push({ OR: match as Prisma.ResourceWhereInput[] });
+  }
+
   const where: Prisma.ResourceWhereInput = { AND: filters };
 
   const rows = await prisma.resource.findMany({
@@ -174,11 +208,11 @@ export async function searchResources(input: SearchInput, user: AuthUser) {
      * เมื่อผู้ใช้เลือกการเรียงเอง ให้ใช้ของเขาแทน
      */
     orderBy: orderByFor(f.sort) as Prisma.ResourceOrderByWithRelationInput[],
-    take: input.limit + 1,
-    ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+    take: term && effectiveMode !== 'LEXICAL' ? env.S2_NAS_SEMANTIC_CANDIDATE_LIMIT + 1 : input.limit + 1,
+    ...(!term || effectiveMode === 'LEXICAL') && input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {},
   });
 
-  const page = rows.slice(0, input.limit);
+  const page = rows.slice(0, term && effectiveMode !== 'LEXICAL' ? env.S2_NAS_SEMANTIC_CANDIDATE_LIMIT : input.limit);
   // ตรวจสิทธิ์ซ้ำอีกชั้น กันกรณีเงื่อนไข WHERE กับ capabilities() หลุดจากกันในอนาคต
   const visible = page.filter((row) => capabilities(row, user).canView);
 
@@ -192,31 +226,67 @@ export async function searchResources(input: SearchInput, user: AuthUser) {
     term && snippetTargets.length > 0
       ? await snippetsFor(snippetTargets, term)
       : new Map<string, ContentSnippetInfo>();
+  const semanticSnippetMap = term && semantic.length > 0
+    ? await semanticSnippets(semantic, visible.map((row) => row.id))
+    : new Map<string, { snippet: string; textSource: SemanticCandidate['textSource'] }>();
+  const semanticById = new Map(semantic.map((candidate, index) => [candidate.resourceId, { ...candidate, rank: index + 1 }]));
 
   const items = visible.map((row) => {
     const tags = row.tags.map((link) => link.tag.name);
-    const reason: MatchReason | null = term
+    const semanticHit = semanticById.get(row.id);
+    const reason: MatchReason | 'SEMANTIC' | null = term
       ? matchReasonFor({ name: row.name, remark: row.remark, tags, term, hasContentMatch: contentSet.has(row.id) })
       : null;
+    const finalReason = reason ?? (semanticHit ? 'SEMANTIC' : null);
+    const semanticSnippet = semanticSnippetMap.get(row.id);
 
     return {
       ...toResourceDto(row, user),
       /** บอกผู้ใช้ว่าทำไมผลลัพธ์นี้ถึงขึ้นมา - การค้นหาที่อธิบายตัวเองได้คือการค้นหาที่เชื่อถือได้ */
-      matchReason: reason,
-      contentSnippet: reason === 'CONTENT' ? snippets.get(row.id)?.snippet ?? null : null,
+      matchReason: finalReason,
+      contentSnippet: reason === 'CONTENT'
+        ? snippets.get(row.id)?.snippet ?? null
+        : semanticHit ? semanticSnippet?.snippet ?? null : null,
       /** ที่มาของข้อความที่ตรงกัน - หน้าจอใช้บอกว่าผลนี้มาจากการอ่านภาพ */
-      textSource: reason === 'CONTENT' ? snippets.get(row.id)?.textSource ?? null : null,
+      textSource: reason === 'CONTENT'
+        ? snippets.get(row.id)?.textSource ?? null
+        : semanticHit ? semanticSnippet?.textSource ?? null : null,
       _rank: rankOf({ name: row.name, term, reason, textSource: snippets.get(row.id)?.textSource ?? null }),
+      _lexical: reason !== null,
+      _semanticRank: semanticHit?.rank ?? null,
     };
   });
 
   // เรียงตามความชัดเจนของการตรงกัน แล้วคงลำดับเดิมของฐานข้อมูลไว้ภายในกลุ่มเดียวกัน
-  if (term) items.sort((a, b) => a._rank - b._rank);
+  if (term) {
+    const normalized = term.normalize('NFC').toLocaleLowerCase();
+    const lexicalOrder = [...items].sort((a, b) => a._rank - b._rank);
+    const lexicalRank = new Map(lexicalOrder.map((item, index) => [item.id, index + 1]));
+    items.sort((a, b) => {
+      const exactA = a.name.normalize('NFC').toLocaleLowerCase() === normalized ? 1 : 0;
+      const exactB = b.name.normalize('NFC').toLocaleLowerCase() === normalized ? 1 : 0;
+      if (exactA !== exactB) return exactB - exactA;
+      const score = (item: typeof a) =>
+        reciprocalRankFusion({
+          lexicalRank: effectiveMode !== 'SEMANTIC' && item._lexical ? lexicalRank.get(item.id) : null,
+          semanticRank: effectiveMode !== 'LEXICAL' ? item._semanticRank : null,
+        });
+      return score(b) - score(a) || a._rank - b._rank;
+    });
+  }
+
+  const rankedPage = term && effectiveMode !== 'LEXICAL'
+    ? items.slice(input.cursor ? Math.max(0, items.findIndex((item) => item.id === input.cursor) + 1) : 0).slice(0, input.limit)
+    : items;
 
   return {
-    items: items.map(({ _rank, ...item }) => item),
-    nextCursor: rows.length > input.limit ? page[page.length - 1]?.id ?? null : null,
+    items: rankedPage.map(({ _rank, _lexical, _semanticRank, ...item }) => item),
+    nextCursor: (term && effectiveMode !== 'LEXICAL' ? items.length > rankedPage.length : rows.length > input.limit)
+      ? rankedPage.at(-1)?.id ?? null : null,
     total: await prisma.resource.count({ where }),
+    requestedMode,
+    effectiveMode,
+    fallbackReason,
   };
 }
 

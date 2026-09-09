@@ -13,6 +13,8 @@ import { startIndexWorker } from './modules/search/index.worker.js';
 import { initCredentialCipher } from './modules/integrations/integration-crypto.js';
 import { isDriveConfigured } from './modules/integrations/google-drive/google-api.js';
 import { startDriveSyncWorker } from './modules/integrations/google-drive/sync.worker.js';
+import { startSemanticWorker } from './modules/semantic/semantic.worker.js';
+import { semanticDiagnostics } from './modules/semantic/semantic-index.service.js';
 import { startBackupScheduler } from './modules/backup/schedule.service.js';
 import { backupOperator } from './modules/backup/operator.js';
 import { verifyBackupRoot } from './modules/backup/backup-root.js';
@@ -126,6 +128,14 @@ async function start(): Promise<void> {
     printLine('SEARCH', 'Content index', `${env.S2_NAS_EXTRACT_CONCURRENCY} worker · ทุก ${env.S2_NAS_EXTRACT_POLL_SECONDS}s`);
   }
 
+  const semantic = env.DATABASE_URL && db.status === 'CONNECTED' ? await semanticDiagnostics() : null;
+  const semanticWorker = semantic?.health === 'READY' ? startSemanticWorker() : null;
+  if (!semantic || semantic.health !== 'READY') {
+    printLine('SEARCH', 'Semantic index', semantic?.health ?? 'NOT_CONFIGURED', 'warn');
+  } else {
+    printLine('SEARCH', 'Semantic index', `${env.S2_NAS_SEMANTIC_CONCURRENCY} worker · offline ONNX`);
+  }
+
 
   /**
    * การเชื่อมต่อ Google Drive (F19)
@@ -167,6 +177,7 @@ async function start(): Promise<void> {
       retention?.stop();
       scheduler?.stop();
       indexWorker?.stop();
+      semanticWorker?.stop();
       driveWorker?.stop();
       await app.close();
       await disconnectDatabase();

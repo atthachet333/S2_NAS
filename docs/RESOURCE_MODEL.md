@@ -1,5 +1,10 @@
 # RESOURCE MODEL
 
+## Semantic derived index (F20)
+
+`Resource`/`ResourceVersion` เป็น business truth เช่นเดิม `SemanticDocumentIndex` และ `SemanticChunk` เป็น cache
+ที่ลบ/rebuild ได้ ผูก version และ cascade เมื่อ resource ถูกลบ ดู [SEMANTIC_INDEXING.md](./SEMANTIC_INDEXING.md)
+
 ## External resources (F2)
 
 `GOOGLE_SHEET`, `GOOGLE_DOC`, `GOOGLE_DRIVE`, and `WEB_LINK` use the same `Resource` hierarchy as files and folders. Their URL is stored in `externalUrl`, while `externalProvider` is normalized by the server. They have no physical file or size and keep the same S2 NAS identity through URL edits, moves, trash, and restore. See [EXTERNAL_RESOURCES.md](./EXTERNAL_RESOURCES.md).

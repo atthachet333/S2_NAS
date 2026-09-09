@@ -24,13 +24,14 @@ const message = (error: unknown, fallback: string) =>
 
 interface Props {
   query: string;
+  searchMode: 'LEXICAL' | 'SEMANTIC' | 'HYBRID';
   filters: SearchFilters;
   /** เรียกเมื่อผู้ใช้เลือกชุดค้นหา - หน้าค้นหาจะเขียนค่าลง URL เอง */
-  onApply: (query: string, filters: SearchFilters) => void;
+  onApply: (query: string, filters: SearchFilters, searchMode: 'LEXICAL' | 'SEMANTIC' | 'HYBRID') => void;
   onApplySmartView: (slug: string) => void;
 }
 
-export function SavedSearchMenu({ query, filters, onApply, onApplySmartView }: Props) {
+export function SavedSearchMenu({ query, searchMode, filters, onApply, onApplySmartView }: Props) {
   const queryClient = useQueryClient();
   const { notify } = useToast();
   const [open, setOpen] = useState<'saved' | 'smart' | null>(null);
@@ -49,7 +50,7 @@ export function SavedSearchMenu({ query, filters, onApply, onApplySmartView }: P
 
   const create = useMutation({
     mutationFn: () =>
-      savedSearchApi.create({ name: name.trim(), query, filters: filters as Record<string, unknown> }),
+      savedSearchApi.create({ name: name.trim(), query, searchMode, filters: filters as Record<string, unknown> }),
     onSuccess: () => {
       setNaming(false);
       setName('');
@@ -80,7 +81,7 @@ export function SavedSearchMenu({ query, filters, onApply, onApplySmartView }: P
 
   const apply = (item: SavedSearchDto) => {
     setOpen(null);
-    onApply(item.query, item.filters as SearchFilters);
+    onApply(item.query, item.filters as SearchFilters, item.searchMode);
   };
 
   return (

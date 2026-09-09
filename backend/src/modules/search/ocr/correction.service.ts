@@ -22,6 +22,7 @@ import { prisma } from '../../../core/prisma.js';
 import { env } from '../../../config/env.js';
 import { getResource } from '../../resources/resource.service.js';
 import { normalizeForSearch, truncateText } from '../extract/normalize.js';
+import { invalidateAndEnqueueSemantic } from '../../semantic/semantic-index.service.js';
 
 /** ข้อความที่คนแก้แล้วเชื่อถือได้กว่าผลดิบ จึงเป็นที่มาคนละชั้นกัน */
 const HUMAN = 'HUMAN_CORRECTED' as const;
@@ -62,6 +63,7 @@ async function currentIndexOf(resourceId: string) {
     where: { resourceId, versionNumber: resource.currentVersion },
     select: {
       id: true,
+      resourceVersionId: true,
       status: true,
       textSource: true,
       extractedText: true,
@@ -229,6 +231,8 @@ export async function saveCorrection(
     );
   }
 
+  await invalidateAndEnqueueSemantic(index.resourceVersionId);
+
   return {
     correctionRevision: nextRevision,
     characterCount: text.length,
@@ -284,6 +288,8 @@ export async function resetCorrection(
       reviewedAt: new Date(),
     },
   });
+
+  await invalidateAndEnqueueSemantic(index.resourceVersionId);
 
   return { reset: true };
 }

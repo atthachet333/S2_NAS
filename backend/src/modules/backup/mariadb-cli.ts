@@ -176,6 +176,9 @@ export async function dumpDatabase(target: DatabaseTarget, outputFile: string): 
     '--default-character-set=utf8mb4',
     // ไม่ล็อกตารางทั้งหมด และไม่พึ่ง RELOAD ที่บัญชีของแอปไม่มี
     '--skip-lock-tables',
+    // F20 embeddings are rebuildable derived data. Keep table definitions, omit rows.
+    `--ignore-table-data=${target.database}.semantic_document_indexes`,
+    `--ignore-table-data=${target.database}.semantic_chunks`,
     /**
      * ห้ามใช้ --databases เด็ดขาด
      *

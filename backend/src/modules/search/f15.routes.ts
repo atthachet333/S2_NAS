@@ -57,6 +57,7 @@ export async function f15Routes(app: FastifyInstance): Promise<void> {
       .object({
         name: z.string().min(1).max(100),
         query: z.string().max(191).optional(),
+        searchMode: z.enum(['LEXICAL', 'SEMANTIC', 'HYBRID']).optional(),
         filters: searchFiltersSchema.optional(),
       })
       .strict()
@@ -80,6 +81,7 @@ export async function f15Routes(app: FastifyInstance): Promise<void> {
       .object({
         name: z.string().min(1).max(100).optional(),
         query: z.string().max(191).optional(),
+        searchMode: z.enum(['LEXICAL', 'SEMANTIC', 'HYBRID']).optional(),
         filters: searchFiltersSchema.optional(),
       })
       .strict()
@@ -87,11 +89,12 @@ export async function f15Routes(app: FastifyInstance): Promise<void> {
       .parse(request.body);
 
     if (input.name !== undefined) await renameSavedSearch(id, request.authUser!, input.name);
-    if (input.query !== undefined || input.filters !== undefined) {
+    if (input.query !== undefined || input.filters !== undefined || input.searchMode !== undefined) {
       return {
         success: true,
         data: await updateSavedSearch(id, request.authUser!, {
           query: input.query,
+          searchMode: input.searchMode,
           filters: input.filters,
         }),
       };

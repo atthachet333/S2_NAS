@@ -58,6 +58,59 @@ const schema = z.object({
   /** 0 = ปิดการสกัดข้อความทั้งหมด (ระบบยังทำงานได้ครบ เพียงแต่ค้นจากเนื้อในไม่ได้) */
   S2_NAS_EXTRACT_ENABLED: z.coerce.number().int().min(0).max(1).default(1),
 
+  /* ---- การค้นหาเชิงความหมายด้วยโมเดลในเครื่อง (F20) ---- */
+
+  /** 0 = ปิด semantic search; lexical search และระบบหลักยังทำงานตามปกติ */
+  S2_NAS_SEMANTIC_ENABLED: z.coerce.number().int().min(0).max(1).default(0),
+  /**
+   * โฟลเดอร์โมเดลที่ provision ไว้แล้ว โมเดลไม่มีสิทธิ์ดาวน์โหลดไฟล์ตอน runtime
+   * ค่าปริยายอยู่ใน backend/models และถูก ignore จาก Git
+   */
+  S2_NAS_EMBEDDING_MODEL_PATH: z.string().min(1).default('./models/semantic/paraphrase-multilingual-minilm-l12-v2'),
+  /** semantic worker ตั้งใจทำทีละงานเพื่อไม่แย่ง CPU/RAM จาก upload, extract และ OCR */
+  S2_NAS_SEMANTIC_CONCURRENCY: z.coerce.number().int().min(1).max(2).default(1),
+  S2_NAS_SEMANTIC_POLL_SECONDS: z.coerce.number().int().min(5).max(3600).default(30),
+  /** เพดานป้องกันเอกสารผิดปกติ; การตัดจะถูกแสดงในสถานะดัชนี */
+  S2_NAS_SEMANTIC_MAX_TEXT_CHARS: z.coerce.number().int().min(1000).default(400_000),
+  S2_NAS_SEMANTIC_MAX_CHUNKS: z.coerce.number().int().min(1).max(4096).default(256),
+  S2_NAS_SEMANTIC_CHUNK_TOKENS: z.coerce.number().int().min(64).max(480).default(448),
+  S2_NAS_SEMANTIC_OVERLAP_TOKENS: z.coerce.number().int().min(0).max(128).default(64),
+  S2_NAS_SEMANTIC_JOB_TIMEOUT_SECONDS: z.coerce.number().int().min(10).max(1800).default(180),
+  /**
+   * เพดานงานที่รอคิวอนุมานได้พร้อมกัน
+   *
+   * คิวที่ไม่มีขอบเขตจะกลืนงานค้างไว้เงียบ ๆ จนหน่วยความจำหมด การปฏิเสธ
+   * อย่างชัดเจนทำให้ผู้เรียกรู้ตัวและถอยได้
+   */
+  /**
+   * จำนวน chunk ต่อหนึ่งครั้งที่ส่งเข้าโมเดลระหว่างทำดัชนี
+   *
+   * ค่านี้กำหนด "ช่วงรอที่แย่ที่สุด" ของคำค้นผู้ใช้โดยตรง เพราะงานที่กำลังรันอยู่
+   * จะไม่ถูกตัดกลางคัน คำค้นจึงรออย่างมากหนึ่งแบตช์
+   *
+   * วัดบนเครื่องจริง: แบตช์ 8 ทำให้คำค้นรอ ~2.4 วินาที, แบตช์ 4 ~1.2 วินาที
+   * ขณะที่กำลังการผลิตของงานเบื้องหลังต่างกันเพียงเล็กน้อย
+   */
+  S2_NAS_SEMANTIC_EMBED_BATCH: z.coerce.number().int().min(1).max(64).default(4),
+  S2_NAS_SEMANTIC_QUEUE_LIMIT: z.coerce.number().int().min(4).max(1024).default(64),
+  S2_NAS_SEMANTIC_CANDIDATE_LIMIT: z.coerce.number().int().min(20).max(1000).default(200),
+  /**
+   * cosine similarity ขั้นต่ำก่อนผล semantic จะเข้าสู่การจัดอันดับ
+   *
+   * ค่านี้ผูกกับโมเดล ไม่ใช่ค่าสากล - ตระกูล E5 ให้คะแนนอัดแน่นในช่วงสูง
+   * ส่วนโมเดล paraphrase แบบสมมาตรกระจายคะแนนกว้างกว่ามาก
+   *
+   * วัดจากคลังเอกสารธุรกิจจริง (19 คำค้นที่ควรเจอ + 5 คำค้นที่ไม่ควรเจออะไรเลย):
+   *   คำค้นที่ควรเจอ   คะแนนสูงสุด ต่ำสุด 0.4887  มัธยฐาน 0.6944
+   *   คำค้นที่ไม่ควรเจอ คะแนนสูงสุด สูงสุด 0.3055  มัธยฐาน 0.0912
+   * 0.40 อยู่กึ่งกลางช่องว่างนั้นพอดี เหลือระยะกันชนราว 0.09 ทั้งสองด้าน
+   *
+   * เลือกใช้เกณฑ์คะแนนสัมบูรณ์อย่างเดียว ไม่ใช้กฎ "คะแนนตกจากอันดับหนึ่ง"
+   * เพราะข้อมูลจริงบอกว่าระยะห่างอันดับ 1-2 ของคำค้นที่ควรเจอต่ำสุดคือ 0.0298
+   * ซึ่งทับกับของคำค้นที่ไม่ควรเจอ (สูงสุด ~0.0155) - กฎนั้นจะตัดผลที่ถูกต้องทิ้ง
+   */
+  S2_NAS_SEMANTIC_MIN_SCORE: z.coerce.number().min(-1).max(1).default(0.4),
+
   /* ---- OCR สำหรับเอกสารสแกน (F13) ---- */
 
   /**
@@ -204,6 +257,10 @@ const storageRoot = path.isAbsolute(raw.S2_NAS_STORAGE_ROOT)
   ? path.normalize(raw.S2_NAS_STORAGE_ROOT)
   : path.resolve(BACKEND_ROOT, raw.S2_NAS_STORAGE_ROOT);
 
+const embeddingModelPath = path.isAbsolute(raw.S2_NAS_EMBEDDING_MODEL_PATH)
+  ? path.normalize(raw.S2_NAS_EMBEDDING_MODEL_PATH)
+  : path.resolve(BACKEND_ROOT, raw.S2_NAS_EMBEDDING_MODEL_PATH);
+
 /** รากของชุดสำรอง resolve เป็น absolute path แล้ว (ใช้ภายใน backend เท่านั้น) */
 const backupRoot = path.isAbsolute(raw.S2_NAS_BACKUP_ROOT)
   ? path.normalize(raw.S2_NAS_BACKUP_ROOT)
@@ -274,6 +331,7 @@ export const env = {
   RESTORE_STAGE_ROOT: restoreStageRoot,
   OFFSITE_BACKUP_ROOT: offsiteRoot,
   REHEARSAL_STAGE_ROOT: rehearsalStageRoot,
+  EMBEDDING_MODEL_PATH: embeddingModelPath,
   MAX_UPLOAD_SIZE_BYTES: raw.S2_NAS_MAX_UPLOAD_BYTES ?? raw.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
   isProduction: raw.NODE_ENV === 'production',
   isDevelopment: raw.NODE_ENV === 'development',

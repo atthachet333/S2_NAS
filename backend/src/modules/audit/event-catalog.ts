@@ -206,6 +206,10 @@ export const EVENT_CATALOG: Record<string, EventDefinition> = {
   OCR_CORRECTION_CREATED: { category: 'OCR', label: 'ตรวจแก้ข้อความ OCR ครั้งแรก' },
   OCR_CORRECTION_UPDATED: { category: 'OCR', label: 'แก้ไขข้อความ OCR' },
   OCR_CORRECTION_RESET: { category: 'OCR', label: 'ย้อนกลับไปใช้ผล OCR เดิม' },
+  SEMANTIC_INDEX_QUEUED: { category: 'OCR', label: 'นำเอกสารเข้าคิวค้นหาตามความหมาย' },
+  SEMANTIC_INDEX_READY: { category: 'OCR', label: 'ดัชนีค้นหาตามความหมายพร้อมใช้งาน', tone: 'SUCCESS' },
+  SEMANTIC_INDEX_FAILED: { category: 'OCR', label: 'สร้างดัชนีค้นหาตามความหมายไม่สำเร็จ', tone: 'DANGER', failure: true },
+  SEMANTIC_REINDEX_STARTED: { category: 'SYSTEM', label: 'เริ่มทำดัชนีค้นหาตามความหมายใหม่', tone: 'WARNING' },
 
   /* ---------------- การเก็บรักษาและคลัง ---------------- */
   RETENTION_POLICY_ASSIGNED: { category: 'GOVERNANCE', label: 'กำหนดนโยบายการเก็บรักษา' },

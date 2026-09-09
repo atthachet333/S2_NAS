@@ -1,5 +1,8 @@
 # DISASTER RECOVERY
 
+| Semantic model weights | **No** | operations (explicit provisioning) |
+| Semantic vector rows | **No — rebuildable cache** | `semantic:reindex` after restore |
+
 What it takes to bring S2 NAS back, and what the backup system does *not* cover.
 
 ## Responsibility split

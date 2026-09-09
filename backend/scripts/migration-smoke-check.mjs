@@ -7,12 +7,13 @@ import "dotenv/config";
 
 const sourceUrl = process.env.DATABASE_URL;
 const suppliedSmokeUrl = process.env.MIGRATION_SMOKE_DATABASE_URL;
-const adminUrl = process.env.MIGRATION_SMOKE_ADMIN_URL;
+const adminUrl = process.env.MIGRATION_SMOKE_ADMIN_URL ??
+  (process.env.MIGRATION_SMOKE_USE_SOURCE_AS_ADMIN === 'true' ? sourceUrl : undefined);
 if (!sourceUrl) throw new Error("DATABASE_URL is required");
 
 const databaseName = suppliedSmokeUrl
   ? new URL(suppliedSmokeUrl).pathname.slice(1)
-  : `s2_nas_migration_smoke_${crypto.randomBytes(6).toString("hex")}`;
+  : `test_s2_nas_migration_smoke_${crypto.randomBytes(6).toString("hex")}`;
 const disposableUrl = suppliedSmokeUrl ? new URL(suppliedSmokeUrl) : new URL(sourceUrl);
 disposableUrl.pathname = `/${databaseName}`;
 
@@ -94,7 +95,22 @@ try {
     "prisma/schema.prisma",
     "--exit-code",
   ]);
-  if (diff.status !== 0) throw new Error("Schema drift detected");
+  /** Prisma cannot express MariaDB VECTOR INDEX on an Unsupported column. */
+  const normalizedDiff = `${diff.stdout ?? ''}\n${diff.stderr ?? ''}`
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const onlyManagedVectorIndex = diff.status === 2 &&
+    normalizedDiff.some((line) => line.includes('Changed the `semantic_chunks` table')) &&
+    normalizedDiff.some((line) => line.includes('Removed index on columns (embedding)')) &&
+    normalizedDiff.filter((line) => line.startsWith('[+]') || line.startsWith('[-]')).length === 1;
+  if (onlyManagedVectorIndex) {
+    process.exitCode = 0;
+    console.log('Drift check: only the migration-managed MariaDB VECTOR INDEX is outside Prisma datamodel support.');
+  } else if (diff.status !== 0) {
+    throw new Error("Schema drift detected");
+  }
 
   console.log(`Migration smoke check passed for disposable database ${databaseName}.`);
 } finally {

@@ -10,7 +10,7 @@
  * เป็นของส่วนตัวของแต่ละคนใน F15 - ชื่อที่คนตั้งให้ชุดค้นหามักบอกใบ้เนื้องาน
  * ที่เขากำลังทำอยู่ ซึ่งไม่จำเป็นต้องให้คนทั้งองค์กรเห็น
  */
-import type { Prisma } from '@prisma/client';
+import type { Prisma, SearchMode } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
 import { AppError, notFound } from '../../core/errors.js';
 import { searchFiltersSchema, type SearchFilters } from './search-filters.js';
@@ -20,6 +20,7 @@ export interface SavedSearchDto {
   id: string;
   name: string;
   query: string;
+  searchMode: SearchMode;
   filters: SearchFilters;
   lastUsedAt: Date | null;
   createdAt: Date;
@@ -38,6 +39,7 @@ function toDto(row: {
   id: string;
   name: string;
   query: string;
+  searchMode: SearchMode;
   filters: Prisma.JsonValue;
   lastUsedAt: Date | null;
   createdAt: Date;
@@ -48,6 +50,7 @@ function toDto(row: {
     id: row.id,
     name: row.name,
     query: row.query,
+    searchMode: row.searchMode,
     filters: parsed.success ? parsed.data : {},
     lastUsedAt: row.lastUsedAt,
     createdAt: row.createdAt,
@@ -59,6 +62,7 @@ const select = {
   id: true,
   name: true,
   query: true,
+  searchMode: true,
   filters: true,
   lastUsedAt: true,
   createdAt: true,
@@ -98,6 +102,7 @@ export async function getSavedSearch(id: string, user: AuthUser): Promise<SavedS
 export interface SaveSearchInput {
   name: string;
   query?: string;
+  searchMode?: SearchMode;
   filters?: SearchFilters;
 }
 
@@ -123,6 +128,7 @@ export async function createSavedSearch(
         userId: user.id,
         name,
         query: (input.query ?? '').slice(0, 191),
+        searchMode: input.searchMode ?? 'LEXICAL',
         filters: (input.filters ?? {}) as Prisma.InputJsonValue,
       },
       select,
@@ -159,12 +165,13 @@ export async function renameSavedSearch(
 export async function updateSavedSearch(
   id: string,
   user: AuthUser,
-  input: { query?: string; filters?: SearchFilters },
+  input: { query?: string; filters?: SearchFilters; searchMode?: SearchMode },
 ): Promise<SavedSearchDto> {
   const result = await prisma.savedSearch.updateMany({
     where: { id, userId: user.id },
     data: {
       ...(input.query !== undefined ? { query: input.query.slice(0, 191) } : {}),
+      ...(input.searchMode !== undefined ? { searchMode: input.searchMode } : {}),
       ...(input.filters !== undefined ? { filters: input.filters as Prisma.InputJsonValue } : {}),
     },
   });

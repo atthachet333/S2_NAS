@@ -9,6 +9,9 @@ logs/*
 !logs/.gitkeep
 backend/storage/**
 !backend/storage/.gitkeep
+# Local semantic model weights are provisioned per machine and never committed.
+backend/models/semantic/**
+!backend/models/semantic/.gitkeep
 .DS_Store
 Thumbs.db
 .vscode/

@@ -1,5 +1,8 @@
 # RESTORE
 
+หลัง restore semantic tables อาจว่างโดยตั้งใจ ให้เปิดระบบด้วย lexical search ก่อน ตรวจ model health แล้วใช้
+`npm run semantic:reindex` และ worker rebuild จาก current `ResourceSearchIndex` ห้ามถือ vectors เป็นหลักฐานต้นฉบับ
+
 Restore is far more dangerous than backup: it overwrites data that is still in use. F5 therefore stops at **"staged and proven"**. There is no one-click production cutover, and nothing in the UI or API writes to the live system.
 
 ## Staged restore

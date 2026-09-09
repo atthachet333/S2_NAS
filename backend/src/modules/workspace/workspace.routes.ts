@@ -173,6 +173,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     const query = z
       .object({
         q: z.string().max(191).optional(),
+        mode: z.enum(['LEXICAL', 'SEMANTIC', 'HYBRID']).optional(),
         type: z.enum(['FOLDER', 'FILE']).optional(),
         sourceType: z
           .enum(['MANUAL', 'GOOGLE', 'S2_PAYROLL', 'S2_ERP', 'S2_LINE_BOT', 'EXTERNAL_UPLOAD', 'SYSTEM'])

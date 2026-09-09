@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { BRAND } from '../../config/branding.js';
 import { checkDatabase } from '../../core/database.js';
 import { verifyStorage } from '../../core/storage.js';
+import { semanticDiagnostics } from '../semantic/semantic-index.service.js';
 
 /**
  * GET /api/health
@@ -36,11 +37,17 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
 
     const status = healthy ? 'ok' : degraded ? 'degraded' : 'error';
 
+    // Semantic search is optional. Its state is visible but never makes core health fail.
+    const semantic = database === 'connected'
+      ? await semanticDiagnostics().catch(() => ({ health: 'ERROR' as const }))
+      : { health: 'NOT_CONFIGURED' as const };
+
     reply.status(healthy || degraded ? 200 : 503).send({
       status,
       service: BRAND.service,
       database,
       storage: storageState,
+      semanticSearch: semantic.health,
       uptime: Math.round(process.uptime()),
       timestamp: new Date().toISOString(),
     });

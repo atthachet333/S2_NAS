@@ -20,6 +20,7 @@ import {
   requestOcr,
   retryFailedOcr,
 } from '../search/ocr/ocr.service.js';
+import { reindexAllSemantic, retryFailedSemantic, semanticDiagnostics } from '../semantic/semantic-index.service.js';
 
 /** สิทธิ์เฉพาะสำหรับแก้ค่าการทำงานของระบบ - แยกจาก admin:access โดยตั้งใจ */
 export const MANAGE_SETTINGS_PERMISSION = 'system:settings:manage';
@@ -136,6 +137,23 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
   app.post('/admin/ocr/retry-failed', { preHandler: requirePermission(MANAGE_SETTINGS_PERMISSION) }, async () => ({
     success: true,
     data: { queued: await retryFailedOcr() },
+  }));
+
+  /* ---------------- Semantic search (local-only) ---------------- */
+
+  app.get('/admin/semantic-search', { preHandler: requirePermission(MANAGE_SETTINGS_PERMISSION) }, async () => ({
+    success: true,
+    data: await semanticDiagnostics(),
+  }));
+
+  app.post('/admin/semantic-search/reindex-all', { preHandler: requirePermission(MANAGE_SETTINGS_PERMISSION) }, async () => ({
+    success: true,
+    data: { queued: await reindexAllSemantic() },
+  }));
+
+  app.post('/admin/semantic-search/retry-failed', { preHandler: requirePermission(MANAGE_SETTINGS_PERMISSION) }, async () => ({
+    success: true,
+    data: { queued: await retryFailedSemantic() },
   }));
 
   app.get('/admin/settings', { preHandler: requirePermission(MANAGE_SETTINGS_PERMISSION) }, async () => ({

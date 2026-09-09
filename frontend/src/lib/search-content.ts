@@ -9,13 +9,14 @@
  * ไม่ใช่ด้วยการแทรกแท็กเข้าไปในสตริง
  */
 
-export type MatchReason = 'NAME' | 'TAG' | 'REMARK' | 'CONTENT';
+export type MatchReason = 'NAME' | 'TAG' | 'REMARK' | 'CONTENT' | 'SEMANTIC';
 
 export const MATCH_REASON_LABEL: Record<MatchReason, string> = {
   NAME: 'ตรงกับชื่อไฟล์',
   TAG: 'ตรงกับแท็ก',
   REMARK: 'ตรงกับหมายเหตุ',
   CONTENT: 'ตรงกับเนื้อหาเอกสาร',
+  SEMANTIC: 'เนื้อหามีความหมายใกล้เคียง',
 };
 
 export function matchReasonLabel(reason: string | null | undefined): string | null {

@@ -92,6 +92,7 @@ export interface HealthResponse {
   service: string;
   database: 'connected' | 'disconnected' | 'not_configured';
   storage: 'ready' | 'read_only' | 'unavailable';
+  semanticSearch: 'READY' | 'NOT_CONFIGURED' | 'ERROR';
   uptime: number;
   timestamp: string;
 }
@@ -140,6 +141,25 @@ export const systemSettingsApi = {
     }),
   reset: (key: string) =>
     apiFetch<{ success: true; data: SettingView[] }>(`/admin/settings/${key}`, { method: 'DELETE' }),
+};
+
+export interface SemanticDiagnosticsDto {
+  health: 'READY' | 'NOT_CONFIGURED' | 'ERROR';
+  enabled: boolean;
+  counts: { PENDING: number; PROCESSING: number; READY: number; FAILED: number };
+  chunks: number;
+  oldestPendingAt: string | null;
+  lastReconciledAt: string | null;
+  model: {
+    provider: 'local-onnx'; modelId: string; revision: string; modelVersion: string;
+    dimensions: number; dtype: string; offlineRuntime: true;
+  };
+}
+
+export const semanticAdminApi = {
+  status: () => apiFetch<{ success: true; data: SemanticDiagnosticsDto }>('/admin/semantic-search'),
+  reindex: () => apiFetch<{ success: true; data: { queued: number } }>('/admin/semantic-search/reindex-all', { method: 'POST' }),
+  retryFailed: () => apiFetch<{ success: true; data: { queued: number } }>('/admin/semantic-search/retry-failed', { method: 'POST' }),
 };
 
 /** งานสำรอง/กู้คืน - เฉพาะผู้ที่มีสิทธิ์ system:backup:manage */
@@ -590,6 +610,7 @@ export interface SavedSearchDto {
   id: string;
   name: string;
   query: string;
+  searchMode: 'LEXICAL' | 'SEMANTIC' | 'HYBRID';
   /** ตัวกรองในรูปเดียวกับที่อยู่บน URL */
   filters: Record<string, string | boolean>;
   lastUsedAt: string | null;
@@ -663,6 +684,9 @@ export interface SearchResultDto {
   items: SearchHitDto[];
   nextCursor: string | null;
   total: number;
+  requestedMode: 'LEXICAL' | 'SEMANTIC' | 'HYBRID';
+  effectiveMode: 'LEXICAL' | 'SEMANTIC' | 'HYBRID';
+  fallbackReason: 'SEMANTIC_NOT_CONFIGURED' | 'SEMANTIC_ERROR' | null;
 }
 
 export interface SearchFacetsDto {
@@ -926,9 +950,9 @@ export const portalApi = {
 export const savedSearchApi = {
   list: () => apiFetch<Ok<SavedSearchDto[]>>('/saved-searches'),
   get: (id: string) => apiFetch<Ok<SavedSearchDto>>(`/saved-searches/${id}`),
-  create: (input: { name: string; query?: string; filters?: Record<string, unknown> }) =>
+  create: (input: { name: string; query?: string; searchMode?: 'LEXICAL' | 'SEMANTIC' | 'HYBRID'; filters?: Record<string, unknown> }) =>
     apiFetch<Ok<SavedSearchDto>>('/saved-searches', { method: 'POST', body: JSON.stringify(input) }),
-  update: (id: string, input: { name?: string; query?: string; filters?: Record<string, unknown> }) =>
+  update: (id: string, input: { name?: string; query?: string; searchMode?: 'LEXICAL' | 'SEMANTIC' | 'HYBRID'; filters?: Record<string, unknown> }) =>
     apiFetch<Ok<SavedSearchDto>>(`/saved-searches/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
   remove: (id: string) =>
     apiFetch<Ok<{ deleted: boolean }>>(`/saved-searches/${id}`, { method: 'DELETE' }),

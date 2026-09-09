@@ -1,5 +1,8 @@
 # ชุดค้นหาที่บันทึกไว้
 
+F20 เก็บ `searchMode` (`LEXICAL`/`SEMANTIC`/`HYBRID`) แยกจาก filters ชุดเดิมทั้งหมดถูก migrate เป็น
+`LEXICAL` เพื่อคงผลลัพธ์เดิม ส่วนชุดใหม่บันทึกโหมดที่ผู้ใช้เลือกบนหน้า Search
+
 > ตัวกรองทั้งหมดอยู่ใน [ADVANCED_SEARCH.md](ADVANCED_SEARCH.md)
 
 ## ทำไมต้องมี

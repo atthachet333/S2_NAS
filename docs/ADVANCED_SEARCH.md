@@ -1,5 +1,8 @@
 # การค้นหาขั้นสูง
 
+ตัวกรองทุกตัวใช้กับ `LEXICAL`, `SEMANTIC` และ `HYBRID` เหมือนกัน Backend ประเมินสิทธิ์และตัวกรองก่อน
+semantic retrieval หน้า Search ส่ง `lifecycleState=ACTIVE` โดยปริยาย; ต้องเลือก “เก็บเข้าคลัง” จึงค้น archive
+
 > ชุดค้นหาที่บันทึกไว้อยู่ใน [SAVED_SEARCH.md](SAVED_SEARCH.md)
 > มุมมองสำเร็จรูปอยู่ใน [SMART_VIEWS.md](SMART_VIEWS.md)
 

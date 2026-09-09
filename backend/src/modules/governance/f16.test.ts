@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { after, before, describe, test } from 'node:test';
 import { prisma } from '../../core/prisma.js';
+import { removeResourceDirectory } from '../../core/file-storage.js';
 import { AppError } from '../../core/errors.js';
 import { createFolder } from '../resources/resource.service.js';
 import { uploadFile } from '../files/file.service.js';
@@ -144,8 +145,15 @@ describe('F16 การกำกับดูแลวงจรชีวิตเ
     for (let pass = 0; pass < 6; pass += 1) {
       const left = await prisma.resource.findMany({ where: { id: { in: all } }, select: { id: true } });
       if (left.length === 0) break;
-      await prisma.resource.deleteMany({ where: { parentId: { not: null }, id: { in: all } } });
-      await prisma.resource.deleteMany({ where: { parentId: null, id: { in: all } } });
+      const leftIds = left.map((row) => row.id);
+      const parents = await prisma.resource.findMany({
+        where: { parentId: { in: leftIds } },
+        select: { parentId: true },
+      });
+      const hasChildren = new Set(parents.map((row) => row.parentId));
+      const leaves = leftIds.filter((id) => !hasChildren.has(id));
+      if (leaves.length === 0) break;
+      await prisma.resource.deleteMany({ where: { id: { in: leaves } } });
     }
     await prisma.documentCategory.deleteMany({ where: { createdById: adminId } });
 
@@ -171,6 +179,50 @@ describe('F16 การกำกับดูแลวงจรชีวิตเ
         data: { defaultRetentionPolicyId: null },
       });
       await prisma.retentionPolicy.deleteMany({ where: { id: { in: policyIds } } });
+    }
+
+
+    /**
+     * กวาดเก็บด้วยคำนำหน้าของรอบทดสอบนี้เป็นด่านสุดท้าย
+     *
+     * รายการที่ไล่ตามจาก `created` พลาดได้เมื่อมีทรัพยากรถูกสร้างในเส้นทางที่ไม่ได้
+     * บันทึก id ไว้ และการลบเฉพาะแถวในฐานข้อมูลก็ยังทิ้งไฟล์ไว้ในที่จัดเก็บ
+     * ไฟล์ที่ค้างจะถูกนับเป็น orphan ตอนซ้อมกู้คืน แล้วทำให้ชุดทดสอบอื่นล้ม
+     * ทั้งที่ระบบสำรองข้อมูลไม่ได้มีอะไรผิด
+     *
+     * คำนำหน้ามีเวลาของรอบทดสอบอยู่ด้วย จึงชี้เฉพาะของรอบนี้ ไม่แตะข้อมูลจริง
+     */
+    const strays = await prisma.resource.findMany({
+      where: { name: { startsWith: prefix } },
+      select: { id: true },
+    });
+    const strayIds = strays.map((row) => row.id);
+    if (strayIds.length > 0) {
+      await prisma.legalHold.deleteMany({ where: { resourceId: { in: strayIds } } });
+      await prisma.activityLog.deleteMany({ where: { resourceId: { in: strayIds } } });
+      await prisma.resourceSearchIndex.deleteMany({ where: { resourceId: { in: strayIds } } });
+      await prisma.resourceVersion.deleteMany({ where: { resourceId: { in: strayIds } } });
+      await prisma.resource.updateMany({
+        where: { id: { in: strayIds } },
+        data: { retentionPolicyId: null, documentCategoryId: null },
+      });
+      let remaining = [...strayIds];
+      for (let pass = 0; pass < 8 && remaining.length > 0; pass += 1) {
+        const parents = new Set(
+          (await prisma.resource.findMany({
+            where: { parentId: { in: remaining } },
+            select: { parentId: true },
+          })).map((row) => row.parentId),
+        );
+        const leaves = remaining.filter((id) => !parents.has(id));
+        if (leaves.length === 0) break;
+        await prisma.resource.deleteMany({ where: { id: { in: leaves } } });
+        remaining = remaining.filter((id) => !leaves.includes(id));
+      }
+    }
+    // ไฟล์ในที่จัดเก็บต้องหายไปพร้อมแถว ไม่งั้นจะกลายเป็น orphan ของชุดสำรอง
+    for (const id of new Set([...all, ...strayIds])) {
+      await removeResourceDirectory(id).catch(() => undefined);
     }
 
     await prisma.user.deleteMany({ where: { id: { in: [adminId, staffId, outsiderId] } } });

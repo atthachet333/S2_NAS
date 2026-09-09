@@ -1,5 +1,10 @@
 # SECURITY
 
+## Semantic search
+
+โมเดล ONNX ทำงาน local-only และ API กรอง authorization ก่อนคืน candidate/snippet ไม่มี endpoint คืน vector
+ไม่มี semantic สำหรับ external portal หรือ public guest ดู [SEMANTIC_SEARCH_SECURITY.md](SEMANTIC_SEARCH_SECURITY.md)
+
 ## การเข้าถึงไฟล์
 
 - ห้าม serve storage เป็น static public directory

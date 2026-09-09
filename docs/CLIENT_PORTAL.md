@@ -1,5 +1,10 @@
 # พื้นที่เอกสารสำหรับลูกค้า (Client Portal)
 
+## F20 semantic decision
+
+Portal ยังคงใช้ lexical content search ภายใน recursive grants เดิม F20 ไม่เพิ่ม semantic route ให้บัญชี EXTERNAL
+เพราะการคง cross-client subtree isolation สำคัญกว่าการทำซ้ำ permission logic; public guest ก็ไม่มี semantic search
+
 เฟส F10 เพิ่มบัญชีผู้ใช้งานภายนอกและพื้นที่ `/portal` ให้ลูกค้าเข้าถึงเฉพาะเอกสารที่บริษัทแชร์ให้เท่านั้น
 
 ## หลักการที่ทั้งเฟสนี้ยึด

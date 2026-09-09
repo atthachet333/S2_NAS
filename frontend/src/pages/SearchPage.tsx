@@ -41,6 +41,7 @@ export default function SearchPage() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const term = params.get('q') ?? '';
+  const mode = (params.get('mode') ?? 'HYBRID') as 'LEXICAL' | 'SEMANTIC' | 'HYBRID';
 
   const queryString = useMemo(() => {
     const next = new URLSearchParams();
@@ -49,8 +50,10 @@ export default function SearchPage() {
       if (value) next.set(key, value);
     }
     next.set('limit', '100');
+    next.set('mode', mode);
+    if (!next.has('lifecycleState')) next.set('lifecycleState', 'ACTIVE');
     return next;
-  }, [params]);
+  }, [params, mode]);
 
   const hasCriteria = FILTER_KEYS.some((key) => params.get(key));
 
@@ -116,8 +119,10 @@ export default function SearchPage() {
   };
 
   /** เปิดชุดค้นหาที่บันทึกไว้ - เขียนทั้งคำค้นและตัวกรองลง URL ในครั้งเดียว */
-  const applySaved = (savedQuery: string, savedFilters: SearchFilters) => {
-    setParams(paramsFromFilters(savedQuery, savedFilters), { replace: false });
+  const applySaved = (savedQuery: string, savedFilters: SearchFilters, savedMode: 'LEXICAL' | 'SEMANTIC' | 'HYBRID') => {
+    const next = paramsFromFilters(savedQuery, savedFilters);
+    next.set('mode', savedMode);
+    setParams(next, { replace: false });
   };
 
 
@@ -154,6 +159,19 @@ export default function SearchPage() {
         </form>
 
         <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-[12px] text-navy-500">
+            <span>วิธีค้นหา</span>
+            <select
+              value={mode}
+              onChange={(event) => setFilter('mode', event.target.value)}
+              className="s2-input h-8 w-auto py-0 text-[12px]"
+              aria-label="วิธีค้นหา"
+            >
+              <option value="HYBRID">ผสมคำและความหมาย</option>
+              <option value="LEXICAL">ตรงตามคำ</option>
+              <option value="SEMANTIC">ความหมายใกล้เคียง</option>
+            </select>
+          </label>
           <button
             type="button"
             onClick={() => setAdvancedOpen((open) => !open)}
@@ -166,6 +184,7 @@ export default function SearchPage() {
 
           <SavedSearchMenu
             query={term}
+            searchMode={mode}
             filters={filters}
             onApply={applySaved}
             onApplySmartView={(slug) => navigate(`/smart-views/${slug}`)}
@@ -211,6 +230,11 @@ export default function SearchPage() {
 
       {hasCriteria ? (
         <>
+          {results.data?.data.fallbackReason ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800" role="status">
+              การค้นหาความหมายยังไม่พร้อม ระบบจึงใช้การค้นหาแบบตรงตามคำให้โดยอัตโนมัติ
+            </p>
+          ) : null}
           {!results.isPending && !results.isError ? (
             <p className="text-[12px] text-navy-400">
               พบ {results.data?.data.total ?? 0} รายการที่คุณเข้าถึงได้
@@ -231,7 +255,9 @@ export default function SearchPage() {
               <EmptyState
                 icon={<Search className="h-6 w-6" aria-hidden />}
                 title="ไม่พบรายการที่ตรงกับเงื่อนไข"
-                description="ลองใช้คำค้นที่สั้นลง หรือล้างตัวกรองบางอย่างออก"
+                description={mode === 'SEMANTIC' && term
+                  ? 'ไม่พบเอกสารที่มีความหมายใกล้เคียงกับคำค้นนี้'
+                  : 'ลองใช้คำค้นที่สั้นลง หรือล้างตัวกรองบางอย่างออก'}
               />
             }
           />
@@ -273,13 +299,13 @@ export default function SearchPage() {
  * ไม่มีการแทรก HTML จากเนื้อหาที่ผู้ใช้อัปโหลดเข้ามาที่ใดเลย
  */
 function ContentMatches({ hits, term }: { hits: SearchHitDto[]; term: string }) {
-  const matches = hits.filter((hit) => hit.matchReason === 'CONTENT' && hit.contentSnippet);
+  const matches = hits.filter((hit) => (hit.matchReason === 'CONTENT' || hit.matchReason === 'SEMANTIC') && hit.contentSnippet);
   if (matches.length === 0) return null;
 
   return (
     <section className="s2-surface overflow-hidden">
       <p className="border-b border-line px-4 py-2 text-[11.5px] font-medium text-navy-600">
-        พบคำค้นในเนื้อหาเอกสาร ({matches.length})
+        พบจากเนื้อหาเอกสาร ({matches.length})
       </p>
       <ul className="divide-y divide-line">
         {matches.map((hit) => (

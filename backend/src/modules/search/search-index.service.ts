@@ -2,6 +2,7 @@ import type { SearchIndexStatus, SearchJobKind } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
 import { logger } from '../../core/logger.js';
 import { EXTRACTOR_VERSION, extractFromStorage, isPermanentFailure } from './extract/index.js';
+import { enqueueSemanticIndex, invalidateAndEnqueueSemantic } from '../semantic/semantic-index.service.js';
 
 /**
  * ดัชนีข้อความในเอกสาร
@@ -34,6 +35,12 @@ export async function enqueueExtraction(resourceVersionId: string): Promise<void
       select: { id: true, resourceId: true, versionNumber: true, mimeType: true },
     });
     if (!version) return;
+
+    // F20 indexes current versions only. A new local or Google version invalidates
+    // every older derived vector immediately; source/search history remains intact.
+    await prisma.semanticDocumentIndex.deleteMany({
+      where: { resourceId: version.resourceId, resourceVersionId: { not: version.id } },
+    });
 
     await prisma.resourceSearchIndex.upsert({
       where: { resourceVersionId: version.id },
@@ -92,7 +99,7 @@ export async function runJob(indexId: string): Promise<SearchIndexStatus> {
       attempts: true,
       // ข้อความที่คนตรวจแก้ไว้ต้องรอดจากการทำดัชนีซ้ำของเวอร์ชันเดียวกัน
       correctionRevision: true,
-      version: { select: { storageKey: true, mimeType: true } },
+      version: { select: { id: true, storageKey: true, mimeType: true } },
       resource: { select: { extension: true, deletedAt: true } },
     },
   });
@@ -134,6 +141,9 @@ export async function runJob(indexId: string): Promise<SearchIndexStatus> {
         errorCode: null,
       },
     });
+    // Derived semantic indexing is lower priority and fail-open; lexical extraction is already complete.
+    if (keepCorrection) await invalidateAndEnqueueSemantic(row.version.id);
+    else await enqueueSemanticIndex(row.version.id);
     return 'READY';
   }
 

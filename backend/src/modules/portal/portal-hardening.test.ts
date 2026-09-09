@@ -295,6 +295,26 @@ describe('F11 การทำให้พื้นที่ลูกค้าแ
       assert.ok(routes.some((row) => row.path === '/api/portal/resources'));
     });
 
+    test('F18 guest/public ไม่มีเส้นทางค้นหาตามความหมาย และค้นหาภายในยังต้องยืนยันตัวตน', async () => {
+      const routes = registeredRoutes(app);
+      assert.ok(
+        !routes.some((row) => GUEST_SHARE_ROUTES(row.path) && /search|semantic/i.test(row.path)),
+        'public-share route table must not expose semantic or search endpoints',
+      );
+
+      const publicAttempt = await app.inject({
+        method: 'GET',
+        url: '/api/public/shares/f20-nonexistent-token/search?q=tax&mode=SEMANTIC',
+      });
+      assert.equal(publicAttempt.statusCode, 404);
+
+      const internalAttempt = await app.inject({
+        method: 'GET',
+        url: '/api/search?q=tax&mode=SEMANTIC',
+      });
+      assert.equal(internalAttempt.statusCode, 401);
+    });
+
     test('ทุกเส้นทางภายในตอบปฏิเสธ ไม่มีข้อยกเว้นที่ไม่ได้ตั้งใจ', async () => {
       const routes = registeredRoutes(app).filter(
         (row) =>

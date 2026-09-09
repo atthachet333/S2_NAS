@@ -209,6 +209,8 @@ model Resource {
   favoritedBy             UserFavorite[]
   pinnedBy                UserPinnedResource[]
   searchIndex             ResourceSearchIndex[]
+  semanticIndexes         SemanticDocumentIndex[]
+  semanticChunks          SemanticChunk[]
   createdByIntegrationApp IntegrationApp?          @relation("IntegrationResourceCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
   integrationScopeApps    IntegrationApp[]         @relation("IntegrationAllowedRoot")
   integrationIdempotency  IntegrationIdempotency[]
@@ -250,10 +252,12 @@ model ResourceVersion {
   createdAt                 DateTime @default(now())
   createdByIntegrationAppId String?
 
-  resource                Resource             @relation(fields: [resourceId], references: [id], onDelete: Cascade)
-  createdBy               User                 @relation("ResourceVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  createdByIntegrationApp IntegrationApp?      @relation("IntegrationVersionCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
+  resource                Resource               @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  createdBy               User                   @relation("ResourceVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdByIntegrationApp IntegrationApp?        @relation("IntegrationVersionCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
   searchIndex             ResourceSearchIndex?
+  semanticIndex           SemanticDocumentIndex?
+  semanticChunks          SemanticChunk[]
 
   @@unique([resourceId, versionNumber])
   @@index([resourceId])
@@ -719,6 +723,22 @@ enum SearchTextSource {
   HUMAN_CORRECTED
 }
 
+/// วิธีค้นหาที่ผู้ใช้เลือก
+/// ชุดค้นหาเก่าคง LEXICAL เพื่อรักษาพฤติกรรมเดิม ส่วนหน้า Search เลือก HYBRID เป็นค่าเริ่มต้นได้
+enum SearchMode {
+  LEXICAL
+  SEMANTIC
+  HYBRID
+}
+
+/// สถานะดัชนีความหมายของข้อความที่มีผลอยู่หนึ่งเวอร์ชัน
+enum SemanticIndexStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
 /// สถานะการสกัดข้อความของไฟล์หนึ่งเวอร์ชัน
 ///
 /// ทุกสถานะมีความหมายชัดเจน ไม่มีการใช้ null แทน "ไม่รู้"
@@ -839,6 +859,67 @@ model ResourceSearchIndex {
   @@map("resource_search_index")
 }
 
+/// งานสร้างดัชนีความหมายของไฟล์หนึ่งเวอร์ชัน
+///
+/// เป็นข้อมูลอนุพันธ์ทั้งหมด: ลบทิ้งแล้วสร้างใหม่ได้จาก ResourceSearchIndex โดยไม่แตะไฟล์
+/// ต้นฉบับ ข้อความ OCR หรือข้อความที่มนุษย์ตรวจแก้
+model SemanticDocumentIndex {
+  id                       String              @id @default(cuid())
+  resourceId               String
+  resourceVersionId        String              @unique
+  versionNumber            Int
+  status                   SemanticIndexStatus @default(PENDING)
+  modelVersion             String              @db.VarChar(191)
+  effectiveTextFingerprint String?             @db.Char(64)
+  textSource               SearchTextSource?
+  chunkCount               Int                 @default(0)
+  attempts                 Int                 @default(0)
+  processingStartedAt      DateTime?
+  indexedAt                DateTime?
+  errorCode                String?             @db.VarChar(100)
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+
+  resource Resource        @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  version  ResourceVersion @relation(fields: [resourceVersionId], references: [id], onDelete: Cascade)
+  chunks   SemanticChunk[]
+
+  @@index([status, createdAt])
+  @@index([status, processingStartedAt])
+  @@index([resourceId, versionNumber])
+  @@index([modelVersion, status])
+  @@map("semantic_document_indexes")
+}
+
+/// ชิ้นข้อความหนึ่งชิ้นและเวกเตอร์ที่สร้างในเครื่อง
+///
+/// ไม่เก็บสำเนาข้อความไว้ในตารางนี้ ตัวอย่างผลค้นหาอ่านจาก ResourceSearchIndex
+/// หลังผ่าน authorization แล้วเท่านั้น
+model SemanticChunk {
+  /// MariaDB VECTOR INDEX requires the table primary key to fit within 256 bytes.
+  id                      String                     @id @db.Char(36)
+  semanticDocumentIndexId String
+  resourceId              String
+  resourceVersionId       String
+  chunkIndex              Int
+  startOffset             Int
+  endOffset               Int
+  modelVersion            String                     @db.VarChar(191)
+  embeddingFingerprint    String                     @db.Char(64)
+  textSource              SearchTextSource
+  embedding               Unsupported("VECTOR(384)")
+  createdAt               DateTime                   @default(now())
+
+  documentIndex SemanticDocumentIndex @relation(fields: [semanticDocumentIndexId], references: [id], onDelete: Cascade)
+  resource      Resource              @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  version       ResourceVersion       @relation(fields: [resourceVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([semanticDocumentIndexId, chunkIndex])
+  @@index([resourceId, resourceVersionId])
+  @@index([modelVersion])
+  @@map("semantic_chunks")
+}
+
 /// ประวัติการตรวจแก้ข้อความหนึ่งครั้ง
 ///
 /// เก็บทุกครั้งที่มีคนกดบันทึก ไม่ใช่ทุกครั้งที่พิมพ์ - ประวัติจึงมีความหมาย ไม่ใช่กองข้อมูลขยะ
@@ -902,17 +983,19 @@ model DocumentCategory {
 /// เก็บ "เงื่อนไข" ไม่ได้เก็บ "ผลลัพธ์" - ผลลัพธ์ถูกคำนวณใหม่ทุกครั้งพร้อมตรวจสิทธิ์
 /// ชุดค้นหาที่บันทึกไว้จึงไม่มีทางกลายเป็นช่องทางเห็นเอกสารที่สิทธิ์ถูกถอนไปแล้ว
 model SavedSearch {
-  id         String    @id @default(cuid())
+  id         String     @id @default(cuid())
   userId     String
-  name       String    @db.VarChar(100)
+  name       String     @db.VarChar(100)
   /// คำค้น - แยกจากตัวกรองเพื่อให้แสดงและแก้ไขได้ตรงไปตรงมา
-  query      String    @default("") @db.VarChar(191)
+  query      String     @default("") @db.VarChar(191)
+  /// ชุดค้นหาเก่าใช้ LEXICAL ตามเดิม ไม่เปลี่ยนพฤติกรรมย้อนหลังเงียบ ๆ
+  searchMode SearchMode @default(LEXICAL)
   /// ตัวกรองทั้งชุดในรูป JSON - ตรวจความถูกต้องด้วย schema เดียวกับ API ทุกครั้งที่อ่าน
   filters    Json
   /// ใช้จัดลำดับ "ที่ใช้บ่อย" โดยไม่ต้องนับสถิติการใช้งานแยกต่างหาก
   lastUsedAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
   user User @relation("SavedSearchOwner", fields: [userId], references: [id], onDelete: Cascade)
 

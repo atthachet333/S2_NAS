@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, RotateCcw, Save } from 'lucide-react';
-import { ApiError, api, systemSettingsApi } from '@/lib/api';
+import { AlertTriangle, RefreshCw, RotateCcw, Save } from 'lucide-react';
+import { ApiError, api, semanticAdminApi, systemSettingsApi } from '@/lib/api';
 import { Panel, PanelBody, PanelHeader, Badge } from '@/components/ui/Panel';
 import { ErrorState, TextSkeleton } from '@/components/ui/States';
 import { PageTitle } from '@/components/ui/PageTitle';
@@ -63,8 +63,69 @@ export default function AdminSettingsPage() {
         </PanelBody>
       </Panel>
 
+      {canManage ? <SemanticSearchStatus /> : null}
       {canManage ? <OperationalSettings /> : <NoPermissionPanel />}
     </div>
+  );
+}
+
+function SemanticSearchStatus() {
+  const queryClient = useQueryClient();
+  const { notify } = useToast();
+  const status = useQuery({
+    queryKey: ['semantic-admin-status'], queryFn: semanticAdminApi.status, refetchInterval: 30_000,
+  });
+  const afterQueue = (message: string) => {
+    notify({ tone: 'success', title: message });
+    void queryClient.invalidateQueries({ queryKey: ['semantic-admin-status'] });
+  };
+  const onError = (error: unknown) => notify({
+    tone: 'error', title: error instanceof ApiError ? error.message : 'สั่งงาน semantic search ไม่สำเร็จ',
+  });
+  const reindex = useMutation({
+    mutationFn: semanticAdminApi.reindex,
+    onSuccess: (result) => afterQueue(`เข้าคิวทำดัชนี ${result.data.queued.toLocaleString('th-TH')} รายการ`), onError,
+  });
+  const retry = useMutation({
+    mutationFn: semanticAdminApi.retryFailed,
+    onSuccess: (result) => afterQueue(`นำงานที่ล้มเหลวกลับเข้าคิว ${result.data.queued.toLocaleString('th-TH')} รายการ`), onError,
+  });
+  const data = status.data?.data;
+  const tone = data?.health === 'READY' ? 'success' : data?.health === 'ERROR' ? 'danger' : 'neutral';
+  const label = data?.health === 'READY' ? 'พร้อมใช้งาน' : data?.health === 'ERROR' ? 'เกิดข้อผิดพลาด' : 'ยังไม่ได้ตั้งค่า';
+
+  return (
+    <Panel>
+      <PanelHeader
+        title="Semantic Search"
+        description="ดัชนีความหมายจากโมเดล ONNX ในเครื่อง ไม่มีการส่งข้อความไปบริการภายนอก"
+        action={<Badge tone={tone}>{label}</Badge>}
+      />
+      <PanelBody>
+        {status.isPending ? <TextSkeleton lines={4} /> : status.isError || !data ? (
+          <ErrorState message="อ่านสถานะ semantic search ไม่สำเร็จ" onRetry={() => void status.refetch()} />
+        ) : (
+          <div className="space-y-3">
+            <dl className="divide-y divide-line text-[12.5px]">
+              <Row label="โมเดล" value={`${data.model.modelId} · ${data.model.dtype} · ${data.model.dimensions} มิติ`} />
+              <Row label="การทำงาน" value={data.model.offlineRuntime ? 'Local-only / offline runtime' : 'ไม่ทราบ'} />
+              <Row label="เอกสารพร้อมค้น" value={data.counts.READY.toLocaleString('th-TH')} />
+              <Row label="รอ / กำลังทำ / ล้มเหลว" value={`${data.counts.PENDING.toLocaleString('th-TH')} / ${data.counts.PROCESSING.toLocaleString('th-TH')} / ${data.counts.FAILED.toLocaleString('th-TH')}`} />
+              <Row label="จำนวน chunks" value={data.chunks.toLocaleString('th-TH')} />
+              <Row label="ตรวจความสอดคล้องล่าสุด" value={data.lastReconciledAt ? new Date(data.lastReconciledAt).toLocaleString('th-TH') : 'ยังไม่เคย'} />
+            </dl>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="s2-btn s2-btn-outline" disabled={!data.enabled || reindex.isPending} onClick={() => reindex.mutate()}>
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden /> ทำดัชนีใหม่ทั้งหมด
+              </button>
+              <button type="button" className="s2-btn s2-btn-outline" disabled={!data.enabled || data.counts.FAILED === 0 || retry.isPending} onClick={() => retry.mutate()}>
+                ลองงานที่ล้มเหลวอีกครั้ง
+              </button>
+            </div>
+          </div>
+        )}
+      </PanelBody>
+    </Panel>
   );
 }
 

@@ -35,6 +35,14 @@ cd backend
 MIGRATION_SMOKE_ADMIN_URL="mysql://ADMIN:PASSWORD@HOST:3306/mysql" npm run prisma:smoke
 ```
 
+If the application account inherits MariaDB's standard permission to create the `test_%` namespace,
+it can reuse `DATABASE_URL` without copying the password into another variable:
+
+```powershell
+$env:MIGRATION_SMOKE_USE_SOURCE_AS_ADMIN = "true"
+npm run prisma:smoke
+```
+
 PowerShell equivalents set the environment variable first:
 
 ```powershell
@@ -47,3 +55,8 @@ drift against `prisma/schema.prisma`. When the script creates the database
 through `MIGRATION_SMOKE_ADMIN_URL`, it drops only the generated,
 prefix-validated database in a `finally` block. A supplied database is retained
 for its owner to remove.
+
+F20 adds a MariaDB-native `VECTOR INDEX` in SQL. Prisma models the column as
+`Unsupported("VECTOR(384)")` but cannot express that index, so `migrate diff` reports exactly one apparent
+“Removed index on columns (embedding)” difference. The smoke script accepts only that exact known difference;
+any additional added/removed schema object still fails the drift check.

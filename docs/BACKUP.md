@@ -1,5 +1,8 @@
 # BACKUP
 
+F20 semantic index เป็นข้อมูลอนุพันธ์ Dump เก็บ schema แต่ไม่เก็บ rows ของ `semantic_document_indexes` และ
+`semantic_chunks` เพื่อลดขนาดและไม่ทำให้ recovery ขึ้นกับ vector cache; หลัง restore ใช้ `semantic:reindex`
+
 S2 NAS backs up two things that must stay consistent with each other: **MariaDB metadata** and the **physical files** that metadata refers to. Backing up only one of them is not a backup.
 
 ## What one backup contains
