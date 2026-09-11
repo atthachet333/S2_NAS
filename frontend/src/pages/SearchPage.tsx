@@ -236,10 +236,29 @@ export default function SearchPage() {
             </p>
           ) : null}
           {!results.isPending && !results.isError ? (
-            <p className="text-[12px] text-navy-400">
-              พบ {results.data?.data.total ?? 0} รายการที่คุณเข้าถึงได้
-              {(results.data?.data.total ?? 0) > entries.length ? ` · แสดง ${entries.length} รายการแรก` : ''}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[12px] text-navy-400">
+                พบ {results.data?.data.total ?? 0} รายการที่คุณเข้าถึงได้
+                {(results.data?.data.total ?? 0) > entries.length ? ` · แสดง ${entries.length} รายการแรก` : ''}
+              </p>
+              {entries.some((entry) => entry.kind === 'file') ? (
+                <button
+                  type="button"
+                  className="s2-btn s2-btn-outline"
+                  onClick={() => {
+                    const files = entries.filter((entry) => entry.kind === 'file').slice(0, 20);
+                    window.dispatchEvent(new CustomEvent('s2-open-assistant', {
+                      detail: {
+                        resources: files.map((entry) => ({ id: entry.id, name: entry.name })),
+                        scope: files.length === 1 ? 'CURRENT_RESOURCE' : 'SELECTED_RESOURCES',
+                      },
+                    }));
+                  }}
+                >
+                  ถามจากผลลัพธ์{entries.filter((entry) => entry.kind === 'file').length > 20 ? ' 20 รายการแรก' : ''}
+                </button>
+              ) : null}
+            </div>
           ) : null}
 
           <ContentMatches hits={results.data?.data.items ?? []} term={term} />

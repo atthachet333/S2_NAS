@@ -23,6 +23,7 @@ export const EVENT_CATEGORIES = [
   'BACKUP',
   'INTEGRATION',
   'SYSTEM',
+  'ASSISTANT',
 ] as const;
 
 export type EventCategory = (typeof EVENT_CATEGORIES)[number];
@@ -37,6 +38,7 @@ export const CATEGORY_LABELS: Record<EventCategory, string> = {
   BACKUP: 'สำรองและกู้คืน',
   INTEGRATION: 'การเชื่อมต่อระบบอื่น',
   SYSTEM: 'ระบบ',
+  ASSISTANT: 'ผู้ช่วยเอกสาร',
 };
 
 /**
@@ -69,6 +71,9 @@ export interface EventDefinition {
  * มีชุดทดสอบคอยเตือนเมื่อมีรหัสใหม่เกิดขึ้นในโค้ดแต่ยังไม่มีชื่อภาษาไทยที่นี่
  */
 export const EVENT_CATALOG: Record<string, EventDefinition> = {
+  ASSISTANT_THREAD_CREATED: { category: 'ASSISTANT', label: 'สร้างการสนทนาผู้ช่วยเอกสาร' },
+  ASSISTANT_ANSWER_GENERATED: { category: 'ASSISTANT', label: 'สร้างคำตอบจากเอกสารสำเร็จ', tone: 'SUCCESS' },
+  ASSISTANT_GENERATION_FAILED: { category: 'ASSISTANT', label: 'สร้างคำตอบจากเอกสารไม่สำเร็จ', tone: 'DANGER', failure: true },
   /* ---------------- เข้าสู่ระบบ ---------------- */
   LOGIN: { category: 'AUTH', label: 'เข้าสู่ระบบ', tone: 'SUCCESS' },
   CHANGE_PASSWORD: { category: 'AUTH', label: 'เปลี่ยนรหัสผ่าน' },

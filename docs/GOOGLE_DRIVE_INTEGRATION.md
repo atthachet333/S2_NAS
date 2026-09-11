@@ -7,3 +7,6 @@ provider ไม่อ่าน OAuth ciphertext
 เมื่อ Google content เปลี่ยน เวอร์ชันใหม่เป็น current และ vector เก่าถูกลบทันที; เวอร์ชันใหม่ค้น lexical ได้ระหว่าง
 รอ embedding ถ้า sync ไม่เปลี่ยน version/fingerprint จะไม่ re-embed ดูคู่มือหลักใน F19 handoff/implementation notes
 และ [SEMANTIC_INDEXING.md](SEMANTIC_INDEXING.md)
+# Document Assistant
+
+เอกสาร Google ที่ import/sync แล้วเข้าร่วม F21 ผ่าน current NAS ResourceVersion และ local indexes เหมือนไฟล์ปกติ Assistant ไม่เรียก Google API ระหว่าง retrieval/generation

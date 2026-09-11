@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { driveRootLabel } from '@/lib/drive-labels';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Eye, Info, Lock, MessageSquareText, Share2, ShieldCheck, SearchCheck, SquareArrowOutUpRight, Star, Tag, X } from 'lucide-react';
+import { Bot, Download, Eye, Info, Lock, MessageSquareText, Share2, ShieldCheck, SearchCheck, SquareArrowOutUpRight, Star, Tag, X } from 'lucide-react';
 import { publicShareApi, workspaceApi } from '@/lib/api';
 import { ActivityTimeline } from './ActivityTimeline';
 import { useWorkspaceMarks } from '@/hooks/useWorkspaceMarks';
@@ -141,6 +141,9 @@ export function DetailsDrawer() {
               <div className="space-y-4">
                 {!isFolder && !isExternal ? (
                   <div className="grid gap-2">
+                    <button type="button" className="s2-btn s2-btn-primary w-full" onClick={() => window.dispatchEvent(new CustomEvent('s2-open-assistant', { detail: { resources: [{ id: selected.id, name: selected.name }], scope: 'CURRENT_RESOURCE' } }))}>
+                      <Bot className="h-4 w-4" aria-hidden />ถามเกี่ยวกับเอกสาร
+                    </button>
                     {isPreviewable(selected.name, selected.mimeType) ? (
                       <button type="button" className="s2-btn s2-btn-outline w-full" onClick={() => window.dispatchEvent(new CustomEvent('s2-preview-resource', { detail: { id: selected.id } }))}>
                         <Eye className="h-4 w-4" aria-hidden />

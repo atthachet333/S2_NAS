@@ -15,6 +15,7 @@ import { isDriveConfigured } from './modules/integrations/google-drive/google-ap
 import { startDriveSyncWorker } from './modules/integrations/google-drive/sync.worker.js';
 import { startSemanticWorker } from './modules/semantic/semantic.worker.js';
 import { semanticDiagnostics } from './modules/semantic/semantic-index.service.js';
+import { assistantDiagnostics } from './modules/assistant/assistant.service.js';
 import { startBackupScheduler } from './modules/backup/schedule.service.js';
 import { backupOperator } from './modules/backup/operator.js';
 import { verifyBackupRoot } from './modules/backup/backup-root.js';
@@ -135,6 +136,10 @@ async function start(): Promise<void> {
   } else {
     printLine('SEARCH', 'Semantic index', `${env.S2_NAS_SEMANTIC_CONCURRENCY} worker · offline ONNX`);
   }
+
+  const assistant = await assistantDiagnostics().catch(() => ({ status: 'ERROR' as const, installed: false }));
+  printLine('ASSISTANT', 'Document assistant', `${assistant.status}${assistant.installed ? ' · model installed' : ''}`,
+    assistant.status === 'READY' ? 'ok' : assistant.status === 'ERROR' ? 'error' : 'warn');
 
 
   /**

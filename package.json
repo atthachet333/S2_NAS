@@ -29,7 +29,16 @@
     "restore:rehearsal": "npm --prefix backend run restore:rehearsal",
     "restore:rehearsal-status": "npm --prefix backend run restore:rehearsal-status",
     "test:backend": "npm --prefix backend run test",
-    "test:frontend": "npm --prefix frontend run test"
+    "test:frontend": "npm --prefix frontend run test",
+    "assistant:status": "npm --prefix backend run assistant:status",
+    "assistant:model:install": "npm --prefix backend run assistant:model:install",
+    "assistant:test": "npm --prefix backend run assistant:test",
+    "assistant:bakeoff": "npm --prefix backend run assistant:bakeoff",
+    "qa:f21-performance": "npm --prefix backend run qa:f21-performance",
+    "test:assistant": "npm --prefix backend run test:assistant",
+    "qa:f21-longdoc": "npm --prefix backend run qa:f21-longdoc",
+    "qa:f21-acceptance": "npm --prefix backend run qa:f21-acceptance",
+    "qa:f21-contention": "npm --prefix backend run qa:f21-contention"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

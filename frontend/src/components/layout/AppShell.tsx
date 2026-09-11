@@ -5,6 +5,7 @@ import { DetailsDrawer } from '@/components/files/DetailsDrawer';
 import { UploadPanel } from '@/components/files/UploadPanel';
 import { DriveUiProvider } from '@/hooks/useDriveUi';
 import { CommandPalette } from './CommandPalette';
+import { AssistantPanel } from '@/components/assistant/AssistantPanel';
 
 function Shell() {
 
@@ -22,6 +23,7 @@ function Shell() {
       </div>
       <CommandPalette />
       <UploadPanel />
+      <AssistantPanel />
     </div>
   );
 }

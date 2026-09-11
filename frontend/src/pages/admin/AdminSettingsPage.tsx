@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, RefreshCw, RotateCcw, Save } from 'lucide-react';
-import { ApiError, api, semanticAdminApi, systemSettingsApi } from '@/lib/api';
+import { ApiError, api, assistantApi, semanticAdminApi, systemSettingsApi } from '@/lib/api';
 import { Panel, PanelBody, PanelHeader, Badge } from '@/components/ui/Panel';
 import { ErrorState, TextSkeleton } from '@/components/ui/States';
 import { PageTitle } from '@/components/ui/PageTitle';
@@ -64,9 +64,23 @@ export default function AdminSettingsPage() {
       </Panel>
 
       {canManage ? <SemanticSearchStatus /> : null}
+      {canManage ? <DocumentAssistantStatus /> : null}
       {canManage ? <OperationalSettings /> : <NoPermissionPanel />}
     </div>
   );
+}
+
+function DocumentAssistantStatus() {
+  const status = useQuery({ queryKey: ['assistant-admin-status'], queryFn: assistantApi.admin, refetchInterval: 30_000 });
+  const data = status.data?.data;
+  const tone = data?.status === 'READY' ? 'success' : data?.status === 'ERROR' ? 'danger' : 'neutral';
+  const label = data?.status === 'READY' ? 'พร้อมใช้งาน' : data?.status === 'ERROR' ? 'เกิดข้อผิดพลาด' : 'ยังไม่ได้ตั้งค่า';
+  return <Panel><PanelHeader title="ผู้ช่วยเอกสาร" description="โมเดลสร้างคำตอบในเครื่อง ข้อความเอกสารไม่ถูกส่งไปบริการ AI ภายนอก" action={<Badge tone={tone}>{label}</Badge>} />
+    <PanelBody>{status.isPending ? <TextSkeleton lines={4} /> : status.isError || !data ? <ErrorState message="อ่านสถานะผู้ช่วยเอกสารไม่สำเร็จ" onRetry={() => void status.refetch()} /> :
+      <dl className="divide-y divide-line text-[12.5px]"><Row label="โมเดล" value={`${data.model.model} · ${data.model.quantization}`} /><Row label="Provider" value={data.model.provider} />
+        <Row label="บริบทสูงสุด" value={`${data.model.contextTokens.toLocaleString('th-TH')} tokens`} /><Row label="การทำงาน" value="Local-only / offline" />
+        <Row label="CPU threads / batch" value={`${data.runtime.threads} / ${data.runtime.batchSize}`} />
+        <Row label="กำลังประมวลผล / รอคิว" value={`${data.queue.active} / ${data.queue.queued}`} /><Row label="ติดตั้งโมเดล" value={data.installed ? 'ติดตั้งแล้ว' : 'ยังไม่ได้ติดตั้ง'} /></dl>}</PanelBody></Panel>;
 }
 
 function SemanticSearchStatus() {

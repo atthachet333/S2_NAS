@@ -93,6 +93,7 @@ export interface HealthResponse {
   database: 'connected' | 'disconnected' | 'not_configured';
   storage: 'ready' | 'read_only' | 'unavailable';
   semanticSearch: 'READY' | 'NOT_CONFIGURED' | 'ERROR';
+  documentAssistant: 'READY' | 'NOT_CONFIGURED' | 'LOADING' | 'ERROR';
   uptime: number;
   timestamp: string;
 }
@@ -1535,4 +1536,27 @@ export const googleDriveApi = {
     }),
 
   adminOverview: () => apiFetch<Ok<AdminDriveOverviewDto>>('/admin/integrations/google-drive'),
+};
+
+export type AssistantScope = 'CURRENT_RESOURCE' | 'SELECTED_RESOURCES' | 'AUTHORIZED_LIBRARY';
+export interface AssistantCitationDto { evidenceId: string; resourceId: string; resourceVersionId: string; filename: string;
+  chunkIndex: number | null; textSource: 'NATIVE_TEXT' | 'OCR' | 'HUMAN_CORRECTED'; snippet: string }
+export interface AssistantMessageDto { id: string; role: 'USER' | 'ASSISTANT'; content: string; createdAt: string; citations: AssistantCitationDto[] }
+export interface AssistantThreadDto { id: string; title: string; scope: AssistantScope; includeArchived: boolean;
+  resourceIds: string[]; resources: Array<{ id: string; name: string }>; createdAt: string; updatedAt: string; messages?: AssistantMessageDto[] }
+export interface AssistantDiagnosticsDto { status: 'READY' | 'NOT_CONFIGURED' | 'LOADING' | 'ERROR'; enabled: boolean;
+  local: true; offline: true; installed: boolean; model: { provider: string; model: string; quantization: string; contextTokens: number };
+  queue: { active: number; queued: number; concurrency: number; limit: number };
+  runtime: { threads: number; batchSize: number }; reason?: string }
+
+export const assistantApi = {
+  health: () => apiFetch<{ success: true; data: AssistantDiagnosticsDto }>('/assistant/health'),
+  threads: () => apiFetch<{ success: true; data: AssistantThreadDto[] }>('/assistant/threads'),
+  thread: (id: string) => apiFetch<{ success: true; data: AssistantThreadDto }>(`/assistant/threads/${id}`),
+  create: (input: { scope: AssistantScope; resourceIds: string[]; includeArchived?: boolean }) =>
+    apiFetch<{ success: true; data: AssistantThreadDto }>('/assistant/threads', { method: 'POST', body: JSON.stringify(input) }),
+  remove: (id: string) => apiFetch<{ success: true; data: { deleted: true } }>(`/assistant/threads/${id}`, { method: 'DELETE' }),
+  ask: (id: string, input: { question: string; clientRequestId: string; mode: 'QA' | 'SUMMARY' | 'COMPARE' | 'EXTRACT' }) =>
+    apiFetch<{ success: true; data: AssistantMessageDto }>(`/assistant/threads/${id}/messages`, { method: 'POST', body: JSON.stringify(input) }),
+  admin: () => apiFetch<{ success: true; data: AssistantDiagnosticsDto }>('/admin/assistant'),
 };

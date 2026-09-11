@@ -12,6 +12,9 @@ backend/storage/**
 # Local semantic model weights are provisioned per machine and never committed.
 backend/models/semantic/**
 !backend/models/semantic/.gitkeep
+# Local generative model weights and llama.cpp runtime are explicitly provisioned per machine.
+backend/models/assistant/**
+!backend/models/assistant/.gitkeep
 .DS_Store
 Thumbs.db
 .vscode/

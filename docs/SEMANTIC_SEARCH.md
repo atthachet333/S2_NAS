@@ -25,3 +25,6 @@ Portal semantic ถูกเลื่อนไว้หลัง F20 เพร�
 
 ดู [SEMANTIC_INDEXING.md](SEMANTIC_INDEXING.md), [EMBEDDING_MODEL.md](EMBEDDING_MODEL.md)
 และ [SEMANTIC_SEARCH_SECURITY.md](SEMANTIC_SEARCH_SECURITY.md)
+# F21 reuse
+
+ผู้ช่วยเอกสารใช้ semantic candidates ของ F20 หลัง backend สร้างรายการ Resource ID ที่อนุญาตแล้ว MiniLM ทำ embeddings/retrieval เท่านั้นและไม่ใช้สร้างคำตอบ ดู `DOCUMENT_ASSISTANT_RAG.md`

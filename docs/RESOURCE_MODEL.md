@@ -135,3 +135,6 @@ PublicShareLink
 `expiresAt` และ `revokedAt` (ใช้โดยตัวกรองสถานะของหน้าผู้ดูแล)
 
 ดู [PUBLIC_SHARE_LINKS.md](PUBLIC_SHARE_LINKS.md)
+# Assistant records
+
+`AssistantThread` เป็นของผู้ใช้หนึ่งคนและเก็บ scope; selected scope เชื่อม Resource ผ่าน `AssistantThreadResource` ข้อความเก็บเฉพาะ USER/ASSISTANT ที่มองเห็น และ `AssistantCitation` เก็บ stable resource/version reference กับ snippet จำกัด ไม่เก็บ retrieved context หรือ prompt

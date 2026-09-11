@@ -20,6 +20,52 @@ interface CandidateRow {
   textSource: SemanticCandidate['textSource'];
 }
 
+export interface SemanticEvidenceCandidate extends SemanticCandidate {
+  resourceVersionId: string;
+  chunkIndex: number;
+}
+
+interface EvidenceCandidateRow extends CandidateRow {
+  resourceVersionId: string;
+  chunkIndex: number;
+}
+
+/** F21 chunk-level candidates. Authorization IDs are resolved before this function is called. */
+export async function semanticEvidenceCandidates(
+  query: string,
+  allowedResourceIds: string[],
+  limit: number,
+): Promise<SemanticEvidenceCandidate[]> {
+  if (!query.trim() || allowedResourceIds.length === 0 || env.S2_NAS_SEMANTIC_ENABLED !== 1) return [];
+  const vector = await localEmbeddingProvider().embed(query.trim(), 'query', 'INTERACTIVE');
+  const vectorJson = JSON.stringify(vector);
+  const boundedLimit = Math.max(1, Math.min(100, limit));
+  const indexStrategy = allowedResourceIds.length <= 2_000
+    ? Prisma.raw('IGNORE INDEX (semantic_chunks_embedding_idx)')
+    : Prisma.empty;
+  const rows = await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe('SET SESSION mhnsw_ef_search = 1000');
+    return tx.$queryRaw<EvidenceCandidateRow[]>(Prisma.sql`
+      SELECT c.resourceId AS resourceId, c.resourceVersionId AS resourceVersionId,
+             c.chunkIndex AS chunkIndex, c.startOffset AS startOffset, c.endOffset AS endOffset,
+             c.textSource AS textSource,
+             VEC_DISTANCE_COSINE(c.embedding, VEC_FromText(${vectorJson})) AS distance
+      FROM semantic_chunks c ${indexStrategy}
+      INNER JOIN semantic_document_indexes d ON d.id = c.semanticDocumentIndexId
+      INNER JOIN resources r ON r.id = c.resourceId
+      WHERE c.modelVersion = ${SEMANTIC_MODEL_VERSION} AND d.status = 'READY'
+        AND d.versionNumber = r.currentVersion AND r.deletedAt IS NULL
+        AND c.resourceId IN (${Prisma.join(allowedResourceIds)})
+      ORDER BY distance ASC LIMIT ${boundedLimit}
+    `);
+  });
+  return rows.map((row) => ({
+    resourceId: row.resourceId, resourceVersionId: row.resourceVersionId,
+    chunkIndex: Number(row.chunkIndex), score: 1 - Number(row.distance),
+    startOffset: Number(row.startOffset), endOffset: Number(row.endOffset), textSource: row.textSource,
+  })).filter((row) => Number.isFinite(row.score) && row.score >= env.S2_NAS_SEMANTIC_MIN_SCORE);
+}
+
 /**
  * Query vectors never leave the process; stored vectors never leave MariaDB.
  * allowedResourceIds already contains the exact authorization/filter scope.

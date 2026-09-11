@@ -111,6 +111,60 @@ const schema = z.object({
    */
   S2_NAS_SEMANTIC_MIN_SCORE: z.coerce.number().min(-1).max(1).default(0.4),
 
+  /* ---- ผู้ช่วยเอกสารแบบ local-only (F21) ---- */
+  /** ปิดโดยปริยายจนกว่าจะ provision และผ่าน real-model QA */
+  S2_NAS_ASSISTANT_ENABLED: z.coerce.number().int().min(0).max(1).default(0),
+  S2_NAS_ASSISTANT_PROVIDER: z.enum(['LLAMA_CPP', 'FAKE']).default('LLAMA_CPP'),
+  S2_NAS_ASSISTANT_MODEL_PATH: z.string().min(1).default('./models/assistant/model.gguf'),
+  S2_NAS_ASSISTANT_LLAMA_BIN: z.string().min(1).default('./models/assistant/llama-cli.exe'),
+  /**
+   * ตัวนับ token จริงจาก vocab ของโมเดล
+   *
+   * ตัววางแผนงบ (budget.ts) ต้องรู้ขนาด prompt ก่อนเรียกโมเดล การเดาจากจำนวน
+   * ตัวอักษรใช้ไม่ได้เพราะภาษาไทยกินประมาณ 0.61 token ต่อตัวอักษร แต่อังกฤษ
+   * ประมาณ 0.25 ต่างกันเกินสองเท่า ถ้าเดาต่ำไปตัววางแผนจะคิดว่ามีที่ว่างมากกว่าจริง
+   * แล้วอนุมัติคำขอที่ล้น context - ซึ่งคือ F21-D1 ที่กำลังแก้อยู่พอดี
+   *
+   * ไบนารีนี้โหลดเฉพาะ vocab ไม่ได้โหลดน้ำหนักโมเดล จึงใช้เวลาราว 0.4 วินาที
+   */
+  S2_NAS_ASSISTANT_TOKENIZER_BIN: z.string().min(1).default('./models/assistant/llama-tokenize.exe'),
+  S2_NAS_ASSISTANT_MODEL_ID: z.string().min(1).max(191).default('Qwen3-4B-Instruct'),
+  S2_NAS_ASSISTANT_QUANTIZATION: z.string().min(1).max(32).default('Q4_K_M'),
+  S2_NAS_ASSISTANT_CONTEXT_TOKENS: z.coerce.number().int().min(2048).max(131072).default(8192),
+  S2_NAS_ASSISTANT_THREADS: z.coerce.number().int().min(1).max(64).default(4),
+  S2_NAS_ASSISTANT_BATCH_SIZE: z.coerce.number().int().min(32).max(2048).default(256),
+  /**
+   * เพดาน token ที่โมเดลสร้างได้ต่อคำตอบ
+   *
+   * วัดบนเครื่องจริง: generation ~3.4 tokens/s ดังนั้น 768 tokens = ~226 วินาที ซึ่งเกิน
+   * S2_NAS_ASSISTANT_TIMEOUT_SECONDS (180) ด้วยตัวมันเองโดยยังไม่นับเวลาอ่าน prompt เลย
+   * คำตอบที่ยาวจริงจึงถูกตัดด้วย timeout เสมอแทนที่จะตอบจบ
+   *
+   * 384 tokens = ~113 วินาที ยังเหลือเวลาให้ prompt eval และยังมากกว่าคำตอบที่วัดได้จริง
+   * (23-58 tokens) หลายเท่า
+   */
+  S2_NAS_ASSISTANT_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(64).max(4096).default(384),
+  S2_NAS_ASSISTANT_MAX_QUESTION_CHARS: z.coerce.number().int().min(100).max(20000).default(4000),
+  S2_NAS_ASSISTANT_MAX_SELECTED_RESOURCES: z.coerce.number().int().min(1).max(50).default(20),
+  S2_NAS_ASSISTANT_CANDIDATE_LIMIT: z.coerce.number().int().min(10).max(100).default(40),
+  S2_NAS_ASSISTANT_EVIDENCE_LIMIT: z.coerce.number().int().min(1).max(20).default(10),
+  /**
+   * เพดานความยาวรวมของหลักฐานที่ส่งเข้าโมเดล
+   *
+   * **นี่คือขอบเขตความถูกต้อง ไม่ใช่แค่เรื่องความเร็ว** วัดได้ว่า 1 ตัวอักษรของหลักฐาน
+   * กลายเป็นประมาณ 0.61 prompt token ค่าเดิม 24,000 ตัวอักษรจึงเท่ากับราว 14,600 tokens
+   * ซึ่งเกิน context window ที่ตั้งไว้ 8,192 tokens
+   *
+   * เมื่อ prompt ยาวเกิน context llama.cpp จะตัดทิ้งเงียบ ๆ โมเดลจึงถูกขอให้อ้างอิง
+   * หลักฐานที่มันไม่เคยเห็น - เป็นการอ้างอิงที่ตรวจไม่พบว่าผิด
+   *
+   * 12,000 ตัวอักษร = ~7,300 tokens ยังอยู่ใต้ context พร้อมที่ว่างสำหรับ system prompt
+   * และประวัติการสนทนา
+   */
+  S2_NAS_ASSISTANT_MAX_EVIDENCE_CHARS: z.coerce.number().int().min(1000).max(100000).default(12000),
+  S2_NAS_ASSISTANT_TIMEOUT_SECONDS: z.coerce.number().int().min(10).max(900).default(180),
+  S2_NAS_ASSISTANT_QUEUE_LIMIT: z.coerce.number().int().min(1).max(50).default(5),
+
   /* ---- OCR สำหรับเอกสารสแกน (F13) ---- */
 
   /**
@@ -261,6 +315,16 @@ const embeddingModelPath = path.isAbsolute(raw.S2_NAS_EMBEDDING_MODEL_PATH)
   ? path.normalize(raw.S2_NAS_EMBEDDING_MODEL_PATH)
   : path.resolve(BACKEND_ROOT, raw.S2_NAS_EMBEDDING_MODEL_PATH);
 
+const assistantModelPath = path.isAbsolute(raw.S2_NAS_ASSISTANT_MODEL_PATH)
+  ? path.normalize(raw.S2_NAS_ASSISTANT_MODEL_PATH)
+  : path.resolve(BACKEND_ROOT, raw.S2_NAS_ASSISTANT_MODEL_PATH);
+const assistantLlamaBin = path.isAbsolute(raw.S2_NAS_ASSISTANT_LLAMA_BIN)
+  ? path.normalize(raw.S2_NAS_ASSISTANT_LLAMA_BIN)
+  : path.resolve(BACKEND_ROOT, raw.S2_NAS_ASSISTANT_LLAMA_BIN);
+const assistantTokenizerBin = path.isAbsolute(raw.S2_NAS_ASSISTANT_TOKENIZER_BIN)
+  ? path.normalize(raw.S2_NAS_ASSISTANT_TOKENIZER_BIN)
+  : path.resolve(BACKEND_ROOT, raw.S2_NAS_ASSISTANT_TOKENIZER_BIN);
+
 /** รากของชุดสำรอง resolve เป็น absolute path แล้ว (ใช้ภายใน backend เท่านั้น) */
 const backupRoot = path.isAbsolute(raw.S2_NAS_BACKUP_ROOT)
   ? path.normalize(raw.S2_NAS_BACKUP_ROOT)
@@ -332,6 +396,9 @@ export const env = {
   OFFSITE_BACKUP_ROOT: offsiteRoot,
   REHEARSAL_STAGE_ROOT: rehearsalStageRoot,
   EMBEDDING_MODEL_PATH: embeddingModelPath,
+  ASSISTANT_MODEL_PATH: assistantModelPath,
+  ASSISTANT_LLAMA_BIN: assistantLlamaBin,
+  ASSISTANT_TOKENIZER_BIN: assistantTokenizerBin,
   MAX_UPLOAD_SIZE_BYTES: raw.S2_NAS_MAX_UPLOAD_BYTES ?? raw.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
   isProduction: raw.NODE_ENV === 'production',
   isDevelopment: raw.NODE_ENV === 'development',

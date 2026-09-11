@@ -246,3 +246,6 @@ SELECT isActive, COUNT(*) FROM legal_holds GROUP BY isActive;
 - ชื่อกำกับภาษาไทยกลับมาครบทุกตัวอักษร
 
 ดู `src/modules/backup/f18-restore.test.ts`
+# F21
+
+Restore คืน thread/message/citation จากฐานข้อมูล Model weights ต้องติดตั้งใหม่ด้วย `npm run assistant:model:install`; ระหว่างยังไม่มีโมเดล NAS ทำงานต่อและ assistant รายงาน NOT_CONFIGURED

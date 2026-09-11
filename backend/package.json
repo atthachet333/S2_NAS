@@ -39,10 +39,20 @@
     "semantic:retry-failed": "tsx scripts/semantic-cli.ts retry-failed",
     "semantic:run": "tsx scripts/semantic-cli.ts run",
     "qa:f20-performance": "tsx scripts/f20-performance.ts",
+    "assistant:status": "tsx scripts/assistant-cli.ts status",
+    "assistant:model:install": "tsx scripts/assistant-cli.ts install",
+    "assistant:test": "tsx scripts/assistant-cli.ts test",
+    "assistant:bakeoff": "tsx scripts/assistant-cli.ts bakeoff",
+    "qa:f21-performance": "tsx scripts/f21-performance.ts",
     "qa:f15": "tsx scripts/f15-qa-fixture.ts create",
     "qa:f15-clean": "tsx scripts/f15-qa-fixture.ts destroy",
     "qa:f16": "tsx scripts/f16-qa-fixture.ts create",
-    "qa:f16-clean": "tsx scripts/f16-qa-fixture.ts destroy"
+    "qa:f16-clean": "tsx scripts/f16-qa-fixture.ts destroy",
+    "test:assistant": "tsx scripts/run-assistant-tests.ts",
+    "qa:f21-longdoc": "tsx scripts/run-assistant-tests.ts --longdoc",
+    "qa:f21-acceptance": "tsx scripts/run-assistant-tests.ts --acceptance",
+    "qa:f21-browser-fixture": "tsx scripts/f21-browser-fixture.ts",
+    "qa:f21-contention": "tsx scripts/run-assistant-tests.ts --contention"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

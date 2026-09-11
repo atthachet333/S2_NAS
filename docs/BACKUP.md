@@ -228,3 +228,6 @@ External accounts, `organizationName`, and `ResourceAccess.expiresAt` are ordina
 ไม่มีการส่งออกลิงก์แยกต่างหาก - การสำรองฐานข้อมูลตามปกติครอบคลุมทั้งหมดแล้ว
 
 การซ้อมตรวจเรื่องนี้จริง ดู `src/modules/backup/f18-restore.test.ts`
+# F21
+
+ฐานข้อมูล thread/message/citation เป็น business records และรวมอยู่ใน database dump ตามปกติ Model weights ใน `backend/models/assistant` เป็น derived provisioned assetsและไม่รวมใน Git/authoritative backup

@@ -71,6 +71,17 @@ enum ResourceAccessLevel {
   VIEWER
 }
 
+enum AssistantScope {
+  CURRENT_RESOURCE
+  SELECTED_RESOURCES
+  AUTHORIZED_LIBRARY
+}
+
+enum AssistantMessageRole {
+  USER
+  ASSISTANT
+}
+
 model User {
   id                     String                   @id @default(cuid())
   email                  String                   @unique @db.VarChar(191)
@@ -117,6 +128,7 @@ model User {
   googleDriveConnections GoogleDriveConnection[]  @relation("GoogleDriveConnectionOwner")
   textCorrections        ResourceTextCorrection[] @relation("TextCorrectionAuthor")
   correctedIndexes       ResourceSearchIndex[]    @relation("TextCorrector")
+  assistantThreads       AssistantThread[]
 
   @@index([status])
   @@index([createdAt])
@@ -156,64 +168,66 @@ model Resource {
    */
 
   /// ใช้งานอยู่ หรือเก็บเข้าคลัง - แยกจากถังขยะโดยสิ้นเชิง
-  lifecycleState          ResourceLifecycleState   @default(ACTIVE)
-  archivedAt              DateTime?
-  archivedById            String?
+  lifecycleState           ResourceLifecycleState    @default(ACTIVE)
+  archivedAt               DateTime?
+  archivedById             String?
   /// นโยบายที่ถูกกำหนดให้เอกสารนี้
-  retentionPolicyId       String?
+  retentionPolicyId        String?
   /// เริ่มนับอายุจากวันไหน และนับจากอะไร
-  retentionStartAt        DateTime?
-  retentionStartBasis     RetentionStartBasis?
+  retentionStartAt         DateTime?
+  retentionStartBasis      RetentionStartBasis?
   /**
    * วันที่เก็บรักษาถึง - เป็น "ภาพนิ่ง" ที่คำนวณไว้ตอนกำหนดนโยบาย
    * ไม่คำนวณใหม่จากนโยบายทุกครั้งที่อ่าน เพราะถ้ามีคนแก้นิยามของนโยบาย
    * เอกสารหลายพันฉบับจะเปลี่ยนวันหมดอายุพร้อมกันโดยไม่มีใครตั้งใจ
    * และบางฉบับอาจกลายเป็น "ลบได้แล้ว" ทั้งที่เมื่อวานยังห้ามลบ
    */
-  retentionUntil          DateTime?
+  retentionUntil           DateTime?
   /// ภาพนิ่งของ retainForever ตอนกำหนดนโยบาย - แยก "เก็บถาวร" ออกจาก "ไม่มีนโยบาย"
-  retentionForever        Boolean                  @default(false)
-  isLocked                Boolean                  @default(false)
+  retentionForever         Boolean                   @default(false)
+  isLocked                 Boolean                   @default(false)
   /// ใครล็อก เมื่อไร และเพราะอะไร - สำคัญมากกับเอกสารบัญชีที่ปิดงบแล้ว
-  lockedAt                DateTime?
-  lockedById              String?
-  lockReason              String?                  @db.VarChar(500)
+  lockedAt                 DateTime?
+  lockedById               String?
+  lockReason               String?                   @db.VarChar(500)
   /// นโยบายการมองเห็น สืบทอดจากโฟลเดอร์แม่เมื่อสร้างทรัพยากรใหม่
-  visibility              ResourceVisibility       @default(ORGANIZATION)
+  visibility               ResourceVisibility        @default(ORGANIZATION)
   /// ไดร์ฟที่สังกัด สืบทอดจากโฟลเดอร์แม่เมื่อสร้าง/ย้ายทรัพยากร
-  driveScope              DriveScope               @default(MY_DRIVE)
+  driveScope               DriveScope                @default(MY_DRIVE)
   /// เลขเวอร์ชันปัจจุบันของไฟล์ (สะท้อนจาก ResourceVersion เพื่อให้ listing เร็ว)
-  currentVersion          Int?
-  deletedAt               DateTime?
+  currentVersion           Int?
+  deletedAt                DateTime?
   /// ผู้ที่ย้ายทรัพยากรไปถังขยะ และตำแหน่งเดิมก่อนถูกลบ ใช้สำหรับการกู้คืน
-  deletedById             String?
-  trashedFromId           String?                  @db.VarChar(191)
-  createdAt               DateTime                 @default(now())
-  updatedAt               DateTime                 @updatedAt
-  parent                  Resource?                @relation("ResourceHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
-  children                Resource[]               @relation("ResourceHierarchy")
-  owner                   User                     @relation("ResourceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  createdBy               User                     @relation("ResourceCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy               User?                    @relation("ResourceUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
-  deletedBy               User?                    @relation("ResourceDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
-  lockedBy                User?                    @relation("ResourceLocker", fields: [lockedById], references: [id], onDelete: SetNull)
-  documentCategory        DocumentCategory?        @relation(fields: [documentCategoryId], references: [id], onDelete: SetNull)
-  retentionPolicy         RetentionPolicy?         @relation(fields: [retentionPolicyId], references: [id], onDelete: SetNull)
-  archivedBy              User?                    @relation("ResourceArchiver", fields: [archivedById], references: [id], onDelete: SetNull)
-  legalHolds              LegalHold[]
-  access                  ResourceAccess[]
-  publicShareLinks        PublicShareLink[]
-  googleDriveSyncs        GoogleDriveSync[]
-  versions                ResourceVersion[]
-  tags                    ResourceTag[]
-  favoritedBy             UserFavorite[]
-  pinnedBy                UserPinnedResource[]
-  searchIndex             ResourceSearchIndex[]
-  semanticIndexes         SemanticDocumentIndex[]
-  semanticChunks          SemanticChunk[]
-  createdByIntegrationApp IntegrationApp?          @relation("IntegrationResourceCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
-  integrationScopeApps    IntegrationApp[]         @relation("IntegrationAllowedRoot")
-  integrationIdempotency  IntegrationIdempotency[]
+  deletedById              String?
+  trashedFromId            String?                   @db.VarChar(191)
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  parent                   Resource?                 @relation("ResourceHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children                 Resource[]                @relation("ResourceHierarchy")
+  owner                    User                      @relation("ResourceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  createdBy                User                      @relation("ResourceCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy                User?                     @relation("ResourceUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedBy                User?                     @relation("ResourceDeleter", fields: [deletedById], references: [id], onDelete: SetNull)
+  lockedBy                 User?                     @relation("ResourceLocker", fields: [lockedById], references: [id], onDelete: SetNull)
+  documentCategory         DocumentCategory?         @relation(fields: [documentCategoryId], references: [id], onDelete: SetNull)
+  retentionPolicy          RetentionPolicy?          @relation(fields: [retentionPolicyId], references: [id], onDelete: SetNull)
+  archivedBy               User?                     @relation("ResourceArchiver", fields: [archivedById], references: [id], onDelete: SetNull)
+  legalHolds               LegalHold[]
+  access                   ResourceAccess[]
+  publicShareLinks         PublicShareLink[]
+  googleDriveSyncs         GoogleDriveSync[]
+  versions                 ResourceVersion[]
+  tags                     ResourceTag[]
+  favoritedBy              UserFavorite[]
+  pinnedBy                 UserPinnedResource[]
+  searchIndex              ResourceSearchIndex[]
+  semanticIndexes          SemanticDocumentIndex[]
+  semanticChunks           SemanticChunk[]
+  assistantThreadResources AssistantThreadResource[]
+  assistantCitations       AssistantCitation[]
+  createdByIntegrationApp  IntegrationApp?           @relation("IntegrationResourceCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
+  integrationScopeApps     IntegrationApp[]          @relation("IntegrationAllowedRoot")
+  integrationIdempotency   IntegrationIdempotency[]
 
   @@index([parentId])
   @@index([ownerId])
@@ -258,6 +272,7 @@ model ResourceVersion {
   searchIndex             ResourceSearchIndex?
   semanticIndex           SemanticDocumentIndex?
   semanticChunks          SemanticChunk[]
+  assistantCitations      AssistantCitation[]
 
   @@unique([resourceId, versionNumber])
   @@index([resourceId])
@@ -265,6 +280,75 @@ model ResourceVersion {
   @@index([createdById])
   @@index([createdByIntegrationAppId])
   @@map("resource_versions")
+}
+
+/// Private, user-visible conversation. Hidden prompts and retrieved chunks are never stored.
+model AssistantThread {
+  id              String         @id @default(cuid())
+  userId          String
+  title           String         @db.VarChar(191)
+  scope           AssistantScope
+  includeArchived Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  user      User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resources AssistantThreadResource[]
+  messages  AssistantMessage[]
+
+  @@index([userId, updatedAt])
+  @@map("assistant_threads")
+}
+
+model AssistantThreadResource {
+  threadId   String
+  resourceId String
+  createdAt  DateTime @default(now())
+
+  thread   AssistantThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  resource Resource        @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@id([threadId, resourceId])
+  @@index([resourceId])
+  @@map("assistant_thread_resources")
+}
+
+model AssistantMessage {
+  id              String               @id @default(cuid())
+  threadId        String
+  role            AssistantMessageRole
+  content         String               @db.MediumText
+  clientRequestId String?              @db.VarChar(100)
+  createdAt       DateTime             @default(now())
+
+  thread    AssistantThread     @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  citations AssistantCitation[]
+
+  @@unique([threadId, clientRequestId])
+  @@index([threadId, createdAt])
+  @@map("assistant_messages")
+}
+
+model AssistantCitation {
+  id                String           @id @default(cuid())
+  messageId         String
+  resourceId        String
+  resourceVersionId String
+  evidenceId        String           @db.VarChar(16)
+  chunkIndex        Int?
+  startOffset       Int?
+  endOffset         Int?
+  textSource        SearchTextSource
+  snippet           String           @db.VarChar(500)
+  createdAt         DateTime         @default(now())
+
+  message         AssistantMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  resource        Resource         @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  resourceVersion ResourceVersion  @relation(fields: [resourceVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, evidenceId])
+  @@index([resourceId, resourceVersionId])
+  @@map("assistant_citations")
 }
 
 /// รายการโปรดส่วนบุคคล - เป็นความชอบของผู้ใช้ ไม่ใช่การให้สิทธิ์

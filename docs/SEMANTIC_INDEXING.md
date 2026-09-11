@@ -34,3 +34,6 @@ Extract/OCR ทำก่อน แล้ว enqueue semantic แยกต่า�
 MariaDB 12.3 ใช้ cosine `VECTOR INDEX` (modified HNSW, `M=8`) สำหรับ corpus กว้าง และ exact native-vector
 distance สำหรับ authorization scope ที่แคบไม่เกิน 2,000 resources เพื่อความแน่นอนของ relational filter
 ทั้งสองทางคำนวณใน MariaDB ไม่ดึง float arrays มาสแกนใน Node
+# F21
+
+F21 ไม่เปลี่ยน VECTOR/HNSW schema และใช้เฉพาะ chunk ของ current ResourceVersion/effective text การแก้ OCR ทำให้ semantic index ถูกสร้างใหม่ตามกลไก F20 เดิม

@@ -436,3 +436,6 @@ IP และอุปกรณ์ไม่เคยปรากฏในพอ�
 ไม่ใช่การขยายสิทธิ์ในพอร์ทัลของเขา - เส้นทาง `/api/public/shares/*` ไม่อ่าน session ของใครเลย
 
 ดู [PUBLIC_SHARE_LINKS.md](PUBLIC_SHARE_LINKS.md) และ [GUEST_ACCESS.md](GUEST_ACCESS.md)
+# F21 decision
+
+Client Portal ยังไม่มี AI assistant ใน F21 เส้นทางผู้ช่วยรับเฉพาะบัญชี INTERNAL เพื่อรอ recursive-grant adversarial QA เฉพาะทางในอนาคต Public/guest share ไม่มี generative endpoint เช่นกัน

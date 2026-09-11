@@ -104,3 +104,6 @@ Logger ตั้ง redact ไว้แล้วที่ `backend/src/core/logg
 - แขกไม่กลายเป็นผู้ใช้: ไม่มีแถว User ไม่มี UserIdentity ไม่มี session ภายใน
 
 ดู [PUBLIC_SHARE_SECURITY.md](PUBLIC_SHARE_SECURITY.md)
+# Document Assistant
+
+F21 บังคับ authorization-before-retrieval, internal accounts only, local inference และ validated evidence aliases ดู `DOCUMENT_ASSISTANT_SECURITY.md` ไม่มี model tools หรือ autonomous writes

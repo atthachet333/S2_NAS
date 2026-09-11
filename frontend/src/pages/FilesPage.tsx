@@ -429,6 +429,10 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
           {selectedEntries.length > 0 ? (
             <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2" role="toolbar" aria-label="การทำงานกับรายการที่เลือก">
               <span className="mr-auto text-[12px] font-semibold text-brand-700">เลือกแล้ว {selectedEntries.length} รายการ</span>
+              {selectedEntries.every((entry) => entry.kind === 'file' && entry.resourceType === 'FILE') && selectedEntries.length <= 20 ? <button
+                type="button" className="s2-btn s2-btn-primary" onClick={() => window.dispatchEvent(new CustomEvent('s2-open-assistant', { detail: { resources: selectedEntries.map((entry) => ({ id: entry.id, name: entry.name })), scope: selectedEntries.length === 1 ? 'CURRENT_RESOURCE' : 'SELECTED_RESOURCES' } }))}>
+                ถาม AI
+              </button> : null}
               <button
                 type="button"
                 className="s2-btn s2-btn-outline"
