@@ -6,6 +6,8 @@ import { prisma } from '../src/core/prisma.js';
 import { localEmbeddingProvider } from '../src/modules/semantic/local-embedding.provider.js';
 import { SEMANTIC_MODEL_VERSION } from '../src/modules/semantic/provider.js';
 import { semanticCandidates } from '../src/modules/semantic/vector-search.js';
+import { writeQaVersionFile } from '../src/modules/assistant/qa-fixture.js';
+import { removeResourceDirectory } from '../src/core/file-storage.js';
 
 const digits = Prisma.raw('(SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9)');
 
@@ -17,9 +19,17 @@ async function main(): Promise<void> {
     type: 'FILE', name: `${marker}.txt`, normalizedName: `${marker}.txt`, siblingKey: marker,
     ownerId: user.id, createdById: user.id, currentVersion: 1, size: 1n, extension: 'txt', mimeType: 'text/plain',
   } });
+  /**
+   * เขียนไฟล์จริงก่อนสร้างแถวเสมอ
+   *
+   * เดิมแถวนี้ชี้ไปยัง storageKey ที่ไม่มีไฟล์อยู่จริง ถ้าสคริปต์ถูกขัดจังหวะก่อนเก็บกวาด
+   * แถวกำพร้าจะค้างอยู่ แล้วการตรวจความครบถ้วนของชุดสำรองจะรายงาน
+   * BACKUP_STORAGE_INCOMPLETE ในภายหลัง โดยที่โค้ดจริงไม่มีอะไรผิดเลย
+   */
+  const stored = await writeQaVersionFile(resource.id, `${marker} disposable performance fixture`);
   const version = await prisma.resourceVersion.create({ data: {
-    resourceId: resource.id, versionNumber: 1, storageKey: `qa/${marker}`, size: 1n,
-    checksum: marker, mimeType: 'text/plain', createdById: user.id,
+    resourceId: resource.id, versionNumber: 1, storageKey: stored.storageKey, size: stored.size,
+    checksum: stored.checksum, mimeType: 'text/plain', createdById: user.id,
   } });
   const document = await prisma.semanticDocumentIndex.create({ data: {
     resourceId: resource.id, resourceVersionId: version.id, versionNumber: 1, status: 'READY',
@@ -58,8 +68,11 @@ async function main(): Promise<void> {
       matched: first.length === 1,
     }, null, 2));
   } finally {
-    await prisma.resource.delete({ where: { id: resource.id } });
-    await prisma.user.delete({ where: { id: user.id } });
+    // deleteMany ทำให้เรียกซ้ำได้ ไม่โยนข้อผิดพลาดทับสาเหตุเดิมถ้าถูกลบไปแล้ว
+    await prisma.resource.deleteMany({ where: { id: resource.id } });
+    await prisma.user.deleteMany({ where: { id: user.id } });
+    // ลบไฟล์บนดิสก์ด้วย เก็บกวาดครึ่งเดียวคือที่มาของแถวกำพร้า
+    await removeResourceDirectory(resource.id);
     await localEmbeddingProvider().dispose();
     await prisma.$disconnect();
   }
