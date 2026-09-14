@@ -53,9 +53,13 @@
     "qa:f21-acceptance": "tsx scripts/run-assistant-tests.ts --acceptance",
     "qa:f21-browser-fixture": "tsx scripts/f21-browser-fixture.ts",
     "qa:f21-contention": "tsx scripts/run-assistant-tests.ts --contention",
-    "test:smart-filing": "tsx scripts/run-smart-filing-tests.ts"
+    "test:smart-filing": "tsx scripts/run-smart-filing-tests.ts",
+    "storage:migrate": "tsx scripts/storage-migrate.ts",
+    "audit:storage": "tsx scripts/storage-audit.ts",
+    "qa:s3-smoke": "tsx scripts/s3-smoke.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1131.0",
     "@fastify/cookie": "^11.1.2",
     "@fastify/cors": "^10.0.2",
     "@fastify/helmet": "^13.0.1",

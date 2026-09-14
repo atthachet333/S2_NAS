@@ -1,8 +1,8 @@
-import { access, writeFile } from 'node:fs/promises';
+import { Readable } from 'node:stream';
 import crypto from 'node:crypto';
 import type { SearchTextSource } from '@prisma/client';
 import { removeResourceDirectory } from '../../core/file-storage.js';
-import { resolveStorageKey, storageProvider } from '../../core/storage-provider.js';
+import { writeStorageProvider } from '../../core/storage/index.js';
 import { prisma } from '../../core/prisma.js';
 
 /**
@@ -84,13 +84,13 @@ export class QaFixtureScope {
       ownerId: spec.ownerId, createdById: spec.ownerId, extension, mimeType: 'text/plain',
       visibility: spec.visibility ?? 'ORGANIZATION', currentVersion: spec.versions.length } });
 
-    await storageProvider.ensureResourceDirectory(resourceId);
+    await writeStorageProvider().prepare(resourceId);
     for (const [index, version] of spec.versions.entries()) {
       const bytes = Buffer.from(version.text, 'utf8');
-      const storageKey = storageProvider.createStorageKey(resourceId);
+      const storageKey = writeStorageProvider().createStorageKey(resourceId);
       // เขียนไฟล์ก่อนบันทึกแถวเสมอ ถ้าลำดับกลับกันแล้วขั้นตอนเขียนล้มเหลว
       // จะเหลือแถวที่ชี้ไปยังไฟล์ที่ไม่มีอยู่ ซึ่งคือสภาพที่กำลังแก้อยู่พอดี
-      await writeFile(resolveStorageKey(storageKey), bytes);
+      await writeStorageProvider().put(storageKey, Readable.from(bytes));
       const row = await prisma.resourceVersion.create({ data: { resourceId, versionNumber: index + 1,
         storageKey, size: BigInt(bytes.byteLength),
         checksum: crypto.createHash('sha256').update(bytes).digest('hex'), createdById: spec.ownerId } });
@@ -143,8 +143,7 @@ export async function countOrphanStorageReferences(resourceIds?: string[]): Prom
     select: { storageKey: true } });
   let orphans = 0;
   for (const version of versions) {
-    try { await access(resolveStorageKey(version.storageKey)); }
-    catch { orphans++; }
+    if (!await writeStorageProvider().exists(version.storageKey)) orphans++;
   }
   return orphans;
 }
@@ -160,9 +159,9 @@ export async function writeQaVersionFile(resourceId: string, text: string): Prom
   storageKey: string; size: bigint; checksum: string;
 }> {
   const bytes = Buffer.from(text, 'utf8');
-  await storageProvider.ensureResourceDirectory(resourceId);
-  const storageKey = storageProvider.createStorageKey(resourceId);
-  await writeFile(resolveStorageKey(storageKey), bytes);
+  await writeStorageProvider().prepare(resourceId);
+  const storageKey = writeStorageProvider().createStorageKey(resourceId);
+  await writeStorageProvider().put(storageKey, Readable.from(bytes));
   return { storageKey, size: BigInt(bytes.byteLength), checksum: crypto.createHash('sha256').update(bytes).digest('hex') };
 }
 

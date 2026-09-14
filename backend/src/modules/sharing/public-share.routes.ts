@@ -340,12 +340,13 @@ async function guestContent(share: ResolvedShare, requestedId?: string) {
 
   const file = await prisma.resource.findUnique({
     where: { id: resource.id },
-    select: { storageKey: true, size: true, mimeType: true, name: true, currentVersion: true },
+    select: { storageKey: true, storageProvider: true, size: true, mimeType: true, name: true, currentVersion: true },
   });
   if (!file?.storageKey) throw shareUnavailable();
 
   return {
     storageKey: file.storageKey,
+    storageProvider: file.storageProvider,
     size: file.size === null ? 0 : Number(file.size),
     mimeType: file.mimeType ?? 'application/octet-stream',
     fileName: file.name,

@@ -12,7 +12,21 @@ import fsp from 'node:fs/promises';
  * เพราะชุดสำรองอาจถูกคัดลอกไปเก็บที่อื่นซึ่งควบคุมการเข้าถึงได้น้อยกว่า
  */
 
-export const MANIFEST_VERSION = 1;
+/**
+ * รุ่น 2 เพิ่มข้อมูลที่ทำให้ชุดสำรองไม่ผูกกับผู้ให้บริการต้นทาง (F23-F)
+ *
+ * ชุดสำรองรุ่น 1 ยังกู้คืนได้ตามปกติ - ฟิลด์ใหม่เป็นทางเลือกทั้งหมด และตัวกู้คืน
+ * ถือว่าวัตถุที่ไม่ระบุผู้ให้บริการเดิมคือของที่เคยอยู่บนดิสก์ ซึ่งจริงสำหรับทุกชุดสำรองรุ่น 1
+ */
+export const MANIFEST_VERSION = 2;
+
+/**
+ * โหมดของชุดสำรอง
+ *
+ * PORTABLE_FULL คือชุดที่กู้คืนได้ด้วยตัวเองทั้งหมด มีทั้งดัมป์ฐานข้อมูลและไบต์ของทุกวัตถุ
+ * ไม่ต้องพึ่งผู้ให้บริการต้นทางว่ายังมีอยู่หรือไม่ นี่คือชุดสำรองสำหรับกู้ภัยของ S2 NAS
+ */
+export type BackupMode = 'PORTABLE_FULL';
 
 export interface ManifestObject {
   /** storageKey เชิงตรรกะ ใช้เป็นเส้นทางสัมพัทธ์ใต้ storage/ ของชุดสำรองด้วย */
@@ -21,10 +35,21 @@ export interface ManifestObject {
   checksum: string;
   resourceId: string;
   versionNumber: number | null;
+  /** รหัสแถวเวอร์ชัน - ทำให้เทียบกลับได้ตรงตัวโดยไม่ต้องเดาจากคีย์ */
+  resourceVersionId?: string;
+  /**
+   * ผู้ให้บริการที่วัตถุนี้เคยอยู่ตอนสำรอง - เป็นข้อมูลประกอบเท่านั้น
+   *
+   * การกู้คืนไม่ใช้ค่านี้เลือกปลายทาง ปลายทางมาจากคำสั่งกู้คืนเสมอ
+   * ค่านี้มีไว้ให้คนที่มาอ่านภายหลังเข้าใจว่าชุดสำรองนี้เกิดจากระบบแบบใด
+   */
+  originalProvider?: 'LOCAL' | 'S3';
 }
 
 export interface BackupManifest {
   manifestVersion: number;
+  /** ชุดสำรองรุ่น 1 ไม่มีฟิลด์นี้ และถือเป็น PORTABLE_FULL เสมอ */
+  mode?: BackupMode;
   backupId: string;
   backupName: string;
   createdAt: string;

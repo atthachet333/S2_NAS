@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { BRAND } from '../../config/branding.js';
 import { checkDatabase } from '../../core/database.js';
 import { verifyStorage } from '../../core/storage.js';
+import { storageProviderDiagnostics } from '../../core/storage/index.js';
 import { semanticDiagnostics } from '../semantic/semantic-index.service.js';
 import { assistantDiagnostics } from '../assistant/assistant.service.js';
 
@@ -17,7 +18,9 @@ import { assistantDiagnostics } from '../assistant/assistant.service.js';
  */
 export async function healthRoutes(app: FastifyInstance): Promise<void> {
   app.get('/health', async (_request, reply) => {
-    const [db, storage] = await Promise.all([checkDatabase(), verifyStorage()]);
+    const [db, storage, providers] = await Promise.all([
+      checkDatabase(), verifyStorage(), storageProviderDiagnostics(),
+    ]);
 
     const database =
       db.status === 'CONNECTED'
@@ -33,7 +36,14 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
           ? 'read_only'
           : 'unavailable';
 
-    const healthy = database === 'connected' && storageState === 'ready';
+    /**
+     * ความพร้อมของ "การเขียนใหม่" ขึ้นกับผู้ให้บริการที่ตั้งไว้เป็นค่าเริ่มต้น
+     *
+     * ระบบที่ตั้งค่าให้เขียนลง S3 แล้ว S3 ล่ม ยังให้คนเปิดดูเอกสารเก่าบนดิสก์ได้
+     * แต่ต้องไม่รายงานว่าทุกอย่างปกติ เพราะการอัปโหลดครั้งต่อไปจะล้มเหลวแน่นอน
+     */
+    const writeProviderReady = providers.providers[providers.defaultProvider] === 'READY';
+    const healthy = database === 'connected' && storageState === 'ready' && writeProviderReady;
     const degraded = storageState === 'ready' && database !== 'connected';
 
     const status = healthy ? 'ok' : degraded ? 'degraded' : 'error';
@@ -49,6 +59,8 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
       service: BRAND.service,
       database,
       storage: storageState,
+      /** รายงานเฉพาะชนิดและสถานะ ไม่มีปลายทาง ถัง ภูมิภาค คำนำหน้า หรือความลับใด ๆ */
+      storageProviders: providers,
       semanticSearch: semantic.health,
       documentAssistant: assistant.status,
       uptime: Math.round(process.uptime()),

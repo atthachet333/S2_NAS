@@ -415,12 +415,12 @@ async function currentVersionFingerprint(resourceId: string): Promise<string | n
 
   const version = await prisma.resourceVersion.findFirst({
     where: { resourceId, versionNumber: current.currentVersion },
-    select: { storageKey: true, mimeType: true },
+    select: { storageKey: true, storageProvider: true, mimeType: true },
   });
   if (!version) return null;
 
   try {
-    const bytes = await collectBounded(createStoredFileStream(version.storageKey));
+    const bytes = await collectBounded(await createStoredFileStream(version.storageKey, undefined, version.storageProvider));
     return contentFingerprint(bytes, version.mimeType ?? current.mimeType ?? '');
   } catch {
     return null;

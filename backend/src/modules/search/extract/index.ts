@@ -1,7 +1,8 @@
 import fsp from 'node:fs/promises';
 import { env } from '../../../config/env.js';
-import { statStoredFile } from '../../../core/file-storage.js';
-import { resolveStorageKey } from '../../../core/storage-provider.js';
+import { createStoredFileStream, statStoredFile } from '../../../core/file-storage.js';
+import { withLocalMaterialization } from '../../../core/storage/materialize.js';
+import type { StorageProviderKind } from '../../../core/storage/provider.js';
 import { cleanExtractedText, normalizeForSearch, truncateText } from './normalize.js';
 import { extractDocx, extractPptx, extractXlsx, OoxmlSafetyError } from './ooxml.js';
 import { extractPdfText, PdfExtractError } from './pdf.js';
@@ -86,16 +87,25 @@ function looksLikeText(buffer: Buffer): boolean {
   return replacements / Math.max(decoded.length, 1) < 0.05;
 }
 
-async function readWholeFile(storageKey: string, maxBytes: number): Promise<Buffer> {
-  const path = resolveStorageKey(storageKey);
-  const handle = await fsp.open(path, 'r');
-  try {
-    const buffer = Buffer.alloc(maxBytes);
-    const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0);
-    return buffer.subarray(0, bytesRead);
-  } finally {
-    await handle.close();
+/**
+ * อ่านเนื้อไฟล์ผ่านสตรีมของผู้ให้บริการ โดยหยุดเมื่อครบเพดานที่ตั้งไว้
+ *
+ * ไม่เปิดไฟล์บนดิสก์โดยตรง เพราะวัตถุอาจไม่ได้อยู่บนดิสก์ และการหยุดอ่านเมื่อครบ
+ * เพดานทำให้ไฟล์ใหญ่ไม่ถูกดึงลงมาทั้งก้อนเพียงเพื่อจะตัดทิ้งภายหลัง
+ */
+async function readWholeFile(
+  storageKey: string, maxBytes: number, provider: StorageProviderKind,
+): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  const stream = await createStoredFileStream(storageKey, undefined, provider);
+  for await (const chunk of stream) {
+    const buffer = chunk as Buffer;
+    chunks.push(buffer);
+    total += buffer.length;
+    if (total >= maxBytes) { stream.destroy(); break; }
   }
+  return Buffer.concat(chunks).subarray(0, maxBytes);
 }
 
 /** ตัวจับเวลาต่อไฟล์ - ไฟล์ที่ทำให้ตัวสกัดช้าผิดปกติต้องไม่หยุดคิวทั้งคิว */
@@ -128,11 +138,14 @@ export async function extractFromStorage(input: {
   storageKey: string;
   extension: string | null;
   mimeType: string | null;
+  /** ผู้ให้บริการที่บันทึกไว้กับเวอร์ชันนี้ - ค่าที่ไม่ได้ส่งมาหมายถึงดิสก์ของเครื่อง */
+  storageProvider?: StorageProviderKind;
 }): Promise<ExtractOutcome> {
+  const provider = input.storageProvider ?? 'LOCAL';
   const handler = handlerFor(input.extension, input.mimeType);
   if (!handler) return { kind: 'UNSUPPORTED' };
 
-  const stat = await statStoredFile(input.storageKey);
+  const stat = await statStoredFile(input.storageKey, provider);
   if (!stat) return { kind: 'FAILED', errorCode: 'FILE_MISSING' };
   if (stat.size > env.S2_NAS_EXTRACT_MAX_FILE_BYTES) {
     return { kind: 'FAILED', errorCode: 'FILE_TOO_LARGE_TO_INDEX' };
@@ -140,7 +153,7 @@ export async function extractFromStorage(input: {
 
   try {
     const raw = await withTimeout(async () => {
-      const buffer = await readWholeFile(input.storageKey, env.S2_NAS_EXTRACT_MAX_FILE_BYTES);
+      const buffer = await readWholeFile(input.storageKey, env.S2_NAS_EXTRACT_MAX_FILE_BYTES, provider);
 
       switch (handler) {
         case 'TEXT':
@@ -149,11 +162,15 @@ export async function extractFromStorage(input: {
         case 'PDF':
           return extractPdfText(buffer);
         case 'DOCX':
-          return extractDocx(resolveStorageKey(input.storageKey));
         case 'XLSX':
-          return extractXlsx(resolveStorageKey(input.storageKey));
-        case 'PPTX':
-          return extractPptx(resolveStorageKey(input.storageKey));
+        case 'PPTX': {
+          const target = { storageKey: input.storageKey, storageProvider: provider, expectedSize: stat.size };
+          return withLocalMaterialization(target, async (localPath) => {
+            if (handler === 'DOCX') return extractDocx(localPath);
+            if (handler === 'XLSX') return extractXlsx(localPath);
+            return extractPptx(localPath);
+          });
+        }
         default:
           return null;
       }

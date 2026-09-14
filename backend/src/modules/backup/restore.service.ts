@@ -1,13 +1,17 @@
+import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { env } from '../../config/env.js';
 import { AppError, notFound } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
 import { prisma } from '../../core/prisma.js';
+import { storageProviderFor } from '../../core/storage/index.js';
+import type { StorageProviderKind } from '@prisma/client';
 import type { AuthUser } from '../auth/auth.service.js';
 import { BACKUP_PATHS, backupDirectory, verifyBackupFiles } from './backup.service.js';
 import { importDump, parseDatabaseUrl, runSql } from './mariadb-cli.js';
 import { isSafeStorageKey, readManifest, sha256File, type BackupManifest } from './manifest.js';
+import { listStagedObjectKeys, restoreObjectsToTarget, stagedObjectKey } from './restore-target.js';
 import { acquireOperationLock } from './operation-lock.js';
 import { acquireDistributedLock } from './distributed-lock.js';
 
@@ -36,6 +40,8 @@ export interface RestorePrecheckResult {
 export interface RestoreStageResult {
   ok: boolean;
   backupId: string;
+  /** ผู้ให้บริการที่ไบต์ถูกกู้คืนไปจริง - มาจากคำสั่ง ไม่ใช่จากชุดสำรอง */
+  targetProvider: StorageProviderKind;
   stagedDatabase: string;
   /** ชื่อโฟลเดอร์พักเท่านั้น ไม่ใช่ absolute path */
   stagedStorageName: string;
@@ -157,11 +163,23 @@ export async function restorePrecheck(
  *
  * ระบบที่ใช้งานจริงไม่ถูกเขียนแม้แต่ไบต์เดียวในขั้นตอนนี้
  */
+export interface StageRestoreOptions {
+  /**
+   * ผู้ให้บริการปลายทางของไบต์ที่กู้คืน - ค่าเริ่มต้นคือดิสก์ของเครื่อง
+   *
+   * ไม่เคยอ่านจาก manifest เด็ดขาด ชุดสำรองที่มาจากระบบซึ่งใช้ที่เก็บวัตถุ
+   * ต้องกู้ลงดิสก์ได้ และชุดสำรองจากดิสก์ต้องกู้ขึ้นที่เก็บวัตถุได้เช่นกัน
+   */
+  targetProvider?: StorageProviderKind;
+}
+
 export async function stageRestore(
   id: string,
   user: AuthUser,
   audit: { ipAddress?: string; userAgent?: string } = {},
+  options: StageRestoreOptions = {},
 ): Promise<RestoreStageResult> {
+  const targetProvider = options.targetProvider ?? 'LOCAL';
   const release = acquireOperationLock('RESTORE');
   const distributed = await acquireDistributedLock('RESTORE_STAGE').catch(async (error: unknown) => {
     release();
@@ -192,29 +210,33 @@ export async function stageRestore(
     await fsp.rm(stageDir, { recursive: true, force: true });
     await fsp.mkdir(stageDir, { recursive: true });
 
-    let restoredObjects = 0;
-    let verifiedObjects = 0;
-    const problems: string[] = [];
+    /**
+     * กู้ไบต์ขึ้นปลายทางที่เลือก แล้วตรวจซ้ำจากปลายทางเอง
+     *
+     * ปลายทางมาจากคำสั่งเสมอ ไม่ใช่จาก originalProvider ที่บันทึกไว้ใน manifest
+     * ชุดสำรองจากระบบที่ใช้ที่เก็บวัตถุจึงกู้ลงดิสก์ได้ และกลับกันก็ได้เช่นกัน
+     */
+    const { restored: restoredObjects, verified: verifiedObjects, problems } =
+      await restoreObjectsToTarget(
+        manifest.storage.objects,
+        path.join(backupRoot, BACKUP_PATHS.STORAGE_DIR),
+        { provider: targetProvider, localStageDir: stageDir, runId: id },
+      );
 
-    for (const object of manifest.storage.objects) {
-      if (!isSafeStorageKey(object.storageKey)) {
-        problems.push('พบเส้นทางที่ไม่ปลอดภัยใน manifest');
-        continue;
-      }
-      const source = path.join(backupRoot, BACKUP_PATHS.STORAGE_DIR, object.storageKey);
-      const destination = path.join(stageDir, object.storageKey);
-      await fsp.mkdir(path.dirname(destination), { recursive: true });
-      await fsp.copyFile(source, destination);
-      restoredObjects += 1;
-
-      const stat = await fsp.stat(destination);
-      const checksum = await sha256File(destination);
-      if (stat.size === object.size && checksum === object.checksum) verifiedObjects += 1;
-      else problems.push(`ไฟล์ที่กู้มาไม่ตรงกับ manifest: ${object.storageKey}`);
-    }
+    /**
+     * ข้อมูลกำกับในฐานข้อมูลพักต้องชี้ไปยังปลายทางที่กู้จริง
+     *
+     * ถ้าคงค่าเดิมจากชุดสำรองไว้ ระบบที่กู้คืนแล้วจะไปหาไฟล์ที่ผู้ให้บริการเดิม
+     * ซึ่งอาจไม่มีอยู่ในโลกของเครื่องปลายทางเลย แถว Resource ถูกปรับตามด้วย
+     * เพราะมันสะท้อนเวอร์ชันปัจจุบันซึ่งย้ายปลายทางไปพร้อมกันทั้งชุด
+     */
+    await runSql(target,
+      `UPDATE resource_versions SET storageProvider = '${targetProvider}'`, stagedDatabase);
+    await runSql(target,
+      `UPDATE resources SET storageProvider = '${targetProvider}' WHERE storageKey IS NOT NULL`, stagedDatabase);
 
     /* ---- 2c. กระทบยอดฐานข้อมูลที่กู้มากับไฟล์ที่กู้มา ---- */
-    const reconciliation = await reconcile(target, stagedDatabase, stageDir, manifest);
+    const reconciliation = await reconcile(target, stagedDatabase, stageDir, manifest, targetProvider, id);
     if (!reconciliation.ok) problems.push('ข้อมูลกับไฟล์ที่กู้คืนมาไม่สอดคล้องกัน');
 
     const ok = problems.length === 0 && reconciliation.ok && verifiedObjects === manifest.storage.objectCount;
@@ -234,6 +256,7 @@ export async function stageRestore(
       backupId: id,
       stagedDatabase,
       stagedStorageName,
+      targetProvider,
       restoredObjects,
       verifiedObjects,
       reconciliation,
@@ -256,6 +279,8 @@ async function reconcile(
   stagedDatabase: string,
   stageDir: string,
   manifest: BackupManifest,
+  targetProvider: StorageProviderKind,
+  runId: string,
 ): Promise<ReconciliationResult> {
   const rows = await runSql(
     target,
@@ -280,21 +305,40 @@ async function reconcile(
   const checksumMismatches: string[] = [];
   const expectedKeys = new Set<string>();
 
+  /**
+   * กระทบยอดกับปลายทางที่กู้จริง
+   *
+   * ปลายทางบนดิสก์อ่านจากโฟลเดอร์พัก ส่วนปลายทางบนที่เก็บวัตถุอ่านจากคีย์ของรอบนี้
+   * การอ่านผิดที่จะทำให้การกู้คืนที่สมบูรณ์ถูกรายงานว่าไฟล์หายทั้งหมด
+   */
   for (const row of versionRows) {
     expectedKeys.add(row.storageKey);
-    const filePath = path.join(stageDir, row.storageKey);
     try {
-      const stat = await fsp.stat(filePath);
-      if (stat.size !== row.size) sizeMismatches.push(row.storageKey);
-      const actual = await sha256File(filePath);
-      if (actual !== row.checksum) checksumMismatches.push(row.storageKey);
+      if (targetProvider === 'LOCAL') {
+        const filePath = path.join(stageDir, row.storageKey);
+        const stat = await fsp.stat(filePath);
+        if (stat.size !== row.size) sizeMismatches.push(row.storageKey);
+        const actual = await sha256File(filePath);
+        if (actual !== row.checksum) checksumMismatches.push(row.storageKey);
+      } else {
+        const provider = storageProviderFor(targetProvider);
+        const key = stagedObjectKey(runId, row.storageKey);
+        const stat = await provider.stat(key);
+        if (!stat) { missingFiles.push(row.storageKey); continue; }
+        if (stat.size !== row.size) sizeMismatches.push(row.storageKey);
+        const hash = crypto.createHash('sha256');
+        for await (const chunk of await provider.getStream(key)) hash.update(chunk as Buffer);
+        if (hash.digest('hex') !== row.checksum) checksumMismatches.push(row.storageKey);
+      }
     } catch {
       missingFiles.push(row.storageKey);
     }
   }
 
   // ไฟล์ส่วนเกิน: อยู่ในพื้นที่พักแต่ไม่มีแถวใดอ้างถึง
-  const present = await listRelativeFiles(stageDir);
+  const present = targetProvider === 'LOCAL'
+    ? await listRelativeFiles(stageDir)
+    : await listStagedObjectKeys(targetProvider, runId);
   const orphanFiles = present.filter((key) => !expectedKeys.has(key) && !manifest.storage.objects.some((o) => o.storageKey === key));
 
   /**

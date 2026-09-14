@@ -37,6 +37,7 @@ export const portalResourceSelect = {
   deletedAt: true,
   currentVersion: true,
   storageKey: true,
+  storageProvider: true,
   createdAt: true,
   updatedAt: true,
   createdBy: { select: { id: true, displayName: true } },

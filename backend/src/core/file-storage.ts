@@ -1,23 +1,29 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
-import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { Readable } from 'node:stream';
 import { env } from '../config/env.js';
 import { AppError } from './errors.js';
-import { logger } from './logger.js';
 import { resolveInsideStorage } from './storage.js';
-import { storageProvider, resolveStorageKey } from './storage-provider.js';
+import { storageProviderFor, writeStorageProvider } from './storage/index.js';
+import type { StorageProviderKind } from './storage/provider.js';
 
 /**
- * การเขียนและอ่านไฟล์จริงบนดิสก์
+ * เส้นทางอ่านเขียนไฟล์ของชั้นธุรกิจ (F23-B)
  *
- * หลักการ:
+ * **ไฟล์นี้ไม่รู้จักดิสก์อีกต่อไป** ทุกการอ่านเขียนวัตถุถูกส่งต่อให้ผู้ให้บริการ
+ * พื้นที่จัดเก็บ ส่วนที่เหลือที่ยังใช้ node:fs โดยตรงคือ "พื้นที่พักระหว่างอัปโหลด"
+ * ซึ่งเป็นของชั่วคราวบนเครื่องที่รันอยู่ ไม่ใช่ที่เก็บถาวรของเอกสาร
+ *
+ * หลักการเดิมที่ยังใช้อยู่ทุกข้อ:
  * - สตรีมเสมอ ไม่โหลดไฟล์ทั้งก้อนเข้าหน่วยความจำ
- * - เขียนลงพื้นที่ชั่วคราวก่อน คำนวณ checksum ระหว่างสตรีม แล้วค่อยย้ายเข้าที่จริง
- * - ถ้าขั้นตอนฐานข้อมูลล้มเหลว ผู้เรียกต้องสั่งลบไฟล์ที่ staged ไว้ (ดู discardStagedFile)
+ * - พักไฟล์ก่อน คำนวณ checksum ระหว่างสตรีม แล้วค่อยย้ายเข้าที่จริง
+ * - ถ้าขั้นตอนฐานข้อมูลล้มเหลว ผู้เรียกต้องสั่งลบไฟล์ที่พักไว้ (ดู discardStagedFile)
  * - storageKey เป็นตัวระบุภายในเท่านั้น ห้ามส่งออกไปยัง client
+ *
+ * **ผู้ให้บริการของแถว ไม่ใช่ของระบบ:** ทุกฟังก์ชันที่อ่านวัตถุรับ provider ของเวอร์ชัน
+ * นั้นได้ ค่าที่ไม่ได้ส่งมาหมายถึงดิสก์ของเครื่อง ซึ่งเป็นที่อยู่ของทุกแถวในวันนี้
  */
 
 export interface StagedFile {
@@ -31,6 +37,8 @@ export interface StoredFile {
   storageKey: string;
   size: number;
   checksum: string;
+  /** ผู้ให้บริการที่วัตถุนี้ถูกเขียนลงไปจริง - ต้องถูกบันทึกคู่กับคีย์เสมอ */
+  provider: StorageProviderKind;
 }
 
 const TEMP_DIR = 'temp';
@@ -84,24 +92,25 @@ export async function stageUpload(
 }
 
 /**
- * ย้ายไฟล์ที่ staged ไว้เข้าตำแหน่งจริงภายใต้ storage key ที่ backend เป็นผู้กำหนด
- * ใช้ rename ก่อน ถ้าข้าม volume ไม่ได้จึงถอยไปใช้ copy + unlink
+ * ย้ายไฟล์ที่พักไว้เข้าตำแหน่งจริงภายใต้ storage key ที่ backend เป็นผู้กำหนด
+ *
+ * คีย์และการเตรียมที่ทางมาจากผู้ให้บริการ ผู้เรียกจึงไม่ต้องรู้ว่าปลายทางหน้าตาอย่างไร
  */
 export async function commitStagedFile(staged: StagedFile, resourceId: string): Promise<StoredFile> {
-  await storageProvider.ensureResourceDirectory(resourceId);
-  const storageKey = storageProvider.createStorageKey(resourceId);
-  const target = resolveStorageKey(storageKey);
-
-  await fsp.mkdir(path.dirname(target), { recursive: true });
-
-  try {
-    await fsp.rename(staged.tempPath, target);
-  } catch {
-    await fsp.copyFile(staged.tempPath, target);
-    await safeUnlink(staged.tempPath);
-  }
-
-  return { storageKey, size: staged.size, checksum: staged.checksum };
+  /**
+   * จับผู้ให้บริการไว้ครั้งเดียวแล้วใช้ตัวเดิมตลอดการทำงานนี้
+   *
+   * ถ้าเรียกใหม่ทุกบรรทัด การเปลี่ยนค่าตั้งระหว่างที่การอัปโหลดกำลังทำงานอยู่
+   * จะทำให้คีย์ถูกสร้างจากผู้ให้บริการหนึ่งแต่ไบต์ไปอยู่กับอีกผู้ให้บริการหนึ่ง
+   * และค่าที่บันทึกลงฐานข้อมูลจะไม่ตรงกับที่ใดเลย
+   */
+  const provider = writeStorageProvider();
+  await provider.prepare(resourceId);
+  const storageKey = provider.createStorageKey(resourceId);
+  await provider.commitStaged(storageKey, {
+    path: staged.tempPath, size: staged.size, checksum: staged.checksum,
+  });
+  return { storageKey, size: staged.size, checksum: staged.checksum, provider: provider.kind };
 }
 
 /** ลบไฟล์ชั่วคราวเมื่อกระบวนการล้มเหลวก่อนบันทึกฐานข้อมูลสำเร็จ */
@@ -110,28 +119,40 @@ export async function discardStagedFile(staged: StagedFile): Promise<void> {
 }
 
 /**
- * ลบไฟล์จริงของ storage key หนึ่ง ๆ
- * คืน false เมื่อลบไม่สำเร็จ เพื่อให้ผู้เรียกรายงานความล้มเหลวตามจริง ไม่ใช่แกล้งว่าสำเร็จ
+ * อ่านไบต์แรกของไฟล์ที่พักไว้ เพื่อตรวจชนิดไฟล์จากลายเซ็นจริง
+ *
+ * ชั้นธุรกิจไม่ควรรู้ว่าไฟล์ที่พักไว้เป็นไฟล์บนดิสก์หรืออะไรอย่างอื่น มันรู้แค่ว่า
+ * "ขอไบต์แรกของสิ่งที่เพิ่งอัปโหลดมา" การเปิด createReadStream เองในบริการอัปโหลด
+ * ทำให้รูปแบบของพื้นที่พักรั่วออกไป และกลายเป็นจุดที่ต้องแก้เมื่อพื้นที่พักเปลี่ยนรูป
  */
-export async function deleteStoredFile(storageKey: string): Promise<boolean> {
+export async function readStagedHead(staged: StagedFile, bytes: number): Promise<Buffer> {
+  const handle = await fsp.open(staged.tempPath, 'r');
   try {
-    await fsp.unlink(resolveStorageKey(storageKey));
-    return true;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') return true; // ไม่มีไฟล์อยู่แล้ว ถือว่าปลายทางถูกต้อง
-    logger.error({ code }, '[STORAGE] ลบไฟล์จริงไม่สำเร็จ');
-    return false;
+    const buffer = Buffer.alloc(bytes);
+    const { bytesRead } = await handle.read(buffer, 0, bytes, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
   }
 }
 
-/** ลบโฟลเดอร์ของทรัพยากรเมื่อไม่มีเวอร์ชันเหลืออยู่แล้ว */
-export async function removeResourceDirectory(resourceId: string): Promise<void> {
-  try {
-    await fsp.rm(resolveInsideStorage('resources', resourceId), { recursive: true, force: true });
-  } catch {
-    /* ไม่ใช่ความล้มเหลวร้ายแรง ปล่อยให้ retention job เก็บกวาดภายหลัง */
-  }
+/**
+ * ลบวัตถุของ storage key หนึ่ง ๆ
+ * คืน false เมื่อลบไม่สำเร็จ เพื่อให้ผู้เรียกรายงานความล้มเหลวตามจริง ไม่ใช่แกล้งว่าสำเร็จ
+ */
+export async function deleteStoredFile(
+  storageKey: string,
+  provider?: StorageProviderKind | null,
+): Promise<boolean> {
+  return storageProviderFor(provider).delete(storageKey);
+}
+
+/** ลบวัตถุทั้งหมดของทรัพยากรเมื่อไม่มีเวอร์ชันเหลืออยู่แล้ว */
+export async function removeResourceDirectory(
+  resourceId: string,
+  provider?: StorageProviderKind | null,
+): Promise<void> {
+  await storageProviderFor(provider).removeResourceScope(resourceId);
 }
 
 export interface StoredFileStat {
@@ -139,21 +160,28 @@ export interface StoredFileStat {
   mtime: Date;
 }
 
-export async function statStoredFile(storageKey: string): Promise<StoredFileStat | null> {
-  try {
-    const stat = await fsp.stat(resolveStorageKey(storageKey));
-    return { size: stat.size, mtime: stat.mtime };
-  } catch {
-    return null;
-  }
+export async function statStoredFile(
+  storageKey: string,
+  provider?: StorageProviderKind | null,
+): Promise<StoredFileStat | null> {
+  return storageProviderFor(provider).stat(storageKey);
 }
 
-/** เปิดสตรีมอ่านไฟล์ รองรับ HTTP Range ผ่าน start/end */
-export function createStoredFileStream(
+/**
+ * เปิดสตรีมอ่านวัตถุ รองรับ HTTP Range ผ่าน start/end
+ *
+ * ช่วงไบต์รวมปลายทั้งสองด้านตามความหมายของ HTTP ซึ่งตรงกับพฤติกรรมเดิมของ
+ * fs.createReadStream ทุกประการ ผู้เรียกที่ส่ง range มาจึงได้ผลเหมือนเดิม
+ */
+export async function createStoredFileStream(
   storageKey: string,
   range?: { start: number; end: number },
-): fs.ReadStream {
-  return fs.createReadStream(resolveStorageKey(storageKey), range);
+  provider?: StorageProviderKind | null,
+): Promise<Readable> {
+  const target = storageProviderFor(provider);
+  return range
+    ? target.getRangeStream(storageKey, range.start, range.end)
+    : target.getStream(storageKey);
 }
 
 async function safeUnlink(target: string): Promise<void> {

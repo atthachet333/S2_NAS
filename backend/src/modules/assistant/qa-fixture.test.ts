@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { access } from 'node:fs/promises';
 import { after, describe, test } from 'node:test';
 import { prisma } from '../../core/prisma.js';
-import { resolveStorageKey } from '../../core/storage-provider.js';
+import { storageProviderFor } from '../../core/storage/index.js';
+
+/** ของทดสอบชุดนี้ตรวจไฟล์บนดิสก์โดยตรง จึงถามเส้นทางจากผู้ให้บริการบนดิสก์ตรง ๆ */
+const localPath = (key: string): string => storageProviderFor('LOCAL').localPathFor(key)!;
 import { isSafeStorageKey } from '../backup/manifest.js';
 import { QaFixtureScope, countOrphanStorageReferences } from './qa-fixture.js';
 
@@ -35,7 +38,7 @@ describe('F21 QA fixture leaves no orphan storage references', { concurrency: 1 
     assert.equal(versions.length, 2);
     for (const version of versions) {
       // ไฟล์ต้องมีอยู่จริง อ่านได้ และขนาดต้องตรงกับที่บันทึกไว้
-      const full = resolveStorageKey(version.storageKey);
+      const full = localPath(version.storageKey);
       await assert.doesNotReject(access(full), `ไม่พบไฟล์จริงของ ${version.storageKey}`);
       const { stat } = await import('node:fs/promises');
       assert.equal((await stat(full)).size, Number(version.size), 'ขนาดไฟล์ต้องตรงกับที่บันทึกในฐานข้อมูล');
@@ -54,7 +57,7 @@ describe('F21 QA fixture leaves no orphan storage references', { concurrency: 1 
     const resourceId = await scope.createResource({ name: 'qa-fixture-contract.txt', ownerId: user.id,
       versions: [{ text: 'สัญญาทดสอบ กำหนดส่งมอบ 30 กันยายน 2569' }] });
     const version = await prisma.resourceVersion.findFirstOrThrow({ where: { resourceId } });
-    const full = resolveStorageKey(version.storageKey);
+    const full = localPath(version.storageKey);
     await assert.doesNotReject(access(full));
 
     await scope.destroy();
@@ -90,7 +93,7 @@ describe('F21 QA fixture leaves no orphan storage references', { concurrency: 1 
 
     assert.notEqual(storageKey, '');
     assert.equal(await prisma.resourceVersion.count({ where: { resourceId } }), 0);
-    await assert.rejects(access(resolveStorageKey(storageKey)), 'ไฟล์ต้องไม่ค้างอยู่หลังการขัดจังหวะ');
+    await assert.rejects(access(localPath(storageKey)), 'ไฟล์ต้องไม่ค้างอยู่หลังการขัดจังหวะ');
     assert.equal(await countOrphanStorageReferences([resourceId]), 0);
   });
 
@@ -110,7 +113,7 @@ describe('F21 QA fixture leaves no orphan storage references', { concurrency: 1 
     // ลบไฟล์ทิ้งโดยไม่แตะแถว เพื่อสร้างสภาพกำพร้าแบบเดียวกับที่เคยทำให้ชุดสำรองล้ม
     const version = await prisma.resourceVersion.findFirstOrThrow({ where: { resourceId } });
     const { rm } = await import('node:fs/promises');
-    await rm(resolveStorageKey(version.storageKey), { force: true });
+    await rm(localPath(version.storageKey), { force: true });
 
     assert.equal(await countOrphanStorageReferences([resourceId]), 1,
       'การอ้างอิงกำพร้าต้องยังถูกตรวจพบ เกณฑ์ต้องไม่ถูกผ่อนลง');

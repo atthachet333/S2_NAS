@@ -49,7 +49,7 @@ const prefix = `f19-${Date.now().toString(36)}`;
 /** อ่านไฟล์ที่เก็บไว้ทั้งไฟล์ - ใช้ยืนยันว่า checksum ตรงกับไบต์จริง */
 async function readStoredFile(storageKey: string): Promise<Buffer> {
   const chunks: Buffer[] = [];
-  for await (const chunk of createStoredFileStream(storageKey)) {
+  for await (const chunk of await createStoredFileStream(storageKey)) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
   }
   return Buffer.concat(chunks);

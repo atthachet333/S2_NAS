@@ -5,7 +5,8 @@ import { env } from '../../../config/env.js';
 import { logger } from '../../../core/logger.js';
 import { AppError, notFound } from '../../../core/errors.js';
 import { statStoredFile } from '../../../core/file-storage.js';
-import { resolveStorageKey } from '../../../core/storage-provider.js';
+import { withLocalMaterialization } from '../../../core/storage/materialize.js';
+import type { StorageProviderKind } from '../../../core/storage/provider.js';
 import { cleanExtractedText, normalizeForSearch, truncateText } from '../extract/normalize.js';
 import { EXTRACTOR_VERSION } from '../extract/index.js';
 import { invalidateAndEnqueueSemantic } from '../../semantic/semantic-index.service.js';
@@ -225,7 +226,7 @@ export async function runOcrJob(indexId: string): Promise<string> {
       versionNumber: true,
       // การตรวจแก้ของมนุษย์ห้ามถูกผลรอบใหม่ของเครื่องเขียนทับ
       correctionRevision: true,
-      version: { select: { storageKey: true, mimeType: true } },
+      version: { select: { storageKey: true, storageProvider: true, mimeType: true } },
       resource: { select: { id: true, extension: true, deletedAt: true, currentVersion: true } },
     },
   });
@@ -258,7 +259,7 @@ export async function runOcrJob(indexId: string): Promise<string> {
   const keepCorrection = row.correctionRevision > 0;
 
   try {
-    const result = await performOcr(row.version.storageKey, row.resource.extension, probe);
+    const result = await performOcr(row.version.storageKey, row.version.storageProvider, row.resource.extension, probe);
 
     const cleaned = cleanExtractedText(result.text);
     if (!cleaned) {
@@ -385,31 +386,36 @@ interface OcrOutcome {
 /**
  * อ่านข้อความจากไฟล์จริง
  *
- * เส้นทางของไฟล์มาจาก resolveStorageKey ซึ่งบังคับให้อยู่ในรากของพื้นที่จัดเก็บเสมอ
- * ผู้ใช้ไม่มีทางกำหนดเส้นทางจริงบนดิสก์ได้
+ * เครื่องมืออ่านข้อความรับได้เฉพาะเส้นทางไฟล์จริง วัตถุที่ไม่ได้อยู่บนดิสก์จึงถูกดึงลงมา
+ * เป็นไฟล์ชั่วคราวก่อน แล้วลบทิ้งเสมอเมื่อจบ ไม่ว่าจะสำเร็จหรือล้มเหลว
+ * เส้นทางทั้งหมดถูกบังคับให้อยู่ในรากของพื้นที่จัดเก็บ และไม่มีส่วนใดมาจากชื่อที่ผู้ใช้ตั้ง
  */
 async function performOcr(
   storageKey: string,
+  storageProvider: StorageProviderKind,
   extension: string | null,
   probe: EngineProbe,
 ): Promise<OcrOutcome> {
-  const stat = await statStoredFile(storageKey);
+  const stat = await statStoredFile(storageKey, storageProvider);
   if (!stat) throw new OcrError('OCR_RENDER_FAILED', 'ไม่พบไฟล์ในพื้นที่จัดเก็บ');
   if (stat.size > env.S2_NAS_OCR_MAX_IMAGE_BYTES) {
     throw new OcrError('OCR_IMAGE_TOO_LARGE', 'ไฟล์มีขนาดใหญ่เกินกำหนดสำหรับการอ่านข้อความ');
   }
 
-  const source = resolveStorageKey(storageKey);
   const ext = (extension ?? '').toLowerCase().replace(/^\./, '');
+  const target = { storageKey, storageProvider, expectedSize: stat.size };
 
   /* ---- ภาพเดี่ยว: ส่งให้เครื่องมืออ่านได้ตรง ๆ ---- */
   if (IMAGE_EXTENSIONS.has(ext)) {
-    const page = await ocrImageFileWithConfidence(source, probe);
-    return { text: page.text, confidence: page.confidence, pageCount: 1, truncatedPages: false };
+    return withLocalMaterialization(target, async (source) => {
+      const page = await ocrImageFileWithConfidence(source, probe);
+      return { text: page.text, confidence: page.confidence, pageCount: 1, truncatedPages: false };
+    });
   }
 
   /* ---- เอกสารสแกน: ดึงภาพของแต่ละหน้าออกมาแล้วอ่านทีละหน้า ---- */
   if (ext === 'pdf') {
+    return withLocalMaterialization(target, async (source) => {
     const buffer = await fsp.readFile(source);
     const extracted = extractPageImages(buffer, {
       maxPages: env.S2_NAS_OCR_MAX_PAGES,
@@ -456,6 +462,7 @@ async function performOcr(
         // หน้าที่เกินเพดานถูกบันทึกไว้ตามจริง ไม่ใช่ทำเหมือนอ่านครบแล้ว
         truncatedPages: extracted.totalFound > extracted.images.length,
       };
+    });
     });
   }
 

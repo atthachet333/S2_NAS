@@ -2,6 +2,7 @@ import { ZipArchive } from 'archiver';
 import type { Prisma } from '@prisma/client';
 import { AppError, badRequest, notFound } from '../../core/errors.js';
 import { createStoredFileStream, statStoredFile } from '../../core/file-storage.js';
+import type { StorageProviderKind } from '../../core/storage/provider.js';
 import { prisma } from '../../core/prisma.js';
 import type { AuthUser } from '../auth/auth.service.js';
 import { capabilities, resourceInclude, validateResourceName } from '../resources/resource.service.js';
@@ -15,6 +16,8 @@ export interface ZipPlanEntry {
   resourceId: string;
   archivePath: string;
   storageKey: string | null;
+  /** ผู้ให้บริการของไฟล์แต่ละรายการ - ชุดเดียวกันมีได้หลายผู้ให้บริการ */
+  storageProvider: StorageProviderKind;
   size: number;
   directory: boolean;
 }
@@ -108,13 +111,13 @@ async function appendTree(
     if (!root.storageKey || root.size === null) throw notFound('FILE_NOT_FOUND', 'ไม่พบไฟล์ในพื้นที่จัดเก็บ');
     const size = Number(root.size);
     if (!Number.isSafeInteger(size) || size < 0) throw new AppError('FILE_METADATA_INVALID', 'ข้อมูลขนาดไฟล์ไม่ถูกต้อง', 500);
-    entries.push({ resourceId: root.id, archivePath, storageKey: root.storageKey, size, directory: false });
+    entries.push({ resourceId: root.id, archivePath, storageKey: root.storageKey, storageProvider: root.storageProvider, size, directory: false });
     assertZipLimits(entries, limits);
     return;
   }
 
   if (root.type !== 'FOLDER') throw badRequest('ZIP_UNSUPPORTED_RESOURCE', 'ZIP รองรับเฉพาะไฟล์และโฟลเดอร์');
-  entries.push({ resourceId: root.id, archivePath: `${archivePath}/`, storageKey: null, size: 0, directory: true });
+  entries.push({ resourceId: root.id, archivePath: `${archivePath}/`, storageKey: null, storageProvider: root.storageProvider, size: 0, directory: true });
   assertZipLimits(entries, limits);
 
   const children = await prisma.resource.findMany({
@@ -161,9 +164,9 @@ export async function createZipStream(plan: ZipPlan) {
       archive.append('', { name: entry.archivePath, date: new Date(0) });
       continue;
     }
-    const stat = await statStoredFile(entry.storageKey!);
+    const stat = await statStoredFile(entry.storageKey!, entry.storageProvider);
     if (!stat || stat.size !== entry.size) throw notFound('FILE_NOT_FOUND', 'ไม่พบไฟล์ในพื้นที่จัดเก็บ');
-    archive.append(createStoredFileStream(entry.storageKey!), { name: entry.archivePath, date: stat.mtime });
+    archive.append(await createStoredFileStream(entry.storageKey!, undefined, entry.storageProvider), { name: entry.archivePath, date: stat.mtime });
   }
   return archive;
 }

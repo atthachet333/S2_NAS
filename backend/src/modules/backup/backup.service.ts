@@ -1,5 +1,9 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import type { Readable } from 'node:stream';
 import type { BackupLog } from '@prisma/client';
 import { env } from '../../config/env.js';
 import { AppError, notFound } from '../../core/errors.js';
@@ -17,6 +21,7 @@ import {
   type BackupManifest,
   type ManifestObject,
 } from './manifest.js';
+import { storageProviderFor } from '../../core/storage/index.js';
 import { acquireOperationLock } from './operation-lock.js';
 import { acquireDistributedLock } from './distributed-lock.js';
 
@@ -132,7 +137,10 @@ export async function getBackup(id: string): Promise<BackupDto> {
  */
 export async function collectManifestObjects(): Promise<{ objects: ManifestObject[]; skipped: string[] }> {
   const versions = await prisma.resourceVersion.findMany({
-    select: { storageKey: true, size: true, checksum: true, resourceId: true, versionNumber: true },
+    select: {
+      id: true, storageKey: true, storageProvider: true, size: true, checksum: true,
+      resourceId: true, versionNumber: true,
+    },
     orderBy: { storageKey: 'asc' },
   });
 
@@ -152,6 +160,8 @@ export async function collectManifestObjects(): Promise<{ objects: ManifestObjec
       checksum: version.checksum,
       resourceId: version.resourceId,
       versionNumber: version.versionNumber,
+      resourceVersionId: version.id,
+      originalProvider: version.storageProvider,
     });
   }
 
@@ -161,7 +171,7 @@ export async function collectManifestObjects(): Promise<{ objects: ManifestObjec
    */
   const orphans = await prisma.resource.findMany({
     where: { storageKey: { not: null }, type: 'FILE' },
-    select: { id: true, storageKey: true, size: true, checksum: true },
+    select: { id: true, storageKey: true, storageProvider: true, size: true, checksum: true },
   });
   for (const row of orphans) {
     const key = row.storageKey!;
@@ -174,6 +184,7 @@ export async function collectManifestObjects(): Promise<{ objects: ManifestObjec
       checksum: row.checksum ?? '',
       resourceId: row.id,
       versionNumber: null,
+      originalProvider: row.storageProvider,
     });
   }
 
@@ -184,32 +195,99 @@ export async function collectManifestObjects(): Promise<{ objects: ManifestObjec
 /* สร้างชุดสำรอง                                                       */
 /* ------------------------------------------------------------------ */
 
-async function copyStorageObjects(
+/**
+ * ทางเข้าสำหรับชุดทดสอบ - แพ็กเฉพาะรายการที่ส่งมาเท่านั้น
+ *
+ * มีไว้ให้ทดสอบการแพ็กข้ามผู้ให้บริการได้โดยไม่ต้องสร้างชุดสำรองของทั้งระบบ
+ * ซึ่งจะดึงข้อมูลของผู้ใช้จริงเข้ามาด้วย
+ */
+export async function packageObjectsForTesting(
+  objects: ManifestObject[], destinationRoot: string,
+) {
+  return packageStorageObjects(objects, destinationRoot);
+}
+
+/**
+ * นำไบต์ของทุกวัตถุเข้าชุดสำรอง (F23-F)
+ *
+ * **อ่านจากผู้ให้บริการของแถวนั้นเสมอ** ไม่ใช่จากดิสก์ของเครื่องเสมอไป และไม่ใช่จาก
+ * ผู้ให้บริการที่ตั้งเป็นค่าเริ่มต้นปัจจุบัน วัตถุที่อยู่บนที่เก็บวัตถุจึงถูกสตรีมลงมา
+ * เข้าชุดสำรองโดยตรง ไม่ต้องพักที่ไหนก่อน
+ *
+ * **ตรวจขณะไหลผ่าน** ขนาดและ SHA-256 ถูกวัดจากไบต์ชุดเดียวกับที่เขียนลงชุดสำรอง
+ * แล้วเทียบกับค่าที่ฐานข้อมูลบันทึกไว้ทันที ความไม่ตรงกันทำให้ชุดสำรองล้มเหลว
+ * ไม่ใช่ถูกบันทึกเป็นค่าใหม่ที่ "ตรงกับตัวเอง" ซึ่งจะกลายเป็นชุดสำรองของความเสียหาย
+ *
+ * **ไม่บัฟเฟอร์ทั้งไฟล์** ทุกอย่างเป็นสตรีม หน่วยความจำจึงไม่ขึ้นกับขนาดไฟล์
+ */
+async function packageStorageObjects(
   objects: ManifestObject[],
   destinationRoot: string,
-): Promise<{ copied: ManifestObject[]; bytes: number; missing: string[] }> {
+): Promise<{ copied: ManifestObject[]; bytes: number; missing: string[]; corrupt: string[] }> {
   const copied: ManifestObject[] = [];
   const missing: string[] = [];
+  const corrupt: string[] = [];
   let bytes = 0;
 
   for (const object of objects) {
-    const source = path.join(env.STORAGE_ROOT, object.storageKey);
+    const provider = storageProviderFor(object.originalProvider ?? 'LOCAL');
     const target = path.join(destinationRoot, object.storageKey);
+
+    let source: Readable;
     try {
-      await fsp.mkdir(path.dirname(target), { recursive: true });
-      await fsp.copyFile(source, target);
-      const stat = await fsp.stat(target);
-      // ยึด checksum ที่คำนวณจากไฟล์จริงในชุดสำรอง ไม่ใช่ค่าที่ metadata อ้าง
-      const checksum = await sha256File(target);
-      copied.push({ ...object, size: stat.size, checksum });
-      bytes += stat.size;
+      if (!(await provider.stat(object.storageKey))) {
+        missing.push(object.storageKey);
+        continue;
+      }
+      source = await provider.getStream(object.storageKey);
     } catch {
-      // ไฟล์ที่ metadata อ้างถึงแต่หายไปจากดิสก์ ต้องรายงาน ไม่ใช่ข้ามเงียบ ๆ
+      // วัตถุหายหรือบริการมีปัญหา - ทั้งสองอย่างทำให้ชุดสำรองนี้ไม่สมบูรณ์
       missing.push(object.storageKey);
+      continue;
     }
+
+    await fsp.mkdir(path.dirname(target), { recursive: true });
+    const hash = crypto.createHash('sha256');
+    let size = 0;
+
+    try {
+      await pipeline(
+        source,
+        async function* (stream: Readable) {
+          for await (const chunk of stream) {
+            const buffer = chunk as Buffer;
+            size += buffer.length;
+            hash.update(buffer);
+            yield buffer;
+          }
+        },
+        fs.createWriteStream(target),
+      );
+    } catch {
+      // สตรีมขาดกลางคัน - ไฟล์ที่เขียนไปแล้วไม่ครบ ต้องไม่ถูกนับเป็นสำเร็จ
+      await fsp.rm(target, { force: true });
+      missing.push(object.storageKey);
+      continue;
+    }
+
+    const checksum = hash.digest('hex');
+    /**
+     * เทียบกับค่าที่ฐานข้อมูลบันทึกไว้
+     *
+     * ข้อมูลเก่าก่อนมีระบบเวอร์ชันบางแถวไม่มี checksum เก็บไว้ กรณีนั้นยึดค่าที่วัดได้
+     * เพราะไม่มีอะไรให้เทียบ แต่ทุกแถวที่มีค่าอยู่ต้องตรงกันเสมอ
+     */
+    if (object.checksum && checksum !== object.checksum) {
+      await fsp.rm(target, { force: true });
+      corrupt.push(object.storageKey);
+      continue;
+    }
+
+    copied.push({ ...object, size, checksum });
+    bytes += size;
   }
 
-  return { copied, bytes, missing };
+  return { copied, bytes, missing, corrupt };
 }
 
 export interface CreateBackupResult {
@@ -301,11 +379,23 @@ export async function createBackup(
     if (skipped.length > 0) {
       logger.warn(`[BACKUP] ข้าม storageKey ที่ไม่ปลอดภัย ${skipped.length} รายการ`);
     }
-    const { copied, bytes: storageBytes, missing } = await copyStorageObjects(objects, storageDir);
+    const { copied, bytes: storageBytes, missing, corrupt } = await packageStorageObjects(objects, storageDir);
     if (missing.length > 0) {
       return failed(
         'BACKUP_STORAGE_INCOMPLETE',
         `ไม่พบไฟล์จริง ${missing.length} รายการที่ข้อมูลอ้างถึง ชุดสำรองจึงไม่สมบูรณ์`,
+      );
+    }
+    /**
+     * ไบต์ที่อ่านได้ไม่ตรงกับที่ฐานข้อมูลบันทึกไว้
+     *
+     * ชุดสำรองที่มีไฟล์เสียหายอยู่ข้างในเป็นอันตรายกว่าการไม่มีชุดสำรอง เพราะมันให้
+     * ความมั่นใจปลอมจนถึงวันที่ต้องใช้จริง จึงต้องล้มเหลวตรงนี้เสมอ
+     */
+    if (corrupt.length > 0) {
+      return failed(
+        'BACKUP_STORAGE_CORRUPT',
+        `ไฟล์ ${corrupt.length} รายการมีเนื้อหาไม่ตรงกับ checksum ที่บันทึกไว้`,
       );
     }
 
@@ -318,6 +408,8 @@ export async function createBackup(
 
     const manifest: BackupManifest = {
       manifestVersion: MANIFEST_VERSION,
+      // ชุดสำรองของ S2 NAS เป็นชุดที่กู้คืนได้ด้วยตัวเองเสมอ ไม่มีโหมดที่เก็บแต่ metadata
+      mode: 'PORTABLE_FULL',
       backupId: row.id,
       backupName,
       createdAt: startedAt.toISOString(),

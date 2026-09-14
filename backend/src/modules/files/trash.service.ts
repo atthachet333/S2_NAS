@@ -3,6 +3,7 @@ import { getSetting } from '../system/settings.service.js';
 import { AppError, forbidden, notFound } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
 import { deleteStoredFile, removeResourceDirectory } from '../../core/file-storage.js';
+import type { StorageProviderKind } from '../../core/storage/provider.js';
 import {
   assertNotLocked,
   capabilities,
@@ -419,12 +420,13 @@ export async function purgeTrashedResource(id: string, actor: PurgeActor, audit:
 
   const versions = await prisma.resourceVersion.findMany({
     where: { resourceId: { in: ids } },
-    select: { storageKey: true, resourceId: true },
+    select: { storageKey: true, storageProvider: true, resourceId: true },
   });
 
   const failed: string[] = [];
   for (const version of versions) {
-    const ok = await deleteStoredFile(version.storageKey);
+    // ลบจากผู้ให้บริการที่บันทึกไว้กับเวอร์ชันนั้น ทรัพยากรหนึ่งชิ้นมีได้หลายผู้ให้บริการ
+    const ok = await deleteStoredFile(version.storageKey, version.storageProvider);
     if (!ok) failed.push(version.storageKey);
   }
 
@@ -468,8 +470,20 @@ export async function purgeTrashedResource(id: string, actor: PurgeActor, audit:
     });
   });
 
-  for (const resourceId of new Set(versions.map((version) => version.resourceId))) {
-    await removeResourceDirectory(resourceId);
+  /**
+   * เก็บกวาดขอบเขตของทรัพยากรในทุกผู้ให้บริการที่เกี่ยวข้อง
+   *
+   * ทรัพยากรที่ย้ายผู้ให้บริการระหว่างทางจะมีเวอร์ชันกระจายอยู่มากกว่าหนึ่งที่
+   * การเก็บกวาดที่เดียวจะทิ้งวัตถุค้างไว้อีกที่หนึ่งโดยไม่มีใครรู้
+   */
+  const scopes = new Map<string, Set<StorageProviderKind>>();
+  for (const version of versions) {
+    const providers = scopes.get(version.resourceId) ?? new Set<StorageProviderKind>();
+    providers.add(version.storageProvider);
+    scopes.set(version.resourceId, providers);
+  }
+  for (const [resourceId, providers] of scopes) {
+    for (const provider of providers) await removeResourceDirectory(resourceId, provider);
   }
 
   logger.info(`[TRASH] ลบถาวร "${resource.name}" (${ids.length} รายการ, ${versions.length} เวอร์ชัน)`);

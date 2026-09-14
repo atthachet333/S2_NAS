@@ -4,6 +4,7 @@ import { requireInternal } from '../auth/auth.guard.js';
 import { AppError, badRequest } from '../../core/errors.js';
 import { env } from '../../config/env.js';
 import { createStoredFileStream, statStoredFile } from '../../core/file-storage.js';
+import type { StorageProviderKind } from '../../core/storage/provider.js';
 import {
   effectiveUploadBytes,
   getManagedStorageBytes,
@@ -67,10 +68,10 @@ function contentDisposition(fileName: string, disposition: 'inline' | 'attachmen
 export async function sendFile(
   request: FastifyRequest,
   reply: FastifyReply,
-  content: { storageKey: string; size: number; mimeType: string; fileName: string },
+  content: { storageKey: string; storageProvider: StorageProviderKind; size: number; mimeType: string; fileName: string },
   disposition: 'inline' | 'attachment',
 ): Promise<void> {
-  const stat = await statStoredFile(content.storageKey);
+  const stat = await statStoredFile(content.storageKey, content.storageProvider);
   if (!stat) throw new AppError('FILE_NOT_FOUND', 'ไม่พบไฟล์ในพื้นที่จัดเก็บ', 404);
 
   const safeMime =
@@ -103,11 +104,11 @@ export async function sendFile(
         .status(206)
         .header('Content-Range', `bytes ${start}-${cappedEnd}/${stat.size}`)
         .header('Content-Length', cappedEnd - start + 1)
-        .send(createStoredFileStream(content.storageKey, { start, end: cappedEnd }));
+        .send(await createStoredFileStream(content.storageKey, { start, end: cappedEnd }, content.storageProvider));
     }
   }
 
-  return reply.header('Content-Length', stat.size).send(createStoredFileStream(content.storageKey));
+  return reply.header('Content-Length', stat.size).send(await createStoredFileStream(content.storageKey, undefined, content.storageProvider));
 }
 
 export async function fileRoutes(app: FastifyInstance): Promise<void> {

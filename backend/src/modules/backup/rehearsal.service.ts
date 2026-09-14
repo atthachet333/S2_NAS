@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { RestoreRehearsalLog } from '@prisma/client';
@@ -5,10 +6,13 @@ import { env } from '../../config/env.js';
 import { AppError } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
 import { prisma } from '../../core/prisma.js';
+import { storageProviderFor } from '../../core/storage/index.js';
+import type { StorageProviderKind } from '@prisma/client';
 import type { AuthUser } from '../auth/auth.service.js';
 import { BACKUP_PATHS, backupDirectory, verifyBackupFiles } from './backup.service.js';
 import { withDistributedLock } from './distributed-lock.js';
 import { importDump, parseDatabaseUrl, runSql } from './mariadb-cli.js';
+import { cleanupStagedObjects, restoreObjectsToTarget, stagedObjectKey } from './restore-target.js';
 import { isSafeStorageKey, readManifest, sha256File } from './manifest.js';
 import { getSetting } from '../system/settings.service.js';
 import {
@@ -154,19 +158,32 @@ export async function listRehearsals(limit = 20): Promise<RehearsalResult[]> {
 /* ซ้อมจริง                                                            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * ปลายทางของการซ้อมกู้คืน
+ *
+ * ค่าเริ่มต้นคือดิสก์ของเครื่อง การซ้อมขึ้นที่เก็บวัตถุใช้คำนำหน้าของการกู้คืนโดยเฉพาะ
+ * และถูกเก็บกวาดเมื่อจบ วัตถุที่ใช้งานอยู่จึงไม่ถูกแตะเลย
+ */
+export interface RehearsalOptions {
+  targetProvider?: StorageProviderKind;
+}
+
 export async function runRehearsal(
   user: AuthUser,
   trigger: 'MANUAL' | 'SCHEDULED' = 'MANUAL',
   now: Date = new Date(),
+  options: RehearsalOptions = {},
 ): Promise<RehearsalResult | null> {
   // ใช้ล็อกตัวเดียวกับงานสำรอง - การซ้อมกิน I/O หนักและอ่านไฟล์ชุดเดียวกัน
-  return withDistributedLock('REHEARSAL', () => rehearsalWork(user, trigger, now));
+  return withDistributedLock('REHEARSAL',
+    () => rehearsalWork(user, trigger, now, options.targetProvider ?? 'LOCAL'));
 }
 
 async function rehearsalWork(
   user: AuthUser,
   trigger: 'MANUAL' | 'SCHEDULED',
   now: Date,
+  targetProvider: StorageProviderKind,
 ): Promise<RehearsalResult | null> {
   const candidate = await selectBackupForRehearsal(now);
   if (!candidate) {
@@ -223,20 +240,24 @@ async function rehearsalWork(
     await fsp.rm(stageDir, { recursive: true, force: true });
     await fsp.mkdir(stageDir, { recursive: true });
 
-    let failures = 0;
-    for (const object of manifest.storage.objects) {
-      if (!isSafeStorageKey(object.storageKey)) {
-        throw new AppError('REHEARSAL_UNSAFE_PATH', 'manifest มีเส้นทางที่ไม่ปลอดภัย', 500);
-      }
-      const source = path.join(backupRoot, BACKUP_PATHS.STORAGE_DIR, object.storageKey);
-      const destination = path.join(stageDir, object.storageKey);
-      await fsp.mkdir(path.dirname(destination), { recursive: true });
-      await fsp.copyFile(source, destination);
-
-      /* ---- 10. เทียบทุกไบต์ ไม่ใช่แค่ขนาดไฟล์ ---- */
-      if ((await sha256File(destination)) !== object.checksum) failures += 1;
+    if (manifest.storage.objects.some((object) => !isSafeStorageKey(object.storageKey))) {
+      throw new AppError('REHEARSAL_UNSAFE_PATH', 'manifest มีเส้นทางที่ไม่ปลอดภัย', 500);
     }
+
+    /**
+     * นำไบต์ขึ้นปลายทางที่ซ้อม แล้วเทียบทุกไบต์จากปลายทางเอง
+     *
+     * ใช้เส้นทางเดียวกับการกู้คืนจริง การซ้อมจึงพิสูจน์โค้ดชุดที่จะถูกใช้จริง
+     * ไม่ใช่โค้ดคู่ขนานที่อาจเพี้ยนจากกันเมื่อเวลาผ่านไป
+     */
+    const restored = await restoreObjectsToTarget(
+      manifest.storage.objects,
+      path.join(backupRoot, BACKUP_PATHS.STORAGE_DIR),
+      { provider: targetProvider, localStageDir: stageDir, runId: `rehearsal-${record.id}` },
+    );
     storageRestored = true;
+    /* ---- 10. เทียบทุกไบต์ ไม่ใช่แค่ขนาดไฟล์ ---- */
+    const failures = manifest.storage.objects.length - restored.verified;
     checksumFailures = failures;
     if (failures > 0) {
       throw new AppError('REHEARSAL_CHECKSUM_MISMATCH', `Checksum ไม่ตรงกัน ${failures} ไฟล์`, 409);
@@ -258,18 +279,35 @@ async function rehearsalWork(
 
     let missing = 0;
     const expected = new Set<string>();
+    /**
+     * กระทบยอดกับปลายทางที่ซ้อมจริง
+     *
+     * ปลายทางบนดิสก์อ่านจากโฟลเดอร์พัก ปลายทางบนที่เก็บวัตถุอ่านผ่านผู้ให้บริการ
+     * การอ่านผิดที่จะทำให้การซ้อมที่สมบูรณ์ถูกรายงานว่าไฟล์หายทั้งหมด
+     */
+    let reconcileFailures = 0;
     for (const version of versions) {
       expected.add(version.storageKey);
       try {
-        const filePath = path.join(stageDir, version.storageKey);
-        const stat = await fsp.stat(filePath);
-        if (stat.size !== version.size || (await sha256File(filePath)) !== version.checksum) failures += 1;
+        if (targetProvider === 'LOCAL') {
+          const filePath = path.join(stageDir, version.storageKey);
+          const stat = await fsp.stat(filePath);
+          if (stat.size !== version.size || (await sha256File(filePath)) !== version.checksum) reconcileFailures += 1;
+        } else {
+          const provider = storageProviderFor(targetProvider);
+          const key = stagedObjectKey(`rehearsal-${record.id}`, version.storageKey);
+          const stat = await provider.stat(key);
+          if (!stat) { missing += 1; continue; }
+          const hash = crypto.createHash('sha256');
+          for await (const chunk of await provider.getStream(key)) hash.update(chunk as Buffer);
+          if (stat.size !== version.size || hash.digest('hex') !== version.checksum) reconcileFailures += 1;
+        }
       } catch {
         missing += 1;
       }
     }
     missingCount = missing;
-    checksumFailures = failures;
+    checksumFailures = failures + reconcileFailures;
     orphanCount = manifest.storage.objects.filter((object) => !expected.has(object.storageKey)).length;
 
     if (missing > 0) throw new AppError('REHEARSAL_FILES_MISSING', `ไฟล์สำรองไม่ครบ ${missing} รายการ`, 409);
@@ -288,6 +326,13 @@ async function rehearsalWork(
     assertScratchDatabase(database);
     await runSql(target, `DROP DATABASE IF EXISTS \`${database}\``);
     await fsp.rm(stageDir, { recursive: true, force: true });
+    /**
+     * วัตถุที่ซ้อมขึ้นที่เก็บวัตถุต้องถูกลบด้วย
+     *
+     * ถ้าไม่ลบ การซ้อมทุกสัปดาห์จะทิ้งสำเนาทั้งคลังไว้ในถังจริง ซึ่งทั้งเปลืองเงิน
+     * และทำให้การตรวจหาวัตถุกำพร้าสับสนว่าอะไรคือของจริง
+     */
+    await cleanupStagedObjects(targetProvider, `rehearsal-${record.id}`);
   } catch (error) {
     cleanupFailed = true;
     logger.error({ err: error }, '[REHEARSAL] ล้างพื้นที่พักไม่สำเร็จ');

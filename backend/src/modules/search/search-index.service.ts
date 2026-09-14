@@ -99,7 +99,7 @@ export async function runJob(indexId: string): Promise<SearchIndexStatus> {
       attempts: true,
       // ข้อความที่คนตรวจแก้ไว้ต้องรอดจากการทำดัชนีซ้ำของเวอร์ชันเดียวกัน
       correctionRevision: true,
-      version: { select: { id: true, storageKey: true, mimeType: true } },
+      version: { select: { id: true, storageKey: true, storageProvider: true, mimeType: true } },
       resource: { select: { extension: true, deletedAt: true } },
     },
   });
@@ -107,6 +107,7 @@ export async function runJob(indexId: string): Promise<SearchIndexStatus> {
 
   const outcome = await extractFromStorage({
     storageKey: row.version.storageKey,
+    storageProvider: row.version.storageProvider,
     extension: row.resource.extension,
     mimeType: row.version.mimeType,
   });

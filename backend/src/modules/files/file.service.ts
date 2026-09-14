@@ -1,10 +1,12 @@
 import type { Readable } from 'node:stream';
+import type { StorageProviderKind } from '../../core/storage/provider.js';
 import type { DriveScope, ResourceSourceType } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
 import { AppError, forbidden, notFound } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
 import {
   commitStagedFile,
+  readStagedHead,
   deleteStoredFile,
   discardStagedFile,
   removeResourceDirectory,
@@ -178,8 +180,7 @@ export async function uploadFile(
     staged = await stageUpload(source, { maxBytes: await effectiveUploadBytes() });
 
     // ตรวจชนิดไฟล์จากลายเซ็นจริง ไม่เชื่อค่าที่เบราว์เซอร์ประกาศมา
-    const { createReadStream } = await import('node:fs');
-    const head = await readHead(createReadStream(staged.tempPath, { start: 0, end: 63 }));
+    const head = await readStagedHead(staged, 64);
     const mime = resolveMimeType(head, extension, input.declaredMime);
 
     // เนื้อหาซ้ำ: แจ้งให้ผู้ใช้ตัดสินใจ ไม่เงียบ ๆ ทิ้งไฟล์
@@ -256,6 +257,7 @@ export async function uploadFile(
             extension,
             size: BigInt(stored.size),
             storageKey: stored.storageKey,
+            storageProvider: stored.provider,
             checksum: stored.checksum,
             currentVersion: 1,
             remark: input.remark ?? null,
@@ -268,6 +270,7 @@ export async function uploadFile(
             resourceId: resource.id,
             versionNumber: 1,
             storageKey: stored.storageKey,
+            storageProvider: stored.provider,
             size: BigInt(stored.size),
             checksum: stored.checksum,
             mimeType: mime.mimeType,
@@ -307,8 +310,8 @@ export async function uploadFile(
       };
     } catch (error) {
       // ชดเชย: ฐานข้อมูลล้มเหลวหลังไฟล์ลงดิสก์แล้ว ต้องลบไฟล์ทิ้งไม่ให้เป็นขยะ
-      await deleteStoredFile(stored.storageKey);
-      await removeResourceDirectory(resourceId);
+      await deleteStoredFile(stored.storageKey, stored.provider);
+      await removeResourceDirectory(resourceId, stored.provider);
       logger.error({ err: error }, '[UPLOAD] บันทึกฐานข้อมูลไม่สำเร็จ ลบไฟล์ที่เขียนไปแล้ว');
       throw new AppError('FILE_UPLOAD_FAILED', 'บันทึกข้อมูลไฟล์ไม่สำเร็จ', 500);
     }
@@ -317,11 +320,6 @@ export async function uploadFile(
   }
 }
 
-async function readHead(stream: Readable): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(chunk as Buffer);
-  return Buffer.concat(chunks);
-}
 
 /* ------------------------------------------------------------------ */
 /* เวอร์ชันใหม่ของไฟล์เดิม                                              */
@@ -379,8 +377,7 @@ export async function uploadVersion(
   try {
     // เวอร์ชันใหม่ใช้เพดานขนาดเดียวกับการอัปโหลดไฟล์ใหม่
     staged = await stageUpload(source, { maxBytes: await effectiveUploadBytes() });
-    const { createReadStream } = await import('node:fs');
-    const head = await readHead(createReadStream(staged.tempPath, { start: 0, end: 63 }));
+    const head = await readStagedHead(staged, 64);
     const mime = resolveMimeType(head, resource.extension, input.declaredMime);
 
     /**
@@ -439,6 +436,7 @@ async function addVersionFromStaged(
           resourceId,
           versionNumber,
           storageKey: stored.storageKey,
+          storageProvider: stored.provider,
           size: BigInt(stored.size),
           checksum: stored.checksum,
           mimeType,
@@ -456,6 +454,7 @@ async function addVersionFromStaged(
           checksum: stored.checksum,
           mimeType,
           storageKey: stored.storageKey,
+          storageProvider: stored.provider,
           currentVersion: versionNumber,
           updatedById: user.id,
         },
@@ -487,7 +486,7 @@ async function addVersionFromStaged(
     logger.info(`[UPLOAD] เวอร์ชันใหม่ของ "${updated.resource.name}" (v${updated.resource.currentVersion})`);
     return toResourceDto(updated.resource, user);
   } catch (error) {
-    await deleteStoredFile(stored.storageKey);
+    await deleteStoredFile(stored.storageKey, stored.provider);
     logger.error({ err: error }, '[UPLOAD] สร้างเวอร์ชันไม่สำเร็จ ลบไฟล์ที่เขียนไปแล้ว');
     if (error instanceof AppError) throw error;
     throw new AppError('VERSION_CONFLICT', 'สร้างเวอร์ชันใหม่ไม่สำเร็จ', 409);
@@ -525,6 +524,8 @@ export async function listVersions(resourceId: string, user: AuthUser) {
 
 export interface ResolvedContent {
   storageKey: string;
+  /** ผู้ให้บริการที่บันทึกไว้กับวัตถุนี้ - ต้องใช้ตัวนี้อ่านเท่านั้น */
+  storageProvider: StorageProviderKind;
   size: number;
   mimeType: string;
   fileName: string;
@@ -558,6 +559,7 @@ export async function resolveContent(
     if (!version) throw notFound('VERSION_NOT_FOUND', 'ไม่พบเวอร์ชันที่ระบุ');
     return {
       storageKey: version.storageKey,
+      storageProvider: version.storageProvider,
       size: Number(version.size),
       mimeType: version.mimeType ?? 'application/octet-stream',
       fileName: resource.name,
@@ -570,6 +572,7 @@ export async function resolveContent(
 
   return {
     storageKey: resource.storageKey,
+    storageProvider: resource.storageProvider,
     size: resource.size === null ? 0 : Number(resource.size),
     mimeType: resource.mimeType ?? 'application/octet-stream',
     fileName: resource.name,

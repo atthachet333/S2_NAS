@@ -286,7 +286,7 @@ describe('Phase D file operations', () => {
 
       const { createStoredFileStream } = await import('../../core/file-storage.js');
       const chunks: Buffer[] = [];
-      for await (const chunk of createStoredFileStream(v1.storageKey)) chunks.push(chunk as Buffer);
+      for await (const chunk of await createStoredFileStream(v1.storageKey)) chunks.push(chunk as Buffer);
       const restored = Buffer.concat(chunks);
 
       assert.equal(sha256(restored), sha256(PDF_BYTES), 'ไบต์ต้องตรงกันทุกประการ');

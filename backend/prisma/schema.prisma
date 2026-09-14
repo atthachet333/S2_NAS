@@ -137,6 +137,16 @@ model User {
   @@map("users")
 }
 
+/// พื้นที่จัดเก็บที่ถือว่าเป็นความจริงของวัตถุหนึ่งชิ้น (F23)
+///
+/// ค่านี้เป็นของแต่ละแถว ไม่ใช่ค่าตั้งของระบบ การอ่านวัตถุต้องใช้ค่านี้เสมอ
+/// ไม่ใช่ผู้ให้บริการที่ตั้งไว้ปัจจุบัน มิฉะนั้นวันที่สลับค่าตั้ง ไฟล์เก่าทั้งหมด
+/// จะถูกไปหาผิดที่ทันที ทั้งที่ตัวไฟล์ไม่ได้ขยับไปไหนเลย
+enum StorageProviderKind {
+  LOCAL
+  S3
+}
+
 model Resource {
   id                        String             @id @default(cuid())
   type                      ResourceType
@@ -152,6 +162,8 @@ model Resource {
   extension                 String?            @db.VarChar(32)
   size                      BigInt?
   storageKey                String?            @unique @db.VarChar(500)
+  /// ต้องตรงกับ storageProvider ของเวอร์ชันปัจจุบันเสมอ - ดู assertCurrentVersionConsistency
+  storageProvider           StorageProviderKind @default(LOCAL)
   checksum                  String?            @db.VarChar(191)
   externalUrl               String?            @db.Text
   externalProvider          String?            @db.VarChar(100)
@@ -260,6 +272,8 @@ model ResourceVersion {
   resourceId                String
   versionNumber             Int
   storageKey                String   @unique @db.VarChar(500)
+  /// ผู้ให้บริการที่เก็บวัตถุของเวอร์ชันนี้ - ไม่เปลี่ยนตามค่าตั้งของระบบ
+  storageProvider           StorageProviderKind @default(LOCAL)
   size                      BigInt
   checksum                  String   @db.VarChar(191)
   mimeType                  String?  @db.VarChar(191)

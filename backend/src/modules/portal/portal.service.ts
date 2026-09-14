@@ -1,6 +1,7 @@
 import type { Readable } from 'node:stream';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
+import type { StorageProviderKind } from '../../core/storage/provider.js';
 import { AppError } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
 import { uploadFile, type AuditContext } from '../files/file.service.js';
@@ -279,6 +280,8 @@ export async function searchPortal(
 
 export interface PortalContent {
   storageKey: string;
+  /** ผู้ให้บริการที่บันทึกไว้กับวัตถุนี้ - พื้นที่ลูกค้าอ่านจากที่เดียวกับเส้นทางภายใน */
+  storageProvider: StorageProviderKind;
   size: number;
   mimeType: string;
   fileName: string;
@@ -318,6 +321,7 @@ export async function resolvePortalContent(
   return {
     content: {
       storageKey: resource.storageKey,
+      storageProvider: resource.storageProvider,
       size: resource.size === null ? 0 : Number(resource.size),
       mimeType: resource.mimeType ?? 'application/octet-stream',
       fileName: resource.name,
@@ -509,7 +513,7 @@ export async function resolvePortalVersionContent(
 
   const version = await prisma.resourceVersion.findFirst({
     where: { resourceId, versionNumber },
-    select: { storageKey: true, size: true, mimeType: true, versionNumber: true },
+    select: { storageKey: true, storageProvider: true, size: true, mimeType: true, versionNumber: true },
   });
   // เวอร์ชันที่ไม่มีอยู่ใช้คำตอบเดียวกับเอกสารที่ไม่มีสิทธิ์ - ไม่มีข้อมูลรั่วจากความต่างของข้อความ
   if (!version) throw portalNotFound();
@@ -517,6 +521,7 @@ export async function resolvePortalVersionContent(
   return {
     content: {
       storageKey: version.storageKey,
+      storageProvider: version.storageProvider,
       size: Number(version.size),
       mimeType: version.mimeType ?? 'application/octet-stream',
       fileName: resource.name,

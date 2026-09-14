@@ -31,6 +31,25 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required').optional(),
 
   S2_NAS_STORAGE_ROOT: z.string().min(1).default('./storage'),
+
+  /* ---- พื้นที่จัดเก็บวัตถุ (F23) ---- */
+  /**
+   * ผู้ให้บริการที่ใช้กับการอัปโหลดใหม่ - ดิสก์ของเครื่องเป็นค่าเริ่มต้นเสมอ
+   *
+   * ค่านี้ไม่ย้ายไฟล์เก่าและไม่เปลี่ยนที่อยู่ของเวอร์ชันที่มีอยู่แล้ว การอ่านทุกครั้ง
+   * ใช้ผู้ให้บริการที่บันทึกไว้กับเวอร์ชันนั้น ไม่ใช่ค่านี้
+   */
+  S2_NAS_STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
+  /** ปลายทางของบริการที่เข้ากันได้กับ S3 - เว้นว่างได้เมื่อใช้ AWS S3 เอง */
+  S2_NAS_S3_ENDPOINT: z.string().url().optional(),
+  S2_NAS_S3_REGION: z.string().min(1).optional(),
+  S2_NAS_S3_BUCKET: z.string().min(1).optional(),
+  S2_NAS_S3_ACCESS_KEY_ID: z.string().min(1).optional(),
+  S2_NAS_S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  /** MinIO และบริการที่ไม่ได้ใช้ชื่อถังเป็นโดเมนย่อย ต้องเปิดค่านี้ */
+  S2_NAS_S3_FORCE_PATH_STYLE: z.coerce.number().int().min(0).max(1).default(0),
+  /** คำนำหน้าของทุกวัตถุในถัง เผื่อกรณีที่ถังนั้นไม่ได้มีแต่ข้อมูลของ S2 NAS */
+  S2_NAS_S3_PREFIX: z.string().optional(),
   MAX_UPLOAD_SIZE_MB: z.coerce.number().int().positive().default(100),
   S2_NAS_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().optional(),
   S2_NAS_ZIP_MAX_RESOURCES: z.coerce.number().int().positive().default(1000),
@@ -404,8 +423,29 @@ if (nested(rehearsalStageRoot, storageRoot) || nested(storageRoot, rehearsalStag
   process.exit(1);
 }
 
+/**
+ * ตรวจค่าของ S3 เฉพาะเมื่อเลือกใช้ S3 จริง ๆ
+ *
+ * ตรวจแบบไม่มีเงื่อนไขจะทำให้ทุกเครื่องที่ใช้ดิสก์ธรรมดาต้องกรอกค่าของบริการที่ไม่ได้ใช้
+ * แต่ถ้าเลือก s3 แล้วค่ายังไม่ครบ ต้องหยุดตั้งแต่ตอน start ไม่ใช่ไปพังตอนมีคนอัปโหลด
+ * เพราะความล้มเหลวตอนนั้นเกิดกลางงานของผู้ใช้จริง และวินิจฉัยยากกว่ามาก
+ */
+if (raw.S2_NAS_STORAGE_PROVIDER === 's3') {
+  const missing = (['S2_NAS_S3_REGION', 'S2_NAS_S3_BUCKET', 'S2_NAS_S3_ACCESS_KEY_ID', 'S2_NAS_S3_SECRET_ACCESS_KEY'] as const)
+    .filter((key) => !raw[key]);
+  if (missing.length > 0) {
+    // รายงานเฉพาะ "ชื่อ" ของค่าที่ขาด ไม่เคยรายงานค่าที่มีอยู่
+    console.error(`\n[CONFIG] S2_NAS_STORAGE_PROVIDER=s3 แต่ยังไม่ได้ตั้งค่า: ${missing.join(', ')}\n`);
+    process.exit(1);
+  }
+}
+
+/** คำนำหน้าที่ทำให้อยู่ในรูปแบบเดียวเสมอ - ไม่มี / นำหน้าและไม่มี / ต่อท้าย */
+const s3Prefix = (raw.S2_NAS_S3_PREFIX ?? '').split('/').filter(Boolean).join('/');
+
 export const env = {
   ...raw,
+  S3_PREFIX: s3Prefix,
   STORAGE_ROOT: storageRoot,
   BACKUP_ROOT: backupRoot,
   RESTORE_STAGE_ROOT: restoreStageRoot,
