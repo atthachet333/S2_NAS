@@ -114,6 +114,22 @@ const schema = z.object({
   /* ---- ผู้ช่วยเอกสารแบบ local-only (F21) ---- */
   /** ปิดโดยปริยายจนกว่าจะ provision และผ่าน real-model QA */
   S2_NAS_ASSISTANT_ENABLED: z.coerce.number().int().min(0).max(1).default(0),
+
+  /**
+   * จัดเก็บอัจฉริยะ (F22) - ปิดไว้ก่อนจนกว่าจะผ่านการตรวจรับ
+   *
+   * แยกสวิตช์จากผู้ช่วยเอกสารโดยตั้งใจ สองความสามารถนี้เปิดปิดด้วยเหตุผลคนละชุด
+   * และความล้มเหลวของอันหนึ่งต้องไม่ลากอีกอันลงไปด้วย
+   */
+  S2_NAS_SMART_FILING_ENABLED: z.coerce.number().int().min(0).max(1).default(0),
+
+  /**
+   * ให้โมเดลภาษาช่วยจัดลำดับผู้สมัคร (F22-E) - ปิดไว้เป็นค่าเริ่มต้น
+   *
+   * แยกสวิตช์จากตัวจัดเก็บอัจฉริยะเอง เพราะส่วนที่ใช้โมเดลมีต้นทุนเวลาและความเสี่ยง
+   * คนละระดับกับกติกาแบบแน่นอน และต้องปิดได้ทันทีโดยไม่กระทบข้อเสนอที่ใช้งานอยู่
+   */
+  S2_NAS_SMART_FILING_LLM_ENABLED: z.coerce.number().int().min(0).max(1).default(0),
   S2_NAS_ASSISTANT_PROVIDER: z.enum(['LLAMA_CPP', 'FAKE']).default('LLAMA_CPP'),
   S2_NAS_ASSISTANT_MODEL_PATH: z.string().min(1).default('./models/assistant/model.gguf'),
   S2_NAS_ASSISTANT_LLAMA_BIN: z.string().min(1).default('./models/assistant/llama-cli.exe'),

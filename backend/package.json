@@ -52,7 +52,8 @@
     "qa:f21-longdoc": "tsx scripts/run-assistant-tests.ts --longdoc",
     "qa:f21-acceptance": "tsx scripts/run-assistant-tests.ts --acceptance",
     "qa:f21-browser-fixture": "tsx scripts/f21-browser-fixture.ts",
-    "qa:f21-contention": "tsx scripts/run-assistant-tests.ts --contention"
+    "qa:f21-contention": "tsx scripts/run-assistant-tests.ts --contention",
+    "test:smart-filing": "tsx scripts/run-smart-filing-tests.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

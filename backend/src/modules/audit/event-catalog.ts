@@ -74,6 +74,11 @@ export const EVENT_CATALOG: Record<string, EventDefinition> = {
   ASSISTANT_THREAD_CREATED: { category: 'ASSISTANT', label: 'สร้างการสนทนาผู้ช่วยเอกสาร' },
   ASSISTANT_ANSWER_GENERATED: { category: 'ASSISTANT', label: 'สร้างคำตอบจากเอกสารสำเร็จ', tone: 'SUCCESS' },
   ASSISTANT_GENERATION_FAILED: { category: 'ASSISTANT', label: 'สร้างคำตอบจากเอกสารไม่สำเร็จ', tone: 'DANGER', failure: true },
+  SMART_FILING_ANALYZED: { category: 'FILE', label: 'วิเคราะห์ตำแหน่งจัดเก็บเอกสาร' },
+  SMART_FILING_ACCEPTED: { category: 'FILE', label: 'ยืนยันย้ายตามข้อเสนอจัดเก็บ', tone: 'SUCCESS' },
+  SMART_FILING_DISMISSED: { category: 'FILE', label: 'ปฏิเสธข้อเสนอจัดเก็บ' },
+  SMART_FILING_STALE: { category: 'FILE', label: 'ข้อเสนอจัดเก็บหมดอายุ' },
+  SMART_FILING_FAILED: { category: 'FILE', label: 'วิเคราะห์ตำแหน่งจัดเก็บไม่สำเร็จ', tone: 'DANGER', failure: true },
   /* ---------------- เข้าสู่ระบบ ---------------- */
   LOGIN: { category: 'AUTH', label: 'เข้าสู่ระบบ', tone: 'SUCCESS' },
   CHANGE_PASSWORD: { category: 'AUTH', label: 'เปลี่ยนรหัสผ่าน' },

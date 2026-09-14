@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { uploadFile, uploadNewVersion, UploadError } from '@/lib/upload';
+import { ApiError, smartFilingApi } from '@/lib/api';
 import { uploadErrorText } from '@/lib/error-text';
 import { useToast } from './useToast';
 import { UploadQueueContext, type UploadItem, type UploadQueueValue } from './uploadQueueContext';
@@ -60,14 +61,24 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
           ...overrides,
         };
 
+        let uploaded: Awaited<ReturnType<typeof uploadFile>> | undefined;
         if (item.versionOfId) {
           await uploadNewVersion(item.versionOfId, options);
         } else {
-          await uploadFile(options);
+          uploaded = await uploadFile(options);
         }
 
         patch(item.id, { state: 'SUCCESS', progress: 100, succeededAt: Date.now() });
         refreshViews();
+        /**
+         * จัดเก็บอัจฉริยะทำงานแยกจากการอัปโหลด
+         *
+         * ไม่ await โดยตั้งใจ คำขออัปโหลดจบไปแล้วและต้องไม่รอการวิเคราะห์
+         * ซึ่งใช้เวลาหลายร้อยมิลลิวินาทีและอาจล้มเหลวได้โดยไม่กระทบไฟล์ที่อัปโหลดสำเร็จ
+         */
+        if (!item.versionOfId && uploaded?.resource?.id) {
+          void analyseAfterUpload(uploaded.resource.id, notify);
+        }
       } catch (error) {
         if (!(error instanceof UploadError)) {
           patch(item.id, { state: 'FAILED', errorCode: 'FILE_UPLOAD_FAILED', errorMessage: uploadErrorText('FILE_UPLOAD_FAILED') });
@@ -255,6 +266,58 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
   );
 
   return <UploadQueueContext.Provider value={value}>{children}</UploadQueueContext.Provider>;
+}
+
+/**
+ * วิเคราะห์ตำแหน่งจัดเก็บหลังอัปโหลดเสร็จ (F22-F6)
+ *
+ * **ยิงแล้วไม่รอผล** การอัปโหลดถือว่าสำเร็จไปแล้วก่อนหน้านี้ ฟังก์ชันนี้จึงไม่มีสิทธิ์
+ * ทำให้ผลการอัปโหลดเปลี่ยนไปไม่ว่าจะเกิดอะไรขึ้น ผู้ใช้เห็นไฟล์ของตัวเองทันที
+ * ส่วนข้อเสนอตามมาทีหลังเมื่อพร้อม
+ *
+ * **ล้มเหลวแล้วเงียบ** ปิดความสามารถอยู่ โมเดลไม่พร้อม หรือวิเคราะห์ไม่สำเร็จ
+ * ล้วนไม่ใช่เรื่องที่ต้องรบกวนคนที่เพิ่งอัปโหลดไฟล์สำเร็จ การขึ้นข้อความผิดพลาด
+ * สำหรับส่วนเสริมที่ไม่ได้เปิดใช้งาน จะทำให้ผู้ใช้คิดว่าการอัปโหลดมีปัญหา
+ *
+ * **รอให้การสกัดข้อความเสร็จก่อนค่อยสรุป**
+ * เซิร์ฟเวอร์ตอบ SMART_FILING_TEXT_NOT_READY เมื่อไฟล์ที่เพิ่งอัปโหลดยังไม่ถูกทำดัชนี
+ * ถ้าถือเอาจังหวะนั้นเป็นคำตอบ ผู้ใช้จะได้ข้อความว่า "ยังไม่พบตำแหน่งที่เหมาะสม"
+ * ทั้งที่ระบบยังไม่ได้อ่านเอกสารเลย จึงรอเป็นรอบ ๆ แล้วเงียบไปถ้ายังไม่พร้อมจริง ๆ
+ *
+ * **งบเวลาที่รอมาจากของจริง** ตัวสกัดข้อความทำงานเป็นรอบทุก 15 วินาที
+ * (S2_NAS_EXTRACT_POLL_SECONDS) วัดกับเซิร์ฟเวอร์จริงได้เวลาจนข้อเสนอพร้อม p95 ≈ 15 วินาที
+ * งบ 14 รอบ × 2.5 วินาที ≈ 35 วินาที จึงครอบคลุมหนึ่งรอบเต็มพร้อมเวลาสกัดและเผื่อไว้
+ */
+const TEXT_WAIT_ATTEMPTS = 14;
+const TEXT_WAIT_INTERVAL_MS = 2500;
+
+async function analyseAfterUpload(
+  resourceId: string,
+  notify: (input: { tone: 'success' | 'info'; title: string; description?: string }) => void,
+): Promise<void> {
+  try {
+    let attempt = 0;
+    let analysed: Awaited<ReturnType<typeof smartFilingApi.analyze>> | null = null;
+    for (;;) {
+      try {
+        analysed = await smartFilingApi.analyze(resourceId);
+        break;
+      } catch (error) {
+        const notReady = error instanceof ApiError && error.code === 'SMART_FILING_TEXT_NOT_READY';
+        if (!notReady || (attempt += 1) >= TEXT_WAIT_ATTEMPTS) throw error;
+        await new Promise((resolve) => { setTimeout(resolve, TEXT_WAIT_INTERVAL_MS); });
+      }
+    }
+    const result = analysed.data;
+    if (result.resultLevel === 'NO_SUGGESTION') {
+      notify({ tone: 'info', title: 'ยังไม่พบตำแหน่งที่เหมาะสม', description: 'เอกสารอยู่ที่เดิม เลือกโฟลเดอร์เองได้จากรายละเอียดไฟล์' });
+      return;
+    }
+    const label = result.destination?.pathLabel || result.client?.label || '';
+    notify({ tone: 'info', title: 'พบตำแหน่งที่แนะนำ', description: label ? `${label} · เปิดรายละเอียดไฟล์เพื่อยืนยัน` : 'เปิดรายละเอียดไฟล์เพื่อดูข้อเสนอ' });
+  } catch {
+    /* ส่วนเสริมที่ล้มเหลวต้องไม่รบกวนผลการอัปโหลดที่สำเร็จไปแล้ว */
+  }
 }
 
 export function useUploadQueue(): UploadQueueValue {

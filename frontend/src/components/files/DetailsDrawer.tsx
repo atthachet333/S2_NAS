@@ -24,6 +24,7 @@ import { isPreviewable } from '@/lib/file-types';
 import { useToast } from '@/hooks/useToast';
 import { useAuth } from '@/hooks/useAuth';
 import { externalResourceLabel, isExternalEntry, openExternalUrl } from '@/lib/external-resources';
+import { SmartFilingCard } from './SmartFilingCard.tsx';
 
 /**
  * แผงรายละเอียด V5
@@ -139,6 +140,10 @@ export function DetailsDrawer() {
           <div className="flex-1 overflow-y-auto px-4 py-4">
             {tab === 'details' ? (
               <div className="space-y-4">
+                {/* จัดเก็บอัจฉริยะ - เสนอตำแหน่งเท่านั้น ไม่เคยย้ายเอง */}
+                {!isFolder && !isExternal ? (
+                  <SmartFilingCard resourceId={selected.id} currentParentId={selected.parentId ?? null} currentDriveRoot={selected.driveRoot} />
+                ) : null}
                 {!isFolder && !isExternal ? (
                   <div className="grid gap-2">
                     <button type="button" className="s2-btn s2-btn-primary w-full" onClick={() => window.dispatchEvent(new CustomEvent('s2-open-assistant', { detail: { resources: [{ id: selected.id, name: selected.name }], scope: 'CURRENT_RESOURCE' } }))}>

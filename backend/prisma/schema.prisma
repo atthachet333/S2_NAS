@@ -129,6 +129,7 @@ model User {
   textCorrections        ResourceTextCorrection[] @relation("TextCorrectionAuthor")
   correctedIndexes       ResourceSearchIndex[]    @relation("TextCorrector")
   assistantThreads       AssistantThread[]
+  smartFilingAnalyses    SmartFilingSuggestion[]  @relation("SmartFilingAnalyst")
 
   @@index([status])
   @@index([createdAt])
@@ -228,6 +229,7 @@ model Resource {
   createdByIntegrationApp  IntegrationApp?           @relation("IntegrationResourceCreator", fields: [createdByIntegrationAppId], references: [id], onDelete: SetNull)
   integrationScopeApps     IntegrationApp[]          @relation("IntegrationAllowedRoot")
   integrationIdempotency   IntegrationIdempotency[]
+  smartFilingSuggestions   SmartFilingSuggestion[]   @relation("SmartFilingResource")
 
   @@index([parentId])
   @@index([ownerId])
@@ -1315,4 +1317,96 @@ model GoogleDriveSync {
   /// ใช้โดยตัวทำงานเบื้องหลังเพื่อหยิบงานที่ถึงคิวตรวจ
   @@index([syncEnabled, lastCheckedAt])
   @@map("google_drive_syncs")
+}
+
+/// สถานะของข้อเสนอการจัดเก็บอัจฉริยะ (F22)
+enum SmartFilingStatus {
+  READY
+  ACCEPTED
+  DISMISSED
+  STALE
+  FAILED
+}
+
+/// ระดับความละเอียดของข้อเสนอ - บอกตรง ๆ ว่าระบบรู้ลึกแค่ไหน
+///
+/// แยกจากความมั่นใจโดยตั้งใจ ระบบอาจมั่นใจสูงว่าเป็นเอกสารของลูกค้ารายใด
+/// แต่ยังเลือกโฟลเดอร์ย่อยไม่ได้ ซึ่งต้องบอกผู้ใช้ตามจริง ไม่ใช่เดาให้ลึกกว่าที่รู้
+enum SmartFilingLevel {
+  CLIENT_ONLY
+  CLIENT_AND_PERIOD
+  FULL_DESTINATION
+  AMBIGUOUS
+  NO_SUGGESTION
+}
+
+enum SmartFilingConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+/// ข้อเสนอการจัดเก็บเอกสาร (F22)
+///
+/// **เป็นข้อมูลอนุมานล้วน ไม่ใช่แหล่งความจริง** แถวนี้ไม่เคยเปลี่ยนตำแหน่งของเอกสาร
+/// ด้วยตัวเอง การย้ายจริงเกิดขึ้นเฉพาะเมื่อผู้ใช้ยืนยันและผ่านการตรวจสิทธิ์ใหม่ทั้งชุด
+///
+/// **ไม่เก็บเนื้อหาเอกสาร** เก็บเฉพาะรหัสอ้างอิงและเหตุผลที่แสดงต่อผู้ใช้ได้อย่างปลอดภัย
+/// เนื้อหา OCR หรือข้อความที่สกัดมาไม่เคยถูกคัดลอกลงแถวนี้
+///
+/// **ผูกกับเวอร์ชันเสมอ** ข้อเสนอที่สร้างจากเวอร์ชันเก่าใช้กับเวอร์ชันใหม่ไม่ได้
+/// เพราะเนื้อหาที่เปลี่ยนอาจเป็นของบริษัทคนละรายกันเลย
+model SmartFilingSuggestion {
+  id                String @id @default(cuid())
+  resourceId        String
+  /// เวอร์ชันที่ใช้วิเคราะห์ - ถ้าไม่ตรงกับเวอร์ชันปัจจุบันแล้ว ข้อเสนอนี้ใช้ไม่ได้
+  resourceVersionId String
+  analyzedById      String
+
+  status      SmartFilingStatus @default(READY)
+  resultLevel SmartFilingLevel
+
+  /// โฟลเดอร์ลูกค้าที่ระบบเชื่อว่าเอกสารนี้เป็นของ
+  clientRootFolderId String?
+  /// ปลายทางที่เสนอ อาจเท่ากับโฟลเดอร์ลูกค้าเมื่อยังเลือกโฟลเดอร์ย่อยไม่ได้
+  suggestedFolderId  String?
+
+  clientConfidence      SmartFilingConfidence?
+  destinationConfidence SmartFilingConfidence?
+
+  /// ป้ายที่แสดงผลได้อย่างปลอดภัย ไม่ใช่เนื้อหาเอกสาร
+  suggestedCompanyLabel String? @db.VarChar(191)
+  suggestedCategory     String? @db.VarChar(64)
+  suggestedYear         Int?
+
+  /// เหตุผลและชนิดสัญญาณในรูปแบบที่แสดงต่อผู้ใช้ได้ ไม่มีข้อความจากเอกสาร
+  reasonJson Json?
+  signalJson Json?
+
+  /// ตัวเลือกปลายทางที่ผ่านการตรวจสิทธิ์แล้ว เก็บเฉพาะรหัสและป้ายที่แสดงได้อย่างปลอดภัย
+  ///
+  /// ต้องบันทึกไว้เพราะข้อเสนอแบบกำกวมไม่มีผู้ชนะโดยปริยาย ผู้ใช้ต้องเลือกเอง
+  /// การคำนวณใหม่ตอนอ่านจะให้ผลที่อาจต่างจากตอนวิเคราะห์ ซึ่งทำให้ข้อเสนอไม่ใช่ภาพนิ่งอีกต่อไป
+  alternativesJson Json?
+
+  /// รุ่นของเครื่องวิเคราะห์ ใช้ตัดสินว่าควรวิเคราะห์ใหม่เมื่อกติกาเปลี่ยน
+  analyzerVersion String  @db.VarChar(32)
+  failureCode     String? @db.VarChar(64)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  acceptedAt  DateTime?
+  dismissedAt DateTime?
+  staleAt     DateTime?
+
+  resource   Resource @relation("SmartFilingResource", fields: [resourceId], references: [id], onDelete: Cascade)
+  analyzedBy User     @relation("SmartFilingAnalyst", fields: [analyzedById], references: [id], onDelete: Cascade)
+
+  /// หนึ่งข้อเสนอที่ใช้งานได้ต่อหนึ่งเอกสารต่อหนึ่งผู้ใช้ต่อหนึ่งเวอร์ชัน
+  ///
+  /// กันการวิเคราะห์ซ้ำจนเกิดข้อเสนอที่ขัดแย้งกันเองสำหรับเอกสารฉบับเดียวกัน
+  @@unique([resourceId, resourceVersionId, analyzedById])
+  @@index([resourceId, status])
+  @@index([status, createdAt])
+  @@map("smart_filing_suggestions")
 }

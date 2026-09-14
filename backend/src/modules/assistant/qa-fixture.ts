@@ -71,9 +71,17 @@ export class QaFixtureScope {
     const resourceId = crypto.randomUUID();
     this.resourceIds.push(resourceId);
 
+    /**
+     * ต้องมีนามสกุลและชนิดไฟล์เหมือนการอัปโหลดจริง
+     *
+     * ตัวสกัดข้อความตัดสินจากสองค่านี้ ถ้าไม่มี งานทำดัชนีที่ทำงานอยู่เบื้องหลังจะทำเครื่องหมาย
+     * ว่าไม่รองรับแล้วลบข้อความที่ของทดสอบใส่ไว้ทิ้ง ทำให้เทสต์ที่รันพร้อมเซิร์ฟเวอร์จริง
+     * ล้มเหลวด้วยเหตุที่สืบยาก ของทดสอบจึงต้องมีหน้าตาเหมือนไฟล์จริงทุกประการ
+     */
+    const extension = spec.name.includes('.') ? spec.name.split('.').pop()!.toLowerCase() : 'txt';
     await prisma.resource.create({ data: { id: resourceId, type: 'FILE', name: spec.name,
       normalizedName: spec.name.toLowerCase(), siblingKey: `${this.prefix}:${resourceId}`,
-      ownerId: spec.ownerId, createdById: spec.ownerId,
+      ownerId: spec.ownerId, createdById: spec.ownerId, extension, mimeType: 'text/plain',
       visibility: spec.visibility ?? 'ORGANIZATION', currentVersion: spec.versions.length } });
 
     await storageProvider.ensureResourceDirectory(resourceId);
@@ -156,4 +164,26 @@ export async function writeQaVersionFile(resourceId: string, text: string): Prom
   const storageKey = storageProvider.createStorageKey(resourceId);
   await writeFile(resolveStorageKey(storageKey), bytes);
   return { storageKey, size: BigInt(bytes.byteLength), checksum: crypto.createHash('sha256').update(bytes).digest('hex') };
+}
+
+/**
+ * ลบบัญชีทดสอบปิดท้ายการเก็บกวาด
+ *
+ * `QaFixtureScope.destroy()` พยายามลบผู้ใช้ทันทีหลังลบไฟล์ แต่ชุดทดสอบที่สร้างโฟลเดอร์เอง
+ * ยังมีแถวที่อ้างถึงผู้ใช้ผ่าน createdById อยู่ในจังหวะนั้น การลบจึงติด foreign key
+ * และถูกกลืนไปตามสัญญาของ destroy() ที่ห้ามโยนข้อผิดพลาดทับสาเหตุจริง
+ * ชุดทดสอบแบบนั้นจึงต้องเรียกฟังก์ชันนี้เป็นขั้นสุดท้าย หลังลบโฟลเดอร์ของตัวเองแล้ว
+ *
+ * เงียบเหมือน destroy() ด้วยเหตุผลเดียวกัน และตัดความสัมพันธ์ของบันทึกกิจกรรมก่อนลบ
+ * เพื่อไม่ให้ประวัติการตรวจสอบหายไปพร้อมบัญชีทดสอบ
+ */
+export async function removeQaUsers(userIds: string[]): Promise<void> {
+  if (userIds.length === 0) return;
+  try {
+    await prisma.activityLog.updateMany({ where: { userId: { in: userIds } }, data: { userId: null } });
+    await prisma.userRole.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  } catch {
+    /* การเก็บกวาดต้องไม่กลบข้อผิดพลาดเดิมที่ทำให้มาถึงจุดนี้ */
+  }
 }

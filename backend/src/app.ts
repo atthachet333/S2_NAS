@@ -30,6 +30,7 @@ import { workspaceRoutes } from './modules/workspace/workspace.routes.js';
 import { integrationRoutes } from './modules/integrations/integration.routes.js';
 import { portalRoutes } from './modules/portal/portal.routes.js';
 import { assistantRoutes } from './modules/assistant/assistant.routes.js';
+import { smartFilingRoutes } from './modules/filing/filing.routes.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -80,6 +81,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(adminShareRoutes);
       await api.register(googleDriveRoutes);
       await api.register(assistantRoutes);
+      await api.register(smartFilingRoutes);
     },
     { prefix: '/api' },
   );

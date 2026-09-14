@@ -1549,6 +1549,50 @@ export interface AssistantDiagnosticsDto { status: 'READY' | 'NOT_CONFIGURED' | 
   queue: { active: number; queued: number; concurrency: number; limit: number };
   runtime: { threads: number; batchSize: number }; reason?: string }
 
+/**
+ * จัดเก็บอัจฉริยะ (F22)
+ *
+ * ระดับผลลัพธ์สะท้อนสิ่งที่ระบบรู้จริง ไม่ใช่สิ่งที่อยากให้ผู้ใช้เห็น
+ * จากการวัดกับคลังเอกสารจริง CLIENT_ONLY คือกรณีที่พบบ่อยที่สุด
+ * และ NO_SUGGESTION เป็นผลลัพธ์ปกติ ไม่ใช่ข้อผิดพลาด
+ */
+export type SmartFilingLevel =
+  | 'CLIENT_ONLY' | 'CLIENT_AND_PERIOD' | 'FULL_DESTINATION' | 'AMBIGUOUS' | 'NO_SUGGESTION';
+export type SmartFilingConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface SmartFilingTargetDto {
+  folderId: string;
+  pathLabel: string;
+  confidence: SmartFilingConfidence | null;
+}
+
+export interface SmartFilingSuggestionDto {
+  suggestionId: string;
+  status: string;
+  resultLevel: SmartFilingLevel;
+  client: { folderId: string; label: string; confidence: SmartFilingConfidence | null } | null;
+  destination: SmartFilingTargetDto | null;
+  alternatives: Array<{ folderId: string; pathLabel: string }>;
+  reasons: string[];
+  signals: string[];
+  stale: boolean;
+}
+
+export const smartFilingApi = {
+  analyze: (resourceId: string) =>
+    apiFetch<{ success: true; data: SmartFilingSuggestionDto }>(`/resources/${resourceId}/smart-filing/analyze`, { method: 'POST' }),
+  suggestion: (resourceId: string) =>
+    apiFetch<{ success: true; data: SmartFilingSuggestionDto | null }>(`/resources/${resourceId}/smart-filing/suggestion`),
+  dismiss: (resourceId: string, suggestionId: string) =>
+    apiFetch<{ success: true; data: { dismissed: true } }>(`/resources/${resourceId}/smart-filing/dismiss`, {
+      method: 'POST', body: JSON.stringify({ suggestionId }),
+    }),
+  accept: (resourceId: string, suggestionId: string, targetFolderId?: string) =>
+    apiFetch<{ success: true; data: { moved: true; folderId: string } }>(`/resources/${resourceId}/smart-filing/accept`, {
+      method: 'POST', body: JSON.stringify({ suggestionId, targetFolderId }),
+    }),
+};
+
 export const assistantApi = {
   health: () => apiFetch<{ success: true; data: AssistantDiagnosticsDto }>('/assistant/health'),
   threads: () => apiFetch<{ success: true; data: AssistantThreadDto[] }>('/assistant/threads'),
