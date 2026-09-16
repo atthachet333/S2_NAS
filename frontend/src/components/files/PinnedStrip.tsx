@@ -56,7 +56,7 @@ export function PinnedStrip({
               type="button"
               onClick={() => onAction('unpin', entry)}
               aria-label={`ยกเลิกปักหมุด ${entry.name}`}
-              className="absolute right-1.5 top-1.5 rounded-lg p-1.5 text-navy-300 opacity-0 transition-opacity hover:bg-navy-50 hover:text-navy-600 focus-visible:opacity-100 group-hover:opacity-100"
+              className="absolute right-1.5 top-1.5 rounded-lg p-1.5 text-navy-300 opacity-100 md:opacity-0 transition-opacity hover:bg-navy-50 hover:text-navy-600 focus-visible:opacity-100 md:group-hover:opacity-100"
             >
               <PinOff className="h-3.5 w-3.5" aria-hidden />
             </button>

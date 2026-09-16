@@ -146,7 +146,7 @@ export function FolderPicker({
         ))}
       </div>
 
-      <div className="max-h-56 space-y-0.5 overflow-y-auto p-1.5">
+      <div className="max-h-[45dvh] space-y-0.5 overflow-y-auto overscroll-contain p-1.5 sm:max-h-56">
         {value ? (
           <button type="button" onClick={() => onChange(parentId)} className="s2-menu-item">
             <CornerLeftUp className="h-4 w-4 text-navy-400" aria-hidden />

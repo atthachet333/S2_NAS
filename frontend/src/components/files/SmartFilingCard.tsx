@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sparkles, FolderInput, RefreshCw } from 'lucide-react';
+import { useConnectivity } from '@/hooks/useConnectivity';
 import { smartFilingApi, type SmartFilingConfidence } from '@/lib/api';
 import type { DriveRoot } from '@/lib/drive-labels';
 import { SmartFilingTargetDialog } from './SmartFilingTargetDialog';
@@ -53,6 +54,7 @@ export function SmartFilingCard({ resourceId, currentParentId = null, currentDri
   const queryClient = useQueryClient();
   const [pendingTarget, setPendingTarget] = useState<{ folderId: string; label: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { online } = useConnectivity();
 
   const suggestion = useQuery({
     queryKey: ['smart-filing', resourceId],
@@ -87,7 +89,14 @@ export function SmartFilingCard({ resourceId, currentParentId = null, currentDri
   });
 
   const data = suggestion.data ?? null;
-  const busy = analyze.isPending || accept.isPending || dismiss.isPending;
+  /**
+   * ออฟไลน์ถือว่า "ยุ่งอยู่" เหมือนกัน (F24-I)
+   *
+   * ทุกปุ่มที่เปลี่ยนแปลงข้อมูลผูกกับค่านี้อยู่แล้ว การรวมสถานะออฟไลน์เข้ามาที่นี่
+   * จึงปิดการวิเคราะห์ใหม่ การยืนยันย้าย และการเลือกไว้ที่เดิม พร้อมกันทั้งหมด
+   * โดยไม่ต้องไปไล่เพิ่มเงื่อนไขทีละปุ่มแล้วลืมบางปุ่ม
+   */
+  const busy = analyze.isPending || accept.isPending || dismiss.isPending || !online;
 
   const header = (
     <header className="flex items-center justify-between gap-2">
@@ -170,7 +179,7 @@ export function SmartFilingCard({ resourceId, currentParentId = null, currentDri
       return (
         <div>
           <p className="text-[12px] text-navy-500">เลือกไว้ที่เดิมแล้ว</p>
-          <button type="button" className="s2-btn s2-btn-outline mt-3" onClick={onPickFolder}>เลือกโฟลเดอร์เอง</button>
+          <button type="button" className="s2-btn s2-btn-outline mt-3" disabled={busy} onClick={onPickFolder}>เลือกโฟลเดอร์เอง</button>
         </div>
       );
     }
@@ -182,7 +191,7 @@ export function SmartFilingCard({ resourceId, currentParentId = null, currentDri
           <p className="text-[12px] text-navy-600">ยังไม่พบตำแหน่งที่เหมาะสม</p>
           <p className="mt-1 text-[11px] text-navy-400">เอกสารนี้ยังอยู่ที่เดิม</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className="s2-btn s2-btn-outline" onClick={onPickFolder}>เลือกโฟลเดอร์เอง</button>
+            <button type="button" className="s2-btn s2-btn-outline" disabled={busy} onClick={onPickFolder}>เลือกโฟลเดอร์เอง</button>
             <button type="button" className="s2-btn s2-btn-ghost" disabled={busy} onClick={() => analyze.mutate()}>วิเคราะห์ใหม่</button>
           </div>
         </div>
@@ -210,7 +219,7 @@ export function SmartFilingCard({ resourceId, currentParentId = null, currentDri
             ))}
           </ul>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className="s2-btn s2-btn-ghost" onClick={onPickFolder}>เลือกโฟลเดอร์เอง</button>
+            <button type="button" className="s2-btn s2-btn-ghost" disabled={busy} onClick={onPickFolder}>เลือกโฟลเดอร์เอง</button>
             <button type="button" className="s2-btn s2-btn-ghost" disabled={busy}
               onClick={() => dismiss.mutate(data.suggestionId)}>ไว้ที่เดิม</button>
           </div>
@@ -254,7 +263,7 @@ export function SmartFilingCard({ resourceId, currentParentId = null, currentDri
             <FolderInput className="h-3.5 w-3.5 shrink-0" aria-hidden />
             <span className="min-w-0 truncate">{full ? 'ย้ายเข้าโฟลเดอร์' : `ย้ายเข้า ${clientLabel}`}</span>
           </button>
-          <button type="button" className="s2-btn s2-btn-outline" onClick={onPickFolder}>
+          <button type="button" className="s2-btn s2-btn-outline" disabled={busy} onClick={onPickFolder}>
             {full ? 'เลือกที่อื่น' : 'เลือกโฟลเดอร์ย่อย'}
           </button>
           <button type="button" className="s2-btn s2-btn-ghost" disabled={busy}
@@ -267,6 +276,11 @@ export function SmartFilingCard({ resourceId, currentParentId = null, currentDri
   return (
     <section className="space-y-3 rounded-xl border border-line bg-[var(--s2-surface)] p-3" aria-label="จัดเก็บอัจฉริยะ">
       {header}
+      {online ? null : (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[12px] text-amber-800" role="status" aria-live="polite">
+          ต้องเชื่อมต่ออินเทอร์เน็ตเพื่อวิเคราะห์หรือย้ายเอกสาร
+        </p>
+      )}
       {confirmation ?? body()}
       {error ? <p className="text-[12px] text-red-600" role="alert">{error}</p> : null}
       {pickerOpen ? (

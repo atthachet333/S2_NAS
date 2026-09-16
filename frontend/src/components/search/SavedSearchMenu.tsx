@@ -177,7 +177,7 @@ export function SavedSearchMenu({ query, searchMode, filters, onApply, onApplySm
                           rename.mutate({ id: item.id, name: next.trim() });
                         }
                       }}
-                      className="s2-btn s2-btn-ghost h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      className="s2-btn s2-btn-ghost h-6 w-6 shrink-0 p-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100"
                     >
                       <Pencil className="h-3 w-3" aria-hidden />
                     </button>
@@ -187,7 +187,7 @@ export function SavedSearchMenu({ query, searchMode, filters, onApply, onApplySm
                       onClick={() => {
                         if (window.confirm(`ลบชุดค้นหา “${item.name}” ?`)) remove.mutate(item.id);
                       }}
-                      className="s2-btn s2-btn-ghost h-6 w-6 shrink-0 p-0 text-rose-600 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      className="s2-btn s2-btn-ghost h-6 w-6 shrink-0 p-0 text-rose-600 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100"
                     >
                       <Trash2 className="h-3 w-3" aria-hidden />
                     </button>

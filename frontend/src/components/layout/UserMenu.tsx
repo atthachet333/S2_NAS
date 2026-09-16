@@ -36,7 +36,7 @@ export function UserMenu() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`${visibleName} ${user?.roles.join(', ') ?? ''}`.trim()}
-        className="flex h-9 items-center gap-2 rounded-[10px] pl-1 pr-1.5 transition-colors hover:bg-navy-50"
+        className="s2-icon-target flex h-9 items-center gap-2 rounded-[10px] pl-1 pr-1.5 transition-colors hover:bg-navy-50"
       >
         <OwnerAvatar owner={{ displayName: user?.displayName, email: user?.email }} size="md" />
         <span className="hidden max-w-[120px] text-left leading-tight xl:block">

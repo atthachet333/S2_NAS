@@ -12,6 +12,8 @@ import { matchReasonLabel, splitSnippet } from '@/lib/search-content';
 import { textSourceBadge } from '@/lib/ocr';
 import { AdvancedFilterPanel } from '@/components/search/AdvancedFilterPanel';
 import { SavedSearchMenu } from '@/components/search/SavedSearchMenu';
+import { Sheet } from '@/components/ui/Sheet';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import {
   FILTER_KEYS,
   activeChips as buildChips,
@@ -39,6 +41,7 @@ export default function SearchPage() {
   const { handleWorkspaceAction, workspaceDialogs } = useWorkspaceActions();
   const [preview, setPreview] = useState<DriveEntry | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   const term = params.get('q') ?? '';
   const mode = (params.get('mode') ?? 'HYBRID') as 'LEXICAL' | 'SEMANTIC' | 'HYBRID';
@@ -164,7 +167,7 @@ export default function SearchPage() {
             <select
               value={mode}
               onChange={(event) => setFilter('mode', event.target.value)}
-              className="s2-input h-8 w-auto py-0 text-[12px]"
+              className="s2-input h-11 w-auto py-0 text-[12px] md:h-8"
               aria-label="วิธีค้นหา"
             >
               <option value="HYBRID">ผสมคำและความหมาย</option>
@@ -216,7 +219,27 @@ export default function SearchPage() {
           </div>
         ) : null}
 
-        {advancedOpen ? (
+        {/*
+          ตัวกรองขั้นสูงบนมือถือเปิดเป็นแผ่นล่าง (F24-G)
+
+          แผงตัวกรองแบบเดสก์ท็อปสูงหลายร้อยพิกเซล เมื่อกางอยู่กลางหน้า มันดันผลการค้นหา
+          ออกนอกจอทั้งหมด ผู้ใช้จึงกรองไปโดยไม่เห็นว่าผลลัพธ์เปลี่ยนไปอย่างไร
+          แผ่นล่างลอยทับแทน ปิดแล้วเห็นผลทันที และตรรกะของตัวกรองไม่ถูกแตะต้องเลย
+        */}
+        {advancedOpen && isMobile ? (
+          <Sheet open title="ตัวกรองขั้นสูง" onClose={() => setAdvancedOpen(false)}>
+            <div className="px-1 pb-1">
+              <AdvancedFilterPanel
+                filters={filters}
+                onChange={(key, value) =>
+                  setFilter(key, value === null || value === false ? null : String(value))
+                }
+                onClear={clearFilters}
+                onClose={() => setAdvancedOpen(false)}
+              />
+            </div>
+          </Sheet>
+        ) : advancedOpen ? (
           <AdvancedFilterPanel
             filters={filters}
             onChange={(key, value) =>
@@ -330,7 +353,7 @@ function ContentMatches({ hits, term }: { hits: SearchHitDto[]; term: string }) 
         {matches.map((hit) => (
           <li key={hit.id} className="px-4 py-2.5">
             <p className="flex flex-wrap items-center gap-1.5">
-              <span className="truncate text-[12.5px] font-medium text-navy-800">{hit.name}</span>
+              <span className="min-w-0 break-words text-[12.5px] font-medium text-navy-800">{hit.name}</span>
               <span className="rounded-md border border-line px-1.5 py-0.5 text-[10px] text-navy-500">
                 {matchReasonLabel(hit.matchReason)}
               </span>
@@ -351,7 +374,7 @@ function ContentMatches({ hits, term }: { hits: SearchHitDto[]; term: string }) 
                 </span>
               ) : null}
             </p>
-            <p className="mt-1 rounded-lg bg-[var(--s2-surface-soft)] px-2 py-1 text-[11px] leading-relaxed text-navy-500">
+            <p className="mt-1 line-clamp-4 break-words rounded-lg bg-[var(--s2-surface-soft)] px-2 py-1 text-[11px] leading-relaxed text-navy-500">
               {splitSnippet(hit.contentSnippet!, term).map((part, index) =>
                 part.highlight ? (
                   <mark key={index} className="rounded bg-amber-100 px-0.5 text-navy-900">

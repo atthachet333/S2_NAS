@@ -2,9 +2,12 @@ import { useRef, useState, type ReactNode } from 'react';
 import { UploadCloud } from 'lucide-react';
 import { FileGrid } from './FileGrid';
 import { FileList, type ListColumn } from './FileList';
+import { FileCards } from './FileCards';
+import { MobileActionSheet } from './MobileActionSheet';
 import { ContextMenu, useContextMenu } from './ContextMenu';
 import { GridSkeleton, ListSkeleton, ErrorState } from '@/components/ui/States';
 import { useDriveUi } from '@/hooks/useDriveUi';
+import { useCompactList, useIsMobile } from '@/hooks/useIsMobile';
 import { useToast } from '@/hooks/useToast';
 import { useUploadQueue } from '@/hooks/useUploadQueue';
 import type { DriveEntry } from '@/lib/drive';
@@ -53,6 +56,9 @@ export function DriveWorkspace({
   driveLabel?: string;
 }) {
   const { viewMode, selected, select, openDetails } = useDriveUi();
+  const isMobile = useIsMobile();
+  /** ตารางอ่านไม่ออกต่ำกว่า 1024px จึงใช้การ์ดแทน - แยกจากเกณฑ์ของแถบนำทางโทรศัพท์ */
+  const compactList = useCompactList();
   const { notify } = useToast();
   const { enqueue } = useUploadQueue();
   const { state, openAt, openForEntry, close } = useContextMenu();
@@ -150,6 +156,23 @@ export function DriveWorkspace({
         )
       ) : entries.length === 0 ? (
         emptyState
+      ) : compactList && viewMode !== 'grid' ? (
+        /*
+          จอโทรศัพท์ใช้การ์ดแทนตาราง
+
+          เลือกด้วย JavaScript ไม่ใช่ซ่อนด้วย CSS เพราะโฟลเดอร์ที่มีไฟล์หลายร้อยรายการ
+          จะกลายเป็น DOM สองชุด และตัวอ่านหน้าจอจะไล่รายการซ้ำสองรอบ
+        */
+        <FileCards
+          entries={entries}
+          selectedId={selected?.id ?? null}
+          onSelect={select}
+          onOpen={(entry) => onAction('open', entry)}
+          onContextMenu={allowContextMenu ? openAt : () => undefined}
+          selectedIds={selectedIds}
+          onToggleSelection={onToggleSelection}
+          selectionMode={selectedIds.size > 0}
+        />
       ) : viewMode === 'grid' ? (
         <FileGrid
           entries={entries}
@@ -187,7 +210,19 @@ export function DriveWorkspace({
         </div>
       ) : null}
 
-      {allowContextMenu ? <ContextMenu state={state} destinationName={uploadTarget?.parentName ?? driveLabel} onClose={close} onAction={onAction} /> : null}
+      {/*
+        มือถือใช้แผ่นกระทำ เดสก์ท็อปใช้เมนูเดิมที่ไม่ถูกแตะต้อง
+
+        แผ่นทำงานเฉพาะเมื่อมีรายการจริงเท่านั้น การกดค้างบนพื้นที่ว่างของโฟลเดอร์
+        ไม่มีความหมายบนจอสัมผัส จึงไม่เปิดอะไรขึ้นมา
+      */}
+      {allowContextMenu && isMobile ? (
+        state.open && state.entry ? (
+          <MobileActionSheet entry={state.entry} onClose={close} onAction={onAction} />
+        ) : null
+      ) : allowContextMenu ? (
+        <ContextMenu state={state} destinationName={uploadTarget?.parentName ?? driveLabel} onClose={close} onAction={onAction} />
+      ) : null}
     </section>
   );
 }

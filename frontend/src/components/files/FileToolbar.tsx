@@ -50,8 +50,15 @@ export function FileToolbar({
   useOutsideClose(sortRef, sortOpen, () => setSortOpen(false));
   useOutsideClose(filterRef, filterOpen, () => setFilterOpen(false));
 
+  /*
+   * แถบเครื่องมือต้องหดและขึ้นบรรทัดใหม่ได้จริง (F24-N)
+   *
+   * ที่ขนาดตัวอักษร 200% ของเบราว์เซอร์ ปุ่มในแถบนี้รวมกันกว้างกว่าพื้นที่ที่มี
+   * flex-wrap อย่างเดียวไม่พอ เพราะตัวแถบเองยังไม่ยอมหดลงต่ำกว่าความกว้างเนื้อหา
+   * min-w-0 กับ shrink ทำให้มันหดได้ ปุ่มจึงตกลงบรรทัดใหม่แทนที่จะถูกตัดหายไป
+   */
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex min-w-0 shrink flex-wrap items-center gap-1.5">
       {showNew ? <NewMenu variant="outline" onCreateFolder={onCreateFolder} /> : null}
 
       {showUpload ? (
@@ -72,7 +79,8 @@ export function FileToolbar({
         </button>
       ) : null}
 
-      <div className="flex items-center gap-1.5">
+      {/* กลุ่มปุ่มเรียง/กรอง/มุมมอง/รายละเอียด - ต้องขึ้นบรรทัดใหม่ได้เมื่อตัวอักษรใหญ่ */}
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <div className="relative" ref={sortRef}>
           <button
             type="button"
@@ -160,7 +168,7 @@ export function FileToolbar({
             aria-pressed={viewMode === 'grid'}
             aria-label="มุมมองตาราง"
             className={cn(
-              'rounded-lg p-1.5 transition-colors',
+              's2-icon-target flex items-center justify-center rounded-lg p-1.5 transition-colors',
               viewMode === 'grid' ? 'bg-navy-50 text-navy-800' : 'text-navy-400 hover:text-navy-700',
             )}
           >
@@ -172,7 +180,7 @@ export function FileToolbar({
             aria-pressed={viewMode === 'list'}
             aria-label="มุมมองรายการ"
             className={cn(
-              'rounded-lg p-1.5 transition-colors',
+              's2-icon-target flex items-center justify-center rounded-lg p-1.5 transition-colors',
               viewMode === 'list' ? 'bg-navy-50 text-navy-800' : 'text-navy-400 hover:text-navy-700',
             )}
           >
@@ -186,7 +194,7 @@ export function FileToolbar({
           aria-pressed={detailsOpen}
           aria-label="รายละเอียด"
           className={cn(
-            'rounded-[10px] border border-line p-2 transition-colors',
+            's2-icon-target flex items-center justify-center rounded-[10px] border border-line p-2 transition-colors',
             detailsOpen ? 'bg-navy-50 text-navy-800' : 'bg-surface text-navy-400 hover:text-navy-700',
           )}
         >

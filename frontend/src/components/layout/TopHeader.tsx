@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Bell, Search } from 'lucide-react';
 import { GlobalSearch } from './GlobalSearch';
 import { NewMenu } from './NewMenu';
@@ -12,10 +12,12 @@ import { ThemeControl } from './ThemeControl';
  * ซ้าย: แบรนด์ | กลาง: ค้นหา | ขวา: ปุ่มใหม่, สถานะเซิร์ฟเวอร์, แจ้งเตือน, ผู้ใช้
  */
 export function TopHeader() {
+  const navigate = useNavigate();
+
   return (
     <header className="s2-header-bar border-b border-line">
       <div className="mx-auto flex h-16 max-w-[1680px] items-center gap-3 px-4 lg:gap-5 lg:px-8">
-        <Link to="/dashboard" className="flex shrink-0 items-center" aria-label="S2 NAS หน้าแรก">
+        <Link to="/dashboard" className="s2-icon-target flex shrink-0 items-center justify-center" aria-label="S2 NAS หน้าแรก">
           <BrandLogo size={36} />
         </Link>
 
@@ -44,9 +46,15 @@ export function TopHeader() {
 
           <UserMenu />
 
+          {/*
+            บนจอแคบ ช่องค้นหาเต็มรูปแบบไม่มีที่พอ จึงเหลือเป็นปุ่มที่พาไปหน้าค้นหา
+
+            ก่อนหน้านี้ปุ่มนี้ไม่มีตัวจัดการเหตุการณ์เลย ผู้ใช้บนมือถือจึงกดแล้วไม่มีอะไรเกิดขึ้น
+          */}
           <button
             type="button"
-            className="flex h-9 w-9 items-center justify-center rounded-[10px] text-navy-500 sm:hidden"
+            onClick={() => navigate('/search')}
+            className="flex h-11 w-11 items-center justify-center rounded-[10px] text-navy-500 transition-colors hover:bg-navy-50 hover:text-navy-700 sm:hidden"
             aria-label="ค้นหา"
           >
             <Search className="h-5 w-5" />

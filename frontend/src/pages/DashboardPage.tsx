@@ -176,7 +176,7 @@ export default function DashboardPage() {
 
                         <ResourceSourceBadge source={entry.source} hideManual />
                         <ArrowRight
-                          className="h-3.5 w-3.5 shrink-0 text-navy-300 opacity-0 transition-opacity group-hover:opacity-100"
+                          className="h-3.5 w-3.5 shrink-0 text-navy-300 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100"
                           aria-hidden
                         />
                       </Link>

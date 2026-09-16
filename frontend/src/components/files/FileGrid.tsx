@@ -97,7 +97,7 @@ export function FileGrid({
                     event.stopPropagation();
                     onContextMenu(event, entry);
                   }}
-                  className="rounded-md p-1 text-navy-300 opacity-0 transition-opacity hover:bg-navy-50 hover:text-navy-700 focus-visible:opacity-100 group-hover:opacity-100"
+                  className="rounded-md p-1 text-navy-300 opacity-100 md:opacity-0 transition-opacity hover:bg-navy-50 hover:text-navy-700 focus-visible:opacity-100 md:group-hover:opacity-100"
                   aria-label={`ตัวเลือกของ ${entry.name}`}
                 >
                   <MoreVertical className="h-4 w-4" />
@@ -105,7 +105,7 @@ export function FileGrid({
               </div>
             </div>
 
-            <p className="mt-3.5 truncate text-[14px] font-semibold tracking-[-0.01em] text-navy-900" title={entry.name}>
+            <p className="mt-3.5 line-clamp-2 break-words text-[14px] font-semibold leading-snug tracking-[-0.01em] text-navy-900" title={entry.name}>
               {entry.name}
             </p>
 

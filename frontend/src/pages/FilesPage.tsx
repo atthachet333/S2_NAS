@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, FileArchive, Trash2, Upload, X } from 'lucide-react';
 import { Breadcrumb } from '@/components/files/Breadcrumb';
+import { MobileFolderBar } from '@/components/files/MobileFolderBar';
 import { DriveWorkspace } from '@/components/files/DriveWorkspace';
 import { FileToolbar, type SortKey } from '@/components/files/FileToolbar';
 import { FolderHeader } from '@/components/files/FolderHeader';
@@ -27,6 +28,7 @@ import { ExternalResourceDialog } from '@/components/files/ExternalResourceDialo
 import { isExternalEntry, openExternalUrl, type ExternalResourceType } from '@/lib/external-resources';
 import { DRIVE_ROOT_PATH, driveRootLabel, type DriveRoot } from '@/lib/drive-labels';
 import { canCreateInSystemDrive } from '@/lib/system-drive';
+import { UPLOAD_EVENTS, uploadInputAttributes } from '@/lib/upload-inputs';
 import { useAuth } from '@/hooks/useAuth';
 import { NewMenu } from '@/components/layout/NewMenu';
 import { describePlan, groupByDirectory, planFolderUpload } from '@/lib/folder-upload';
@@ -73,6 +75,8 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
   const filePickerRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef<{ parentId: string | null; parentName: string } | null>(null);
   const folderPickerRef = useRef<HTMLInputElement>(null);
+  const photoPickerRef = useRef<HTMLInputElement>(null);
+  const cameraPickerRef = useRef<HTMLInputElement>(null);
   const versionPickerRef = useRef<HTMLInputElement>(null);
   const versionTargetRef = useRef<DriveEntry | null>(null);
   /** กัน query `focus` เดิมถูกประมวลผลซ้ำระหว่างที่ router กำลังลบพารามิเตอร์ออก */
@@ -109,10 +113,29 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
       uploadTargetRef.current = { parentId, parentName: currentFolder?.data.name ?? driveLabel };
       folderPickerRef.current?.click();
     };
+    /**
+     * รูปภาพและกล้องใช้ตัวเลือกคนละตัวกับไฟล์ทั่วไป
+     *
+     * ต้องเป็น input แยกกันจริง ๆ ไม่ใช่ตัวเดียวที่เปลี่ยน attribute ก่อนกด
+     * เพราะเบราว์เซอร์อ่าน accept และ capture ตอนเปิดตัวเลือก การแก้ค่าแล้วสั่ง click
+     * ในจังหวะเดียวกันให้ผลไม่แน่นอนบนมือถือ
+     */
+    const uploadPhoto = () => {
+      uploadTargetRef.current = { parentId, parentName: currentFolder?.data.name ?? driveLabel };
+      photoPickerRef.current?.click();
+    };
+    const uploadCamera = () => {
+      uploadTargetRef.current = { parentId, parentName: currentFolder?.data.name ?? driveLabel };
+      cameraPickerRef.current?.click();
+    };
     window.addEventListener('s2-upload-folder', uploadFolder);
+    window.addEventListener(UPLOAD_EVENTS.photo, uploadPhoto);
+    window.addEventListener(UPLOAD_EVENTS.camera, uploadCamera);
     window.addEventListener('s2-create-external', createExternal);
     return () => {
       window.removeEventListener('s2-upload-folder', uploadFolder);
+      window.removeEventListener(UPLOAD_EVENTS.photo, uploadPhoto);
+      window.removeEventListener(UPLOAD_EVENTS.camera, uploadCamera);
       window.removeEventListener('s2-create-folder', open);
       window.removeEventListener('s2-upload-file', upload);
       window.removeEventListener('s2-create-external', createExternal);
@@ -349,7 +372,9 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
       {/* ---------- โซนหัวเรื่อง ---------- */}
       {folder && folderEntry ? (
         <div className="space-y-3">
-          <Breadcrumb root={driveLabel} rootTo={drivePath} nodes={data?.breadcrumb ?? []} />
+          {/* เส้นทางเต็มบนจอกว้าง ปุ่มย้อนกลับกับชื่อโฟลเดอร์ปัจจุบันบนจอแคบ */}
+          <Breadcrumb root={driveLabel} rootTo={drivePath} nodes={data?.breadcrumb ?? []} className="hidden md:flex" />
+          <MobileFolderBar root={driveLabel} rootTo={drivePath} nodes={data?.breadcrumb ?? []} />
           <FolderHeader
             folder={folder}
             newMenu={newMenu}
@@ -411,8 +436,15 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
       {/* ---------- โซนเนื้อหา: ไม่มีกล่องใหญ่ครอบ การ์ดวางบนพื้นหน้าโดยตรง ---------- */}
       <section>
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-line pt-4">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <h2 className="text-[13px] font-semibold text-navy-800">โฟลเดอร์และทรัพยากร</h2>
+          {/*
+            ยอมให้หดและขึ้นบรรทัดใหม่ได้ (F24-N)
+
+            ที่ขนาดตัวอักษร 200% ของเบราว์เซอร์ หัวข้อกับแถบเครื่องมือรวมกันกว้างเกินจอ
+            และถูกตัดทิ้งเพราะเปลือกแอปซ่อนการล้นแนวนอนไว้ การให้ทั้งสองฝั่งหดตัวได้จริง
+            ทำให้ปุ่มไม่หายไปจากสายตาผู้ใช้ที่ตั้งตัวอักษรใหญ่
+          */}
+          <div className="flex min-w-0 shrink items-baseline gap-2">
+            <h2 className="min-w-0 break-words text-[13px] font-semibold text-navy-800">โฟลเดอร์และทรัพยากร</h2>
             {!isPending && !isError ? (
               <span className="text-[11.5px] text-navy-400">{entries.length} รายการ</span>
             ) : null}
@@ -535,6 +567,44 @@ export default function FilesPage({ driveRoot = 'MY_DRIVE' }: { driveRoot?: Driv
           uploadTargetRef.current = null;
           event.target.value = '';
           if (files.length > 0) void uploadFolderTree(files, target);
+        }}
+      />
+      {/*
+        รูปภาพจากคลังภาพ - accept ทำให้ตัวเลือกกรองเหลือเฉพาะรูปตั้งแต่แรก
+        ปลายทางยังเป็นคิวอัปโหลดเดิม ไม่มีการบีบอัดหรือแปลงไฟล์ระหว่างทาง
+      */}
+      <input
+        ref={photoPickerRef}
+        type="file"
+        className="hidden"
+        aria-hidden
+        tabIndex={-1}
+        {...uploadInputAttributes('photo')}
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          const target = uploadTargetRef.current ?? { parentId, parentName: folder?.name ?? driveLabel };
+          if (files.length > 0) enqueue(files, target);
+          uploadTargetRef.current = null;
+          event.target.value = '';
+        }}
+      />
+      {/*
+        ถ่ายเอกสาร - capture ขอกล้องหลัง ระบบปฏิบัติการอาจให้เลือกคลังภาพแทนก็ได้
+        ทั้งสองกรณีจบที่เส้นทางเดียวกัน จึงไม่มีทางที่หน้าจอจะค้างเพราะคำใบ้ไม่เป็นผล
+      */}
+      <input
+        ref={cameraPickerRef}
+        type="file"
+        className="hidden"
+        aria-hidden
+        tabIndex={-1}
+        {...uploadInputAttributes('camera')}
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          const target = uploadTargetRef.current ?? { parentId, parentName: folder?.name ?? driveLabel };
+          if (files.length > 0) enqueue(files, target);
+          uploadTargetRef.current = null;
+          event.target.value = '';
         }}
       />
       <input

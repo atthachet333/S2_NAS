@@ -176,6 +176,27 @@
   .s2-menu-item { display:flex;width:100%;align-items:center;gap:.625rem;border-radius:10px;padding:.55rem .65rem;font-size:12.5px;color:var(--s2-text-2);text-align:left;transition:background-color .14s ease,color .14s ease; }
   .s2-menu-item:hover:not(:disabled),.s2-menu-item:focus-visible { background:var(--s2-neutral-50);color:var(--s2-text); }
   .s2-menu-item:disabled { opacity:.4;cursor:not-allowed; }
+  /*
+   * รายการเมนูบนอุปกรณ์สัมผัส (F24-E)
+   *
+   * ความสูงตามค่าเริ่มต้นราว 30px พอดีสำหรับเมาส์ที่เล็งได้แม่นยำ แต่เล็กเกินไปสำหรับนิ้ว
+   * ใช้ pointer: coarse แทน breakpoint ความกว้าง เพราะสิ่งที่ตัดสินคือ "ชี้ด้วยอะไร"
+   * ไม่ใช่ "จอกว้างเท่าไร" แท็บเล็ตจอใหญ่ที่ใช้นิ้วก็ต้องการเป้าหมายที่ใหญ่ขึ้นเหมือนกัน
+   */
+  @media (pointer: coarse) {
+    .s2-menu-item { min-height: 44px; }
+    /*
+     * ปุ่มมาตรฐานสูง 38px ซึ่งพอสำหรับเมาส์ แต่ต่ำกว่าเกณฑ์ที่นิ้วแตะได้แม่นยำ
+     * ยกขึ้นเฉพาะอุปกรณ์สัมผัส จึงไม่เปลี่ยนความหนาแน่นของหน้าจอบนเดสก์ท็อป
+     */
+    .s2-btn { min-height: 44px; }
+    /*
+     * ปุ่มไอคอนล้วนที่ไม่ได้ใช้คลาส s2-btn เช่น สลับมุมมองและเปิดแผงรายละเอียด
+     * ปุ่มเหล่านี้ออกแบบมาให้เล็กเพื่อความหนาแน่นบนเดสก์ท็อป ซึ่งถูกต้องสำหรับเมาส์
+     * แต่เล็กเกินกว่าจะแตะได้แม่นยำด้วยนิ้ว
+     */
+    .s2-icon-target { min-width: 44px; min-height: 44px; }
+  }
   .s2-input { width:100%;border:1px solid var(--s2-border);background:var(--s2-surface-soft);color:var(--s2-text);transition:border-color .16s ease,background .16s ease,box-shadow .16s ease; }
   .s2-input:focus { border-color:var(--s2-primary-border);background:var(--s2-surface);box-shadow:0 0 0 3px color-mix(in srgb,var(--s2-primary) 12%,transparent);outline:none; }
   .s2-skeleton { border-radius:8px;background:linear-gradient(90deg,var(--s2-neutral-50) 25%,var(--s2-neutral-100) 37%,var(--s2-neutral-50) 63%);background-size:400% 100%;animation:s2-shimmer 1.4s ease infinite; }

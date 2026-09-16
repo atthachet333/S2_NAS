@@ -124,6 +124,7 @@ s2-nas/
 | [docs/DATABASE.md](docs/DATABASE.md) | ฐานข้อมูลและ Prisma |
 | [docs/FILE_STORAGE.md](docs/FILE_STORAGE.md) | โครงสร้างการเก็บไฟล์ |
 | [docs/OBJECT_STORAGE.md](docs/OBJECT_STORAGE.md) | ผู้ให้บริการพื้นที่จัดเก็บ ที่เก็บวัตถุ การย้าย และการตรวจสอบ |
+| [docs/PWA_MOBILE.md](docs/PWA_MOBILE.md) | การใช้งานบนมือถือ การติดตั้งเป็นแอป และนโยบายแคช |
 | [docs/API.md](docs/API.md) | รายการ API |
 | [docs/SECURITY.md](docs/SECURITY.md) | แนวปฏิบัติด้านความปลอดภัย |
 | [docs/PERMISSIONS.md](docs/PERMISSIONS.md) | บทบาทและสิทธิ์ |

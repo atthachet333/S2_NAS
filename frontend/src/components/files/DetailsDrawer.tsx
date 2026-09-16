@@ -78,7 +78,10 @@ export function DetailsDrawer() {
       className="fixed inset-0 z-[var(--z-context)] flex flex-col border-l border-line bg-[var(--s2-surface)] shadow-pop [animation:s2-drawer-in_.2s_ease-out] sm:left-auto sm:w-[370px] lg:static lg:z-auto lg:shadow-none"
       aria-label="รายละเอียดทรัพยากร"
     >
-      <div className="flex min-h-16 shrink-0 items-center gap-3 border-b border-line px-4">
+      <div
+        className="flex min-h-16 shrink-0 items-center gap-3 border-b border-line px-4"
+        style={{ paddingTop: 'max(0px, env(safe-area-inset-top))' }}
+      >
         {selected ? (
           <FileTypeIcon name={selected.name} kind={selected.kind} resourceType={selected.resourceType} />
         ) : (
@@ -109,7 +112,7 @@ export function DetailsDrawer() {
         <button
           type="button"
           onClick={closeDetails}
-          className="rounded-lg p-1.5 text-navy-400 hover:bg-navy-50 hover:text-navy-700"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-navy-400 hover:bg-navy-50 hover:text-navy-700 lg:h-auto lg:w-auto lg:p-1.5"
           aria-label="ปิดแผงรายละเอียด"
         >
           <X className="h-4 w-4" />
@@ -137,7 +140,7 @@ export function DetailsDrawer() {
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-4">
+          <div className="flex-1 overflow-y-auto px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {tab === 'details' ? (
               <div className="space-y-4">
                 {/* จัดเก็บอัจฉริยะ - เสนอตำแหน่งเท่านั้น ไม่เคยย้ายเอง */}
@@ -435,7 +438,7 @@ export function DetailsDrawer() {
           </div>
         </>
       ) : (
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto pb-[max(0px,env(safe-area-inset-bottom))]">
           <EmptyState
             icon={<Info className="h-6 w-6" aria-hidden />}
             title="ยังไม่ได้เลือกทรัพยากร"

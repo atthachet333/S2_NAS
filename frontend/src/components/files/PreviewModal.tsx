@@ -5,6 +5,7 @@ import { getFileTypeStyle, getPreviewMode } from '@/lib/file-types';
 import { downloadResource } from '@/lib/download';
 import { FileTypeIcon } from './FileTypeIcon';
 import { useToast } from '@/hooks/useToast';
+import { useConnectivity } from '@/hooks/useConnectivity';
 import type { DriveEntry } from '@/lib/drive';
 import { formatBytes } from '@/lib/utils';
 import { ORIGINAL_DOWNLOAD_LABEL } from '@/lib/interaction-policy';
@@ -34,11 +35,14 @@ export function PreviewModal({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const { notify } = useToast();
+  const { online } = useConnectivity();
 
   const mode = getPreviewMode(entry.name, entry.mimeType);
   const style = getFileTypeStyle(entry.name, entry.mimeType);
 
   useEffect(() => {
+    // การจัดการโฟกัสต้องมี DOM จริง ที่อื่นยังเรนเดอร์เนื้อหาได้ตามปกติ
+    if (typeof document === 'undefined') return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -105,7 +109,16 @@ export function PreviewModal({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <header className="flex shrink-0 items-center gap-3 border-b border-line bg-[var(--s2-surface)] px-4 py-3">
+      {/*
+        แถบหัวเรื่องต้องหลบรอยบากและแถบสถานะของเครื่อง (F24-F)
+
+        หน้านี้ประกาศ viewport-fit=cover ไว้ เนื้อหาจึงกินพื้นที่ใต้รอยบากได้
+        ถ้าไม่เผื่อระยะ ชื่อไฟล์กับปุ่มปิดจะไปอยู่ใต้กล้องหน้าของเครื่อง
+      */}
+      <header
+        className="flex shrink-0 items-center gap-2 border-b border-line bg-[var(--s2-surface)] px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3"
+        style={{ paddingTop: 'max(0.625rem, env(safe-area-inset-top))' }}
+      >
         <FileTypeIcon name={entry.name} kind="file" size="sm" mimeType={entry.mimeType} />
 
         <div className="min-w-0 flex-1">
@@ -116,15 +129,31 @@ export function PreviewModal({
           </p>
         </div>
 
+        {/*
+          บนจอแคบปุ่มเหลือแต่ไอคอน จึงต้องมี aria-label ของตัวเอง
+
+          ก่อนหน้านี้ป้ายข้อความถูกซ่อนด้วย hidden sm:inline โดยไม่มีชื่อสำรอง
+          ปุ่มทั้งสองจึงไม่มีชื่อให้ตัวอ่านหน้าจอบนมือถือเลย
+        */}
         {entry.capabilities.canDownload ? (
-          <button type="button" onClick={download} className="s2-btn s2-btn-outline">
+          <button
+            type="button"
+            onClick={download}
+            aria-label={ORIGINAL_DOWNLOAD_LABEL}
+            className="s2-btn s2-btn-outline h-11 w-11 shrink-0 px-0 sm:h-auto sm:w-auto sm:px-3.5"
+          >
             <Download className="h-4 w-4" aria-hidden />
             <span className="hidden sm:inline">{ORIGINAL_DOWNLOAD_LABEL}</span>
           </button>
         ) : null}
 
         {onShowDetails ? (
-          <button type="button" onClick={onShowDetails} className="s2-btn s2-btn-ghost">
+          <button
+            type="button"
+            onClick={onShowDetails}
+            aria-label="รายละเอียด"
+            className="s2-btn s2-btn-ghost h-11 w-11 shrink-0 px-0 sm:h-auto sm:w-auto sm:px-3.5"
+          >
             <Info className="h-4 w-4" aria-hidden />
             <span className="hidden sm:inline">รายละเอียด</span>
           </button>
@@ -135,14 +164,30 @@ export function PreviewModal({
           type="button"
           onClick={onClose}
           aria-label="ปิดตัวอย่าง"
-          className="rounded-lg p-2 text-navy-400 hover:bg-navy-50 hover:text-navy-700"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-navy-400 hover:bg-navy-50 hover:text-navy-700"
         >
-          <X className="h-4 w-4" />
+          <X className="h-5 w-5" />
         </button>
       </header>
 
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-3 sm:p-6">
-        {state === 'LOADING' ? (
+      <div
+        className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto p-3 sm:p-6"
+        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+      >
+        {!online ? (
+          /*
+            ออฟไลน์ต้องไม่ทำให้เข้าใจว่ามีสำเนาเอกสารอยู่ในเครื่อง (F24-F)
+
+            service worker เก็บเฉพาะเปลือกแอป ไม่มีไบต์ของเอกสารเลย การหมุนตัวโหลด
+            ค้างไว้จะสื่อว่ากำลังจะได้ ทั้งที่ไม่มีทางได้จนกว่าจะกลับมาออนไลน์
+          */
+          <Fallback
+            entry={entry}
+            onDownload={download}
+            message="ต้องเชื่อมต่ออินเทอร์เน็ตเพื่อเปิดไฟล์"
+            hideDownload
+          />
+        ) : state === 'LOADING' ? (
           <div className="flex flex-col items-center gap-2 text-navy-200">
             <Loader2 className="h-6 w-6 animate-spin" aria-hidden />
             <p className="text-[12px]">กำลังโหลดตัวอย่าง…</p>
@@ -152,7 +197,26 @@ export function PreviewModal({
         ) : mode === 'NONE' ? (
           <Fallback entry={entry} onDownload={download} message="ไม่รองรับการแสดงตัวอย่างไฟล์ประเภทนี้ในขณะนี้" />
         ) : mode === 'PDF' && objectUrl ? (
-          <iframe src={objectUrl} title={entry.name} className="h-full w-full rounded-xl bg-white" />
+          /*
+            ทางออกสำรองของ PDF บนมือถือ (F24-F)
+
+            เบราว์เซอร์บนมือถือหลายตัว โดยเฉพาะ Safari บน iOS แสดง PDF ที่มาจาก
+            blob URL ใน iframe ไม่ได้ และจะให้กรอบว่างเปล่าโดยไม่แจ้งข้อผิดพลาด
+            เราตรวจจับจากในหน้าไม่ได้ จึงเสนอทางออกไว้ข้าง ๆ เสมอบนจอแคบ
+            แทนที่จะรอให้ผู้ใช้สรุปเองว่าไฟล์เสีย
+          */
+          <div className="flex h-full w-full min-h-0 flex-col gap-2">
+            <iframe src={objectUrl} title={entry.name} className="min-h-0 w-full flex-1 rounded-xl bg-white" />
+            <p className="flex shrink-0 flex-wrap items-center justify-center gap-2 text-[11.5px] text-navy-400 sm:hidden">
+              ถ้าเอกสารไม่แสดงบนอุปกรณ์นี้
+              {entry.capabilities.canDownload ? (
+                <button type="button" onClick={download} className="s2-btn s2-btn-outline min-h-[38px] px-3 py-1.5 text-[12px]">
+                  <Download className="h-3.5 w-3.5" aria-hidden />
+                  {ORIGINAL_DOWNLOAD_LABEL}
+                </button>
+              ) : null}
+            </p>
+          </div>
         ) : mode === 'IMAGE' && objectUrl ? (
           <img src={objectUrl} alt={entry.name} className="max-h-full max-w-full rounded-xl object-contain" />
         ) : mode === 'VIDEO' && objectUrl ? (
@@ -175,10 +239,13 @@ function Fallback({
   entry,
   onDownload,
   message,
+  hideDownload = false,
 }: {
   entry: DriveEntry;
   onDownload: () => void;
   message: string;
+  /** ออฟไลน์ - ดาวน์โหลดก็ทำไม่ได้ จึงไม่ควรเสนอปุ่มที่กดแล้วล้มเหลวแน่นอน */
+  hideDownload?: boolean;
 }) {
   return (
     <div className="s2-resource-card mx-auto flex w-full max-w-sm flex-col items-center gap-2 px-6 py-8 text-center">
@@ -189,12 +256,12 @@ function Fallback({
       <p className="text-[11px] text-navy-400">{formatBytes(entry.sizeBytes)}</p>
       <p className="mt-1 text-[12px] leading-relaxed text-navy-400">{message}</p>
 
-      {entry.capabilities.canDownload ? (
-        <button type="button" onClick={onDownload} className="s2-btn s2-btn-primary mt-3">
+      {entry.capabilities.canDownload && !hideDownload ? (
+        <button type="button" onClick={onDownload} className="s2-btn s2-btn-primary mt-3 min-h-[44px]">
           <Download className="h-4 w-4" aria-hidden />
           {ORIGINAL_DOWNLOAD_LABEL}
         </button>
-      ) : (
+      ) : hideDownload ? null : (
         <p className="mt-3 text-[11px] text-navy-400">คุณไม่มีสิทธิ์ดาวน์โหลดไฟล์นี้</p>
       )}
     </div>

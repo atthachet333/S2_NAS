@@ -180,6 +180,25 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
   const enqueue = useCallback(
     (files: File[], target: { parentId: string | null; parentName: string }) => {
       if (files.length === 0) return;
+      /**
+       * ออฟไลน์แล้วห้ามรับงานอัปโหลดเข้าคิว (F24-D)
+       *
+       * **ทำไมปฏิเสธตั้งแต่ต้นทาง แทนที่จะเก็บไว้ส่งทีหลัง:** ถ้าใส่ลงคิวไว้เฉย ๆ
+       * ผู้ใช้จะเห็นไฟล์อยู่ในรายการและเข้าใจว่าระบบรับเรื่องไว้แล้ว แต่ไฟล์ที่ค้างอยู่
+       * ในหน้าเว็บจะหายไปทันทีที่เขาปิดแท็บ ซึ่งเกิดขึ้นแน่นอนบนมือถือ
+       * การบอกว่าทำไม่ได้ตอนนี้ ตรงไปตรงมากว่าการสัญญาสิ่งที่รักษาไม่ได้
+       *
+       * **ด่านนี้อยู่ที่นี่เพราะทุกเส้นทางผ่านตรงนี้** ทั้งปุ่มอัปโหลด แผ่นบนมือถือ
+       * การลากไฟล์มาวาง และเมนูคลิกขวา จะได้ไม่ต้องไปไล่ปิดทีละที่
+       */
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        notify({
+          tone: 'error',
+          title: 'ขณะนี้ออฟไลน์',
+          description: 'การอัปโหลดต้องเชื่อมต่ออินเทอร์เน็ต ระบบไม่เก็บไฟล์ไว้ส่งให้ภายหลัง',
+        });
+        return;
+      }
       const queued: UploadItem[] = files.map((file) => ({
         id: `upload-${nextId++}`,
         file,
@@ -193,7 +212,7 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
       setPanelOpen(true);
       void drain(queued);
     },
-    [drain],
+    [drain, notify],
   );
 
   const enqueueVersion = useCallback(

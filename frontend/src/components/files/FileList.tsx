@@ -218,7 +218,7 @@ export function FileList({
                     event.stopPropagation();
                     onContextMenu(event, entry);
                   }}
-                  className="rounded-md p-1 text-navy-300 opacity-0 hover:bg-navy-50 hover:text-navy-600 focus-visible:opacity-100 group-hover:opacity-100"
+                  className="rounded-md p-1 text-navy-300 opacity-100 md:opacity-0 hover:bg-navy-50 hover:text-navy-600 focus-visible:opacity-100 md:group-hover:opacity-100"
                   aria-label={`ตัวเลือกของ ${entry.name}`}
                 >
                   <MoreVertical className="h-4 w-4" />

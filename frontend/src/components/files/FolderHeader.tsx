@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
-import { FolderOpen, Info, Lock, PenLine, Plus, UserRoundCog, FolderInput } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { FolderOpen, Info, Lock, MoreHorizontal, PenLine, Plus, UserRoundCog, FolderInput } from 'lucide-react';
+import { Sheet, SheetItem } from '@/components/ui/Sheet';
 import type { ResourceDto } from '@/lib/api';
 import { OwnerAvatar, ownerLabel } from './OwnerIdentity';
 import { ResourceSourceBadge } from './ResourceSourceBadge';
@@ -31,6 +32,7 @@ export function FolderHeader({
   onDetails: () => void;
 }) {
   const { capabilities } = folder;
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   return (
     <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -82,29 +84,65 @@ export function FolderHeader({
             ใหม่
           </button>
         )) : null}
-        {capabilities.canRename ? (
-          <button type="button" className="s2-btn s2-btn-outline" onClick={onRename}>
-            <PenLine className="h-4 w-4" aria-hidden />
-            เปลี่ยนชื่อ
+
+        {/*
+          ปุ่มรองถูกยุบเป็นเมนูเดียวบนจอแคบ (F24-C)
+
+          ห้าปุ่มเรียงกันบนจอ 375px จะขึ้นบรรทัดใหม่สามแถว ดันรายการไฟล์ลงไปจนเห็นได้
+          แค่สองรายการแรก ซึ่งทำให้หัวเรื่องกินพื้นที่มากกว่าสิ่งที่ผู้ใช้มาดูจริง
+        */}
+        <div className="hidden flex-wrap items-center gap-2 md:flex">
+          {capabilities.canRename ? (
+            <button type="button" className="s2-btn s2-btn-outline" onClick={onRename}>
+              <PenLine className="h-4 w-4" aria-hidden />
+              เปลี่ยนชื่อ
+            </button>
+          ) : null}
+          {capabilities.canMove ? (
+            <button type="button" className="s2-btn s2-btn-outline" onClick={onMove}>
+              <FolderInput className="h-4 w-4" aria-hidden />
+              ย้าย
+            </button>
+          ) : null}
+          {capabilities.canTransferOwner ? (
+            <button type="button" className="s2-btn s2-btn-outline" onClick={onTransferOwner}>
+              <UserRoundCog className="h-4 w-4" aria-hidden />
+              เปลี่ยนผู้ดูแล
+            </button>
+          ) : null}
+          <button type="button" className="s2-btn s2-btn-ghost" onClick={onDetails}>
+            <Info className="h-4 w-4" aria-hidden />
+            รายละเอียด
           </button>
-        ) : null}
-        {capabilities.canMove ? (
-          <button type="button" className="s2-btn s2-btn-outline" onClick={onMove}>
-            <FolderInput className="h-4 w-4" aria-hidden />
-            ย้าย
-          </button>
-        ) : null}
-        {capabilities.canTransferOwner ? (
-          <button type="button" className="s2-btn s2-btn-outline" onClick={onTransferOwner}>
-            <UserRoundCog className="h-4 w-4" aria-hidden />
-            เปลี่ยนผู้ดูแล
-          </button>
-        ) : null}
-        <button type="button" className="s2-btn s2-btn-ghost" onClick={onDetails}>
-          <Info className="h-4 w-4" aria-hidden />
-          รายละเอียด
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setActionsOpen(true)}
+          aria-label="ตัวเลือกของโฟลเดอร์"
+          aria-haspopup="dialog"
+          className="flex h-11 w-11 items-center justify-center rounded-xl border border-line text-navy-500 transition-colors hover:bg-navy-50 md:hidden"
+        >
+          <MoreHorizontal className="h-[18px] w-[18px]" aria-hidden />
         </button>
       </div>
+
+      <Sheet open={actionsOpen} title={folder.name} onClose={() => setActionsOpen(false)}>
+        {capabilities.canRename ? (
+          <SheetItem icon={<PenLine className="h-4 w-4" />} label="เปลี่ยนชื่อ"
+            onSelect={() => { setActionsOpen(false); onRename(); }} />
+        ) : null}
+        {capabilities.canMove ? (
+          <SheetItem icon={<FolderInput className="h-4 w-4" />} label="ย้าย"
+            onSelect={() => { setActionsOpen(false); onMove(); }} />
+        ) : null}
+        {capabilities.canTransferOwner ? (
+          <SheetItem icon={<UserRoundCog className="h-4 w-4" />} label="เปลี่ยนผู้ดูแล"
+            onSelect={() => { setActionsOpen(false); onTransferOwner(); }} />
+        ) : null}
+        <SheetItem icon={<Info className="h-4 w-4" />} label="รายละเอียด"
+          onSelect={() => { setActionsOpen(false); onDetails(); }} />
+      </Sheet>
     </header>
   );
 }

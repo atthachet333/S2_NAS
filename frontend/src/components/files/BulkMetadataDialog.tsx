@@ -90,14 +90,14 @@ export function BulkMetadataDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center bg-[var(--s2-overlay)] p-3 backdrop-blur-sm"
+      className="fixed inset-0 z-[var(--z-dialog)] flex items-end justify-center bg-[var(--s2-overlay)] p-0 backdrop-blur-sm sm:items-center sm:p-3"
       onMouseDown={onClose}
     >
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="bulk-dialog-title"
-        className="w-full max-w-lg rounded-2xl border border-line bg-[var(--s2-elevated)] p-5 shadow-pop"
+        className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl border border-line bg-[var(--s2-elevated)] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-pop sm:rounded-2xl sm:pb-5"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">

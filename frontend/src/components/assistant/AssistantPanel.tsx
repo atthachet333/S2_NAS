@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bot, Copy, FileText, History, Library, Send, Trash2, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useConnectivity } from '@/hooks/useConnectivity';
+import { useIsMobile } from '@/hooks/useIsMobile';
+import { Sheet } from '@/components/ui/Sheet';
 import { assistantApi, type AssistantDiagnosticsDto, type AssistantMessageDto, type AssistantScope, type AssistantThreadDto } from '@/lib/api';
+
+/** ข้อความเดียวที่ใช้ทุกที่ เพื่อให้ผู้ใช้เห็นเหตุผลเดียวกันไม่ว่าจะกดจากตรงไหน */
+export const ASSISTANT_OFFLINE_TEXT = 'ต้องเชื่อมต่ออินเทอร์เน็ตเพื่อใช้งานผู้ช่วยเอกสาร';
 
 interface OpenDetail { resources?: Array<{ id: string; name: string }>; scope?: AssistantScope }
 const quickPrompts = [
@@ -16,10 +22,14 @@ export function AssistantPanel() {
   const [status, setStatus] = useState<'idle'|'retrieving'|'generating'|'error'>('idle'); const [error, setError] = useState<string>();
   const [diagnostics, setDiagnostics] = useState<AssistantDiagnosticsDto>(); const [threads, setThreads] = useState<AssistantThreadDto[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  /** ย่อไว้ชั่วคราวเพื่อไปดูเอกสารที่อ้างอิง - ไม่ใช่การปิด จึงไม่ล้างการสนทนา */
+  const [minimized, setMinimized] = useState(false);
+  const { online } = useConnectivity();
+  const isMobile = useIsMobile();
   const inputRef = useRef<HTMLTextAreaElement>(null); const navigate = useNavigate();
   useEffect(() => { const handler = (event: Event) => { const detail = (event as CustomEvent<OpenDetail>).detail ?? {};
     const nextResources = detail.resources ?? []; setResources(nextResources); setScope(detail.scope ?? (nextResources.length === 1 ? 'CURRENT_RESOURCE' : nextResources.length ? 'SELECTED_RESOURCES' : 'AUTHORIZED_LIBRARY'));
-    setThreadId(undefined); setMessages([]); setError(undefined); setHistoryOpen(false); setOpen(true);
+    setThreadId(undefined); setMessages([]); setError(undefined); setHistoryOpen(false); setMinimized(false); setOpen(true);
     void loadStatusAndThreads(); setTimeout(() => inputRef.current?.focus(), 50); };
     window.addEventListener('s2-open-assistant', handler); return () => window.removeEventListener('s2-open-assistant', handler); }, []);
   async function loadStatusAndThreads() {
@@ -42,6 +52,16 @@ export function AssistantPanel() {
   }
   async function ask(text: string, mode: 'QA'|'SUMMARY'|'COMPARE'|'EXTRACT' = 'QA') {
     const value = text.trim(); if (!value || status === 'retrieving' || status === 'generating' || (diagnostics && (!diagnostics.enabled || diagnostics.status !== 'READY'))) return;
+    /**
+     * ออฟไลน์แล้วห้ามส่งคำถาม และห้ามเก็บไว้ถามให้ทีหลัง (F24-H)
+     *
+     * คำถามที่ค้างอยู่ในหน้าเว็บจะหายไปทันทีที่ปิดแท็บ การบอกว่าตอนนี้ทำไม่ได้
+     * ตรงไปตรงมากว่าการทำท่าว่ารับเรื่องไว้แล้ว
+     */
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setError(ASSISTANT_OFFLINE_TEXT);
+      return;
+    }
     const effectiveMode = mode === 'QA' && scope === 'SELECTED_RESOURCES' && /เปรียบเทียบ|compare|แตกต่าง/iu.test(value)
       ? 'COMPARE'
       : mode;
@@ -53,12 +73,32 @@ export function AssistantPanel() {
     } catch (cause) { setStatus('error'); setError(cause instanceof Error ? cause.message : 'สร้างคำตอบไม่สำเร็จ'); }
   }
   if (!open) return null;
-  return <aside className="fixed inset-0 z-[calc(var(--z-context)+2)] flex flex-col bg-[var(--s2-surface)] shadow-pop sm:left-auto sm:w-[440px] sm:border-l sm:border-line" aria-label="ผู้ช่วยเอกสาร">
-    <header className="flex min-h-16 items-center gap-3 border-b border-line px-4"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 text-brand-700"><Bot className="h-5 w-5" /></span>
+  /*
+    ย่อไว้แล้ว - แสดงปุ่มกลับเข้าการสนทนาแทนที่จะทิ้งของที่คุยไว้
+
+    ก่อนหน้านี้การกดอ้างอิงจะปิดแผงทิ้ง แล้วการเปิดใหม่จะล้างการสนทนาทั้งหมด
+    ผู้ใช้ที่กดดูเอกสารหนึ่งครั้งจึงเสียบริบทที่สร้างมาทั้งหมดโดยไม่ได้ตั้งใจ
+  */
+  if (minimized) {
+    return <button type="button" onClick={() => setMinimized(false)}
+      className="fixed bottom-[calc(80px+env(safe-area-inset-bottom))] right-4 z-[calc(var(--z-context)+2)] flex min-h-[48px] items-center gap-2 rounded-full bg-[var(--s2-primary)] px-4 text-[12.5px] font-medium text-white shadow-pop md:bottom-5">
+      <Bot className="h-4 w-4" aria-hidden />กลับไปที่ผู้ช่วยเอกสาร</button>;
+  }
+  return <aside className="fixed inset-x-0 top-0 z-[calc(var(--z-context)+2)] flex h-[100dvh] flex-col bg-[var(--s2-surface)] shadow-pop sm:left-auto sm:w-[440px] sm:border-l sm:border-line" aria-label="ผู้ช่วยเอกสาร">
+    <header className="flex min-h-16 shrink-0 items-center gap-3 border-b border-line px-4" style={{ paddingTop: 'max(0px, env(safe-area-inset-top))' }}><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 text-brand-700"><Bot className="h-5 w-5" /></span>
       <div className="min-w-0 flex-1"><h2 className="text-[14px] font-semibold text-navy-900">ผู้ช่วยเอกสาร</h2><p className="text-[10.5px] text-navy-400">ตอบจากเอกสารที่คุณมีสิทธิ์เข้าถึงเท่านั้น · ทำงานในเครื่อง</p></div>
-      <button className="rounded-lg p-2 text-navy-400 hover:bg-navy-50" onClick={() => setHistoryOpen((value) => !value)} aria-label="ประวัติการสนทนา"><History className="h-4 w-4" /></button>
-      <button className="rounded-lg p-2 text-navy-400 hover:bg-navy-50" onClick={() => setOpen(false)} aria-label="ปิดผู้ช่วยเอกสาร"><X className="h-4 w-4" /></button></header>
-    {historyOpen ? <section className="max-h-72 overflow-y-auto border-b border-line bg-[var(--s2-surface-soft)] p-3" aria-label="ประวัติการสนทนา">
+      <button className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-navy-400 hover:bg-navy-50" onClick={() => setHistoryOpen((value) => !value)} aria-label="ประวัติการสนทนา"><History className="h-[18px] w-[18px]" /></button>
+      <button className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-navy-400 hover:bg-navy-50" onClick={() => setOpen(false)} aria-label="ปิดผู้ช่วยเอกสาร"><X className="h-[18px] w-[18px]" /></button></header>
+    {historyOpen ? (
+      /*
+        ประวัติการสนทนาบนมือถือเป็นแผ่นล่าง (F24-H)
+
+        แบบเดิมเป็นแถบสูง 288px แทรกกลางหน้าจอ ซึ่งบนโทรศัพท์กินพื้นที่เกือบครึ่ง
+        และดันข้อความที่กำลังอ่านออกไป แผ่นล่างลอยทับแทน ปิดแล้วกลับมาที่เดิมทันที
+      */
+      isMobile ? (
+        <Sheet open title="ประวัติการสนทนา" onClose={() => setHistoryOpen(false)}>
+          <div className="px-1 pb-1">
       <p className="mb-2 text-[11px] font-semibold text-navy-600">การสนทนาของฉัน</p>
       {threads.length ? <div className="space-y-1">{threads.map((thread) => <div key={thread.id} className="flex items-center gap-1 rounded-lg border border-line bg-[var(--s2-surface)]">
         <button className="min-w-0 flex-1 p-2 text-left" onClick={() => void openThread(thread)}>
@@ -67,17 +107,33 @@ export function AssistantPanel() {
         </button>
         <button className="m-1 rounded-md p-2 text-navy-300 hover:bg-red-50 hover:text-red-600" onClick={() => void removeThread(thread.id)} aria-label={`ลบการสนทนา ${thread.title}`}><Trash2 className="h-3.5 w-3.5" /></button>
       </div>)}</div> : <p className="text-[11px] text-navy-400">ยังไม่มีประวัติการสนทนา</p>}
-    </section> : null}
+
+          </div>
+        </Sheet>
+      ) : (
+        <section className="max-h-72 shrink-0 overflow-y-auto border-b border-line bg-[var(--s2-surface-soft)] p-3" aria-label="ประวัติการสนทนา">
+      <p className="mb-2 text-[11px] font-semibold text-navy-600">การสนทนาของฉัน</p>
+      {threads.length ? <div className="space-y-1">{threads.map((thread) => <div key={thread.id} className="flex items-center gap-1 rounded-lg border border-line bg-[var(--s2-surface)]">
+        <button className="min-w-0 flex-1 p-2 text-left" onClick={() => void openThread(thread)}>
+          <span className="block truncate text-[11.5px] font-medium text-navy-700">{thread.title}</span>
+          <span className="text-[9.5px] text-navy-400">{thread.scope === 'CURRENT_RESOURCE' ? 'ไฟล์เดียว' : thread.scope === 'SELECTED_RESOURCES' ? 'ไฟล์ที่เลือก' : 'คลังเอกสาร'} · {new Date(thread.updatedAt).toLocaleString('th-TH')}</span>
+        </button>
+        <button className="m-1 rounded-md p-2 text-navy-300 hover:bg-red-50 hover:text-red-600" onClick={() => void removeThread(thread.id)} aria-label={`ลบการสนทนา ${thread.title}`}><Trash2 className="h-3.5 w-3.5" /></button>
+      </div>)}</div> : <p className="text-[11px] text-navy-400">ยังไม่มีประวัติการสนทนา</p>}
+
+        </section>
+      )
+    ) : null}
     <div className="border-b border-line p-3"><label className="text-[11px] font-semibold text-navy-600">ขอบเขตคำถาม</label><select className="s2-input mt-1 w-full" value={scope} disabled={messages.length > 0} onChange={(e) => { const value=e.target.value as AssistantScope; setScope(value); if(value==='AUTHORIZED_LIBRARY') setResources([]); }}>
       {resources.length === 1 ? <option value="CURRENT_RESOURCE">ไฟล์นี้</option> : null}{resources.length > 0 ? <option value="SELECTED_RESOURCES">ไฟล์ที่เลือก ({resources.length})</option> : null}<option value="AUTHORIZED_LIBRARY">เอกสารทั้งหมดที่ฉันเข้าถึงได้</option></select>
       {resources.length > 0 && scope !== 'AUTHORIZED_LIBRARY' ? <div className="mt-2 flex max-h-16 flex-wrap gap-1 overflow-auto">{resources.map((r) => <span key={r.id} className="rounded-full bg-navy-50 px-2 py-1 text-[10px] text-navy-600"><FileText className="mr-1 inline h-3 w-3" />{r.name}</span>)}</div> : null}</div>
     <div className="flex-1 space-y-3 overflow-y-auto p-4">{diagnostics && (!diagnostics.enabled || diagnostics.status !== 'READY') ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11.5px] text-amber-800">ผู้ช่วยเอกสารยังไม่เปิดใช้งาน ผู้ดูแลระบบต้องติดตั้งโมเดลและเปิด feature flag ก่อน</div> : null}{messages.length === 0 ? <div className="space-y-4"><div className="rounded-xl border border-line bg-[var(--s2-surface-soft)] p-3 text-[12px] leading-relaxed text-navy-500"><Library className="mb-2 h-5 w-5 text-brand-600" />ถาม สรุป เปรียบเทียบ หรือดึงข้อเท็จจริง ระบบจะแสดงหลักฐานที่ตรวจสอบย้อนกลับได้</div>
       <div className="grid grid-cols-2 gap-2">{quickPrompts.map(([label,prompt,mode]) => <button key={label} className="s2-btn s2-btn-outline justify-start text-[11px]" onClick={() => void ask(prompt, mode)}>{label}</button>)}</div></div> : null}
       {messages.map((message) => <article key={message.id} className={message.role === 'USER' ? 'ml-8 rounded-xl bg-brand-600 px-3 py-2.5 text-[12.5px] text-white' : 'mr-3 rounded-xl border border-line bg-[var(--s2-surface-soft)] px-3 py-3 text-[12.5px] leading-relaxed text-navy-800'}>
-        <p className="whitespace-pre-wrap">{message.content}</p>{message.role === 'ASSISTANT' ? <button className="mt-2 inline-flex items-center gap-1 text-[10px] text-navy-400 hover:text-navy-700" onClick={() => void navigator.clipboard.writeText(message.content)}><Copy className="h-3 w-3" />คัดลอกคำตอบ</button> : null}
-        {message.citations.length ? <div className="mt-3 space-y-1.5 border-t border-line pt-2">{message.citations.map((c) => <button key={c.evidenceId} className="block w-full rounded-lg border border-line bg-[var(--s2-surface)] p-2 text-left hover:border-brand-300" onClick={() => { setOpen(false); navigate(`/files?focus=${encodeURIComponent(c.resourceId)}`); }}>
+        <p className="whitespace-pre-wrap break-words">{message.content}</p>{message.role === 'ASSISTANT' ? <button className="mt-2 inline-flex items-center gap-1 text-[10px] text-navy-400 hover:text-navy-700" onClick={() => void navigator.clipboard.writeText(message.content)}><Copy className="h-3 w-3" />คัดลอกคำตอบ</button> : null}
+        {message.citations.length ? <div className="mt-3 space-y-1.5 border-t border-line pt-2">{message.citations.map((c) => <button key={c.evidenceId} className="block w-full rounded-lg border border-line bg-[var(--s2-surface)] p-2 text-left hover:border-brand-300" onClick={() => { setMinimized(true); navigate(`/files?focus=${encodeURIComponent(c.resourceId)}`); }}>
           <span className="block text-[10.5px] font-semibold text-brand-700">[{c.evidenceId}] {c.filename}{c.textSource === 'OCR' ? ' · OCR' : c.textSource === 'HUMAN_CORRECTED' ? ' · ตรวจแก้แล้ว' : ''}</span><span className="mt-1 line-clamp-2 block text-[10px] text-navy-400">{c.snippet}</span></button>)}</div> : null}</article>)}
-      {status === 'retrieving' ? <p className="text-[11px] text-navy-400">กำลังค้นหาหลักฐาน…</p> : status === 'generating' ? <p className="text-[11px] text-navy-400">กำลังสร้างคำตอบ…</p> : null}{error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-[11px] text-red-700">{error}</div> : null}</div>
-    <form className="border-t border-line p-3" onSubmit={(e) => { e.preventDefault(); void ask(question); }}><textarea ref={inputRef} className="s2-input min-h-20 w-full resize-none" maxLength={4000} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="ถามเกี่ยวกับเอกสาร…" />
-      <div className="mt-2 flex items-center justify-between"><span className="text-[10px] text-navy-400">{question.length}/4000</span><button className="s2-btn s2-btn-primary" disabled={!question.trim() || status === 'retrieving' || status === 'generating' || Boolean(diagnostics && (!diagnostics.enabled || diagnostics.status !== 'READY'))}><Send className="h-4 w-4" />ถาม</button></div></form></aside>;
+      {status === 'retrieving' || status === 'generating' ? <p className="text-[11px] text-navy-400" role="status" aria-live="polite">{status === 'retrieving' ? 'กำลังค้นหาหลักฐาน…' : 'กำลังสร้างคำตอบ…'}</p> : null}{error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-[11px] text-red-700">{error}</div> : null}</div>
+    <form className="shrink-0 border-t border-line p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]" onSubmit={(e) => { e.preventDefault(); void ask(question); }}>{online ? null : <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11.5px] text-amber-800" role="status" aria-live="polite">{ASSISTANT_OFFLINE_TEXT}</p>}<textarea ref={inputRef} aria-label="คำถามถึงผู้ช่วยเอกสาร" disabled={!online} className="s2-input min-h-20 w-full resize-none" maxLength={4000} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="ถามเกี่ยวกับเอกสาร…" />
+      <div className="mt-2 flex items-center justify-between"><span className="text-[10px] text-navy-400">{question.length}/4000</span><button className="s2-btn s2-btn-primary" disabled={!online || !question.trim() || status === 'retrieving' || status === 'generating' || Boolean(diagnostics && (!diagnostics.enabled || diagnostics.status !== 'READY'))}><Send className="h-4 w-4" />ถาม</button></div></form></aside>;
 }

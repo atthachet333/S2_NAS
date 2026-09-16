@@ -9,11 +9,25 @@ import { uploadErrorText } from './error-text';
  * - ข้อผิดพลาดจากเซิร์ฟเวอร์แสดงเป็นข้อความไทยได้ แทนที่จะเปิดแท็บว่าง
  * - ชื่อไฟล์ภาษาไทยถูกต้องเสมอ
  */
+/**
+ * ออฟไลน์แล้วดาวน์โหลดไม่ได้ และต้องบอกเหตุผลที่ตรงกับความจริง (F24-F)
+ *
+ * **ทำไมด่านอยู่ที่นี่:** ทุกการดาวน์โหลดผ่านฟังก์ชันนี้ ทั้งจากเมนู แผ่นกระทำบนมือถือ
+ * และหน้าตัวอย่างไฟล์ ถ้าปล่อยให้ยิงคำขอออกไป ผู้ใช้จะได้ข้อความว่า
+ * "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้" ซึ่งชี้ไปที่เซิร์ฟเวอร์ ทั้งที่ปัญหาอยู่ที่เครื่องของเขาเอง
+ */
+export function offlineDownloadMessage(): string {
+  return 'ต้องเชื่อมต่ออินเทอร์เน็ตเพื่อเปิดไฟล์';
+}
+
 export async function downloadResource(
   resourceId: string,
   fileName: string,
   version?: number,
 ): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error(offlineDownloadMessage());
+  }
   const response = await authorizedFetch(fileApi.downloadPath(resourceId, version));
 
   if (!response.ok) {

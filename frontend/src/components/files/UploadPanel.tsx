@@ -36,9 +36,15 @@ export function UploadPanel() {
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) resumeAutoDismiss();
       }}
-      className="fixed inset-x-0 bottom-0 z-[var(--z-upload)] mx-auto w-full max-w-[440px] sm:inset-x-auto sm:right-5 sm:bottom-5"
+      /*
+        บนมือถือแผงนี้ต้องลอยเหนือแถบนำทางล่าง ไม่ใช่ทับมัน
+
+        ถ้าวางที่ขอบล่างสุด ผู้ใช้จะนำทางไปไหนไม่ได้เลยตลอดเวลาที่ยังอัปโหลดอยู่
+        ซึ่งเป็นช่วงที่เขามักอยากไปดูโฟลเดอร์อื่นต่อพอดี
+      */
+      className="fixed inset-x-0 bottom-[calc(68px+env(safe-area-inset-bottom))] z-[var(--z-upload)] mx-auto w-full max-w-[440px] px-2 md:inset-x-auto md:right-5 md:bottom-5 md:px-0"
     >
-      <div className="s2-menu overflow-hidden rounded-t-2xl p-0 sm:rounded-2xl">
+      <div className="s2-menu overflow-hidden rounded-2xl p-0">
         <header className="flex items-center gap-2 border-b border-line px-4 py-3">
           <Upload className="h-4 w-4 text-brand-600" aria-hidden />
           <p className="flex-1 text-[13px] font-semibold text-navy-900">
@@ -55,7 +61,7 @@ export function UploadPanel() {
             type="button"
             onClick={closePanel}
             aria-label="ย่อแผงอัปโหลด"
-            className="rounded-md p-1 text-navy-400 hover:bg-navy-50 hover:text-navy-700"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-navy-400 hover:bg-navy-50 hover:text-navy-700 md:h-auto md:w-auto md:p-1"
           >
             <ChevronDown className="h-4 w-4" />
           </button>
@@ -107,9 +113,9 @@ function Row({
               type="button"
               onClick={() => onRetry(item.id)}
               aria-label={`ลองอัปโหลด ${item.file.name} อีกครั้ง`}
-              className="rounded-md p-1 text-navy-400 hover:bg-navy-50 hover:text-navy-700"
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-navy-400 hover:bg-navy-50 hover:text-navy-700 md:h-auto md:w-auto md:p-1"
             >
-              <RotateCcw className="h-3.5 w-3.5" />
+              <RotateCcw className="h-4 w-4 md:h-3.5 md:w-3.5" />
             </button>
           ) : null}
           {item.state === 'UPLOADING' || item.state === 'QUEUED' ? (
@@ -117,18 +123,18 @@ function Row({
               type="button"
               onClick={() => onCancel(item.id)}
               aria-label={`ยกเลิกการอัปโหลด ${item.file.name}`}
-              className="rounded-md p-1 text-navy-400 hover:bg-navy-50 hover:text-navy-700"
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-navy-400 hover:bg-navy-50 hover:text-navy-700 md:h-auto md:w-auto md:p-1"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-4 w-4 md:h-3.5 md:w-3.5" />
             </button>
           ) : (
             <button
               type="button"
               onClick={() => onRemove(item.id)}
               aria-label={`นำ ${item.file.name} ออกจากรายการ`}
-              className="rounded-md p-1 text-navy-400 hover:bg-navy-50 hover:text-navy-700"
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-navy-400 hover:bg-navy-50 hover:text-navy-700 md:h-auto md:w-auto md:p-1"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-4 w-4 md:h-3.5 md:w-3.5" />
             </button>
           )}
         </div>
