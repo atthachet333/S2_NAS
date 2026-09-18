@@ -215,12 +215,14 @@ That split was a deliberate finding, not a simplification. The F25-D audit start
 
 | Level | Anonymous public link | Portal (external account) | Extra requirement |
 |---|---|---|---|
-| `PUBLIC` (สาธารณะ) | allowed | allowed | — |
+| `PUBLIC` (สาธารณะ) | link may exist* | allowed | — |
 | `INTERNAL` (ภายใน) | blocked | allowed | — |
 | `CONFIDENTIAL` (ลับ) | blocked | blocked | — |
 | `RESTRICTED` (จำกัดการเข้าถึง) | blocked | blocked | `visibility` must be `RESTRICTED` |
 
 `RESTRICTED` and `CONFIDENTIAL` close the same external channels. Without the last column, `RESTRICTED` would be a label that sounds stricter and does nothing — so it carries an enforced invariant instead. The system **never sets `visibility` itself** to satisfy it: changing `visibility` withdraws access from people who have it, which must be a decision someone makes, not a side effect of applying a label. The change is refused with `CLASSIFICATION_VISIBILITY_CONFLICT` and the caller is told what to do first.
+
+**Updated by Link Lock:** *a `PUBLIC` classification permits a share entry point to *exist*; it no longer means anonymous visitors may read the document. All document content requires authentication — see [LINK_LOCK_AUTH_REQUIRED.md](LINK_LOCK_AUTH_REQUIRED.md).
 
 Classification can only ever **subtract**. Setting `PUBLIC` grants no one access to anything; it only permits a public link to be created. Who can actually reach the document still depends on `visibility`, direct grants, and role, unchanged.
 

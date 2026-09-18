@@ -23,14 +23,19 @@ import {
   type ResolvedShare,
 } from './guest-access.js';
 import { guestPassValid, issueGuestPass } from './guest-session.js';
+import { requireLogin, resolveShareForUser } from './link-lock.js';
 
 /**
  * เส้นทางของลิงก์แชร์ภายนอก (F18)
  *
  * แบ่งเป็นสองกลุ่มที่ไม่ปนกันเลย:
  *
- * /public/shares/*  - ไม่ต้องเข้าสู่ระบบ ผู้เรียกคือแขกที่ถือโทเคน
+ * /public/shares/*  - **ต้องเข้าสู่ระบบแล้ว** (Link Lock) ผู้เรียกถือโทเคนเพื่อระบุปลายทาง
+ *                     แต่โทเคนไม่ใช่สิทธิ์ - สิทธิ์มาจากตัวผู้ใช้เท่านั้น
  * ที่เหลือ           - อยู่หลัง requireInternal ผู้เรียกคือบุคลากรที่จัดการลิงก์
+ *
+ * ชื่อเส้นทางยังขึ้นต้นด้วย /public เพราะลิงก์ที่ส่งออกไปแล้วนับพันต้องใช้งานได้ต่อ
+ * "public" หมายถึง "ใครก็ส่ง URL นี้ต่อได้" ไม่ได้หมายถึง "ใครก็เปิดเอกสารได้"
  *
  * การแยกไว้คนละที่ทำให้มองเห็นด้วยตาเปล่าว่าเส้นทางไหนเปิดสู่อินเทอร์เน็ต
  * ถ้าปนกัน วันหนึ่งจะมีคนเพิ่มเส้นทางใหม่ในกลุ่มผิดโดยไม่มีใครทันสังเกต
@@ -62,21 +67,30 @@ function guestHeaders(reply: FastifyReply): FastifyReply {
 }
 
 /**
- * เปิดลิงก์ให้ผ่านด่านทั้งหมด แล้วคืนบริบทของแขก
+ * เปิดลิงก์ให้ผ่านด่านทั้งหมด แล้วคืนบริบท
  *
- * ทุกเส้นทางของแขกเรียกฟังก์ชันนี้เป็นอย่างแรก - รวมถึงเส้นทางเนื้อหาและดาวน์โหลด
+ * ทุกเส้นทางเรียกฟังก์ชันนี้เป็นอย่างแรก - รวมถึงเส้นทางเนื้อหาและดาวน์โหลด
  * ไม่มีเส้นทางไหนที่เชื่อผลการตรวจจากคำขอก่อนหน้า
+ *
+ * **ผู้เรียกต้องผ่าน requireLogin มาแล้ว** ฟังก์ชันนี้จึงตัดสินด้วยสิทธิ์ของผู้ใช้จริง
+ * ไม่ใช่ด้วยการถือโทเคน (Link Lock) - ดู link-lock.ts
  */
 async function openShare(request: FastifyRequest, token: string): Promise<ResolvedShare> {
-  let share: ResolvedShare;
+  const user = request.authUser!;
+  let resolution;
   try {
-    share = await resolveShareByToken(token);
+    resolution = await resolveShareForUser(user, token);
   } catch (error) {
     // บันทึกเฉพาะโทเคนที่เคยมีอยู่จริง เพื่อไม่ให้การยิงสุ่มถมบันทึกกิจกรรม
     await logExpiredAttempt(token, audit(request)).catch(() => {});
     throw error;
   }
+  const share = resolution.share;
 
+  /*
+   * รหัสผ่านของลิงก์ยังบังคับใช้อยู่ - เป็นชั้นที่สองซ้อนบนการเข้าสู่ระบบ ไม่ใช่แทนที่
+   * ลิงก์ที่ผู้สร้างตั้งรหัสผ่านไว้ยังต้องใส่รหัสผ่านเหมือนเดิม
+   */
   if (requiresPassword(share.link)) {
     const pass = request.headers['x-guest-pass'];
     const valid = await guestPassValid(typeof pass === 'string' ? pass : undefined, share.link.id);
@@ -85,6 +99,11 @@ async function openShare(request: FastifyRequest, token: string): Promise<Resolv
     }
   }
   return share;
+}
+
+/** สิทธิ์ที่ผู้ใช้คนนี้มีจริงบนลิงก์นี้ - ใช้ตัดสินการดูตัวอย่างและการดาวน์โหลด */
+async function shareRights(request: FastifyRequest, token: string) {
+  return resolveShareForUser(request.authUser!, token);
 }
 
 export async function publicShareRoutes(app: FastifyInstance): Promise<void> {
@@ -98,7 +117,10 @@ export async function publicShareRoutes(app: FastifyInstance): Promise<void> {
    * เส้นทางเหล่านี้ไม่มีบัญชีให้ล็อก ไม่มีอะไรให้ผู้โจมตีต้องผ่านก่อน
    * การจำกัดตาม IP จึงเป็นเครื่องมือเดียวที่มี
    */
-  const guestRate = { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } };
+  const guestRate = {
+    preHandler: requireLogin,
+    config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+  };
 
   /**
    * ตรวจรหัสผ่าน - เข้มกว่าเส้นทางอื่นมาก
@@ -109,6 +131,7 @@ export async function publicShareRoutes(app: FastifyInstance): Promise<void> {
    * นับรวมตาม IP ต่อโทเคน เพื่อไม่ให้คนที่ยิงลิงก์หนึ่งไปกระทบผู้ใช้ลิงก์อื่น
    */
   const passwordRate = {
+    preHandler: requireLogin,
     config: {
       rateLimit: {
         max: 10,
@@ -126,9 +149,13 @@ export async function publicShareRoutes(app: FastifyInstance): Promise<void> {
     const { token } = tokenParams.parse(request.params);
     guestHeaders(reply);
 
+    /*
+     * ถึงบรรทัดนี้ได้แปลว่าเข้าสู่ระบบแล้ว (requireLogin) และมีสิทธิ์บนเอกสารจริง
+     * ชื่อไฟล์ ชนิด และขนาด จึงเปิดเผยได้ - ก่อนหน้านี้ข้อมูลชุดนี้ออกไปโดยไม่ต้องล็อกอิน
+     */
     let share: ResolvedShare;
     try {
-      share = await resolveShareByToken(token);
+      share = (await resolveShareForUser(request.authUser!, token)).share;
     } catch (error) {
       await logExpiredAttempt(token, audit(request)).catch(() => {});
       throw error;
@@ -208,8 +235,9 @@ export async function publicShareRoutes(app: FastifyInstance): Promise<void> {
     const { resourceId } = z.object({ resourceId: z.string().min(1).optional() }).parse(request.query);
     guestHeaders(reply);
 
+    const rights = await shareRights(request, token);
     const share = await openShare(request, token);
-    if (!share.link.allowPreview) {
+    if (!rights.allowPreview) {
       throw new AppError('SHARE_PREVIEW_DENIED', 'ลิงก์นี้ไม่อนุญาตให้ดูตัวอย่าง', 403);
     }
 
@@ -222,8 +250,15 @@ export async function publicShareRoutes(app: FastifyInstance): Promise<void> {
     const { resourceId } = z.object({ resourceId: z.string().min(1).optional() }).parse(request.query);
     guestHeaders(reply);
 
+    /*
+     * ดาวน์โหลดต้องผ่านทั้งลิงก์และสิทธิ์ของผู้ใช้เอง (§20)
+     *
+     * การเข้าสู่ระบบไม่ได้แปลว่าดาวน์โหลดได้ - ผู้ใช้ที่ "ดูได้แต่โหลดไม่ได้" ตามสิทธิ์เดิม
+     * ต้องยังโหลดไม่ได้ผ่านลิงก์นี้เช่นกัน มิฉะนั้น Link Lock จะกลายเป็นช่องทางยกระดับสิทธิ์
+     */
+    const rights = await shareRights(request, token);
     const share = await openShare(request, token);
-    if (!share.link.allowDownload) {
+    if (!rights.allowDownload) {
       throw new AppError('SHARE_DOWNLOAD_DENIED', 'ลิงก์นี้ไม่อนุญาตให้ดาวน์โหลด', 403);
     }
 

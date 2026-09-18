@@ -1622,10 +1622,21 @@ export interface GuestFolderDto {
  *
  * ใบผ่านของแขก (ถ้ามี) เดินทางผ่าน header ของตัวเอง ไม่ปนกับ Authorization
  */
+/**
+ * คำขอของเส้นทางลิงก์แชร์
+ *
+ * **แนบ token ของเซสชันไปด้วยเสมอ (Link Lock)** เพราะเส้นทางกลุ่มนี้ไม่เปิดให้
+ * ผู้ไม่ระบุตัวตนอีกแล้ว - โทเคนของลิงก์บอกแค่ว่าปลายทางคือเอกสารไหน ส่วนสิทธิ์
+ * มาจากผู้ใช้ที่เข้าสู่ระบบ ถ้าไม่มี token เซิร์ฟเวอร์จะตอบ LOGIN_REQUIRED
+ * ซึ่งหน้าจอแปลเป็นหน้า BLOCKED
+ *
+ * X-Guest-Pass ยังคงอยู่สำหรับลิงก์ที่ตั้งรหัสผ่านไว้ - เป็นชั้นที่สองซ้อนบนการเข้าสู่ระบบ
+ */
 async function guestFetch<T>(path: string, pass: string | null, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,
     headers: {
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...(pass ? { 'X-Guest-Pass': pass } : {}),
       ...init?.headers,
     },

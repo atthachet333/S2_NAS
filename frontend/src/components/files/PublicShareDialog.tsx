@@ -100,6 +100,16 @@ export function PublicShareDialog({
               แชร์ภายนอก
             </h2>
             <p className="mt-0.5 truncate text-[12px] text-navy-400">{resourceName}</p>
+
+            {/*
+              Link Lock: ผู้รับลิงก์ต้องเข้าสู่ระบบก่อนเสมอ (§12)
+              บอกตั้งแต่ตอนสร้าง เพราะคนที่ส่งลิงก์ให้ลูกค้าแล้วค่อยรู้ทีหลัง
+              จะเข้าใจว่าระบบพัง ไม่ใช่ว่านี่คือพฤติกรรมที่ตั้งใจ
+            */}
+            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11.5px] leading-relaxed text-amber-800">
+              ผู้รับลิงก์ต้องเข้าสู่ระบบก่อน และต้องมีสิทธิ์เข้าถึงเอกสารนี้อยู่แล้ว
+              ลิงก์นี้เป็นทางลัดไปยังเอกสาร ไม่ใช่การเปิดให้เข้าถึงโดยไม่ต้องเข้าสู่ระบบ
+            </p>
           </div>
           <button
             type="button"

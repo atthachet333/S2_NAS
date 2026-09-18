@@ -68,7 +68,7 @@ F26 invents no exceptions. It calls `resourceExposableToPortal` — the same gat
 
 | Target classification | Workflow creation |
 |---|---|
-| `PUBLIC` | allowed |
+| `PUBLIC` | allowed (content still requires login — see LINK_LOCK_AUTH_REQUIRED.md) |
 | `INTERNAL` | allowed |
 | `CONFIDENTIAL` | refused — `WORKFLOW_TARGET_CLASSIFICATION_BLOCKED` |
 | `RESTRICTED` | refused — `WORKFLOW_TARGET_CLASSIFICATION_BLOCKED` |

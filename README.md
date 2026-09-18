@@ -128,6 +128,7 @@ s2-nas/
 | [docs/F25_GOVERNANCE.md](docs/F25_GOVERNANCE.md) | การกำกับดูแล: legal hold, retention, สิทธิ์ที่มีผลจริง และการตรวจสอบการเข้าถึง |
 | [docs/F26_EXTERNAL_WORKFLOW.md](docs/F26_EXTERNAL_WORKFLOW.md) | งานร่วมกับภายนอกแบบระบุตัวตน: คำขอ การส่งงาน การตรวจ และการยกเลิก |
 | [docs/F26_FINAL_REPORT.md](docs/F26_FINAL_REPORT.md) | บันทึกปิดเฟส F26 พร้อมข้อจำกัดที่ยอมรับไว้ |
+| [docs/LINK_LOCK_AUTH_REQUIRED.md](docs/LINK_LOCK_AUTH_REQUIRED.md) | ลิงก์แชร์ต้องเข้าสู่ระบบก่อนเสมอ - ไม่มีการเข้าถึงเอกสารแบบไม่ระบุตัวตน |
 | [docs/API.md](docs/API.md) | รายการ API |
 | [docs/SECURITY.md](docs/SECURITY.md) | แนวปฏิบัติด้านความปลอดภัย |
 | [docs/PERMISSIONS.md](docs/PERMISSIONS.md) | บทบาทและสิทธิ์ |

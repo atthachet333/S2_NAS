@@ -9,6 +9,7 @@ import {
   type GuestItemDto,
   type GuestShareDto,
 } from '@/lib/api';
+import { LinkLockedPage } from '@/components/guest/LinkLockedPage';
 import { formatBytes } from '@/lib/utils';
 
 /**
@@ -68,7 +69,25 @@ export default function GuestSharePage() {
     );
   }
 
-  if (share.isError) return <GuestFrame><Unavailable error={share.error} /></GuestFrame>;
+  /*
+   * Link Lock: เซิร์ฟเวอร์ตอบสองรหัสที่ต้องแปลเป็นคนละหน้า
+   *
+   *   LOGIN_REQUIRED (401) = ยังไม่ได้เข้าสู่ระบบ หรือเซสชันหมดอายุ -> BLOCKED พร้อมปุ่มเข้าสู่ระบบ
+   *   ACCESS_DENIED  (403) = เข้าสู่ระบบแล้วแต่ไม่มีสิทธิ์        -> ACCESS DENIED
+   *
+   * ปลายทางที่ส่งไปหน้าเข้าสู่ระบบคือ URL ของลิงก์นี้เอง เพื่อให้กลับมาที่เดิมหลังล็อกอิน
+   * ค่านั้นถูกทำให้ปลอดภัยอีกชั้นใน loginPathFor เสมอ
+   */
+  if (share.isError) {
+    const code = share.error instanceof ApiError ? share.error.code : null;
+    if (code === 'LOGIN_REQUIRED') {
+      return <LinkLockedPage state="BLOCKED" returnTo={`/s/${token}`} />;
+    }
+    if (code === 'ACCESS_DENIED') {
+      return <LinkLockedPage state="ACCESS_DENIED" />;
+    }
+    return <GuestFrame><Unavailable error={share.error} /></GuestFrame>;
+  }
 
   if (data?.passwordRequired) {
     return (

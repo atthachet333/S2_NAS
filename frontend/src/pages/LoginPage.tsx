@@ -11,6 +11,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { googleLoginMessage, startGoogleLogin } from '@/lib/google-login';
 import { homePathFor } from '@/lib/portal';
+import { SAFE_FALLBACK, sanitizeReturnTo } from '@/lib/return-to';
 import { useToast } from '@/hooks/useToast';
 
 const schema = z.object({ email: z.string().min(1, 'กรุณากรอกอีเมล').email('รูปแบบอีเมลไม่ถูกต้อง'), password: z.string().min(1, 'กรุณากรอกรหัสผ่าน') });
@@ -47,8 +48,17 @@ export default function LoginPage() {
     return () => { active = false; };
   }, []);
 
-  /** ปลายทางหลังเข้าสู่ระบบ - ใช้ร่วมกันทั้งรหัสผ่านและ Google (backend ตรวจซ้ำอีกชั้น) */
-  const from = (location.state as { from?: string } | null)?.from;
+  /**
+   * ปลายทางหลังเข้าสู่ระบบ - ใช้ร่วมกันทั้งรหัสผ่านและ Google (backend ตรวจซ้ำอีกชั้น)
+   *
+   * รับได้สองทาง: router state (ภายในแอป) และ ?returnTo= ใน URL ซึ่ง Link Lock ใช้
+   * เมื่อพาผู้ใช้จากหน้ากั้นมาที่นี่ ทางหลังมาจาก URL จึงมาจากใครก็ได้ - ต้องผ่าน
+   * sanitizeReturnTo ทุกครั้ง มิฉะนั้นหน้านี้จะกลายเป็น open redirect ของโดเมนเราเอง
+   */
+  const from = sanitizeReturnTo(
+    (location.state as { from?: string } | null)?.from
+      ?? new URLSearchParams(location.search).get('returnTo'),
+  );
 
   /** ความล้มเหลวจากขั้นตอน Google กลับมาเป็นรหัสใน query string */
   const googleNotice = googleLoginMessage(new URLSearchParams(location.search).get('google'));
@@ -69,13 +79,16 @@ export default function LoginPage() {
        * ปลายทางขึ้นกับชนิดของบัญชี ไม่ใช่ค่า from ที่ติดมากับการถูกเด้งออกจากหน้าเดิม
        * ลูกค้าไปที่พื้นที่เอกสาร บุคลากรภายในไปที่หน้าทำงานภายใน
        */
-      navigate(homePathFor(session, from), { replace: true });
+      // SAFE_FALLBACK แปลว่า "ไม่มีปลายทางที่เชื่อถือได้" จึงปล่อยให้ homePathFor เลือกหน้าแรกตามชนิดบัญชี
+      navigate(homePathFor(session, from === SAFE_FALLBACK ? null : from), { replace: true });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'เข้าสู่ระบบไม่สำเร็จ');
     }
   });
   // เข้าสู่ระบบอยู่แล้ว - ส่งไปหน้าแรกของฝั่งที่ผู้ใช้สังกัด
-  if (!isLoading && user) return <Navigate to={homePathFor(user, from)} replace />;
+  if (!isLoading && user) {
+    return <Navigate to={homePathFor(user, from === SAFE_FALLBACK ? null : from)} replace />;
+  }
 
   return <main className="relative min-h-screen overflow-hidden bg-canvas">
     <div className="pointer-events-none absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_14%_18%,color-mix(in_srgb,var(--s2-primary)_16%,transparent),transparent_28%),radial-gradient(circle_at_86%_78%,color-mix(in_srgb,var(--s2-primary)_9%,transparent),transparent_30%)]" />
