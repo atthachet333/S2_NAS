@@ -56,6 +56,9 @@
     "test:smart-filing": "tsx scripts/run-smart-filing-tests.ts",
     "storage:migrate": "tsx scripts/storage-migrate.ts",
     "audit:storage": "tsx scripts/storage-audit.ts",
+    "recovery:index": "tsx scripts/recovery-index-export.ts",
+    "recovery:audit": "tsx scripts/candidate-storage-audit.ts",
+    "recovery:migrate": "tsx scripts/recovery-migrate.ts",
     "qa:s3-smoke": "tsx scripts/s3-smoke.ts"
   },
   "dependencies": {

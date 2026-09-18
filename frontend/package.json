@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "start": "node server.mjs",
     "preview": "vite preview --port 8888",
     "typecheck": "tsc -b --noEmit",
     "test": "tsx --tsconfig tsconfig.app.json --test src/**/*.test.ts",

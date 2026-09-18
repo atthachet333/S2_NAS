@@ -121,6 +121,8 @@ export default defineConfig({
   preview: {
     port: FRONTEND_PORT,
     strictPort: true,
+    host: true,
+    allowedHosts: ['s2anas.s2aconsultant.com'],
     proxy: { '/api': { target: BACKEND_URL, changeOrigin: true } },
   },
   build: {

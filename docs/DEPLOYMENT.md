@@ -1,5 +1,9 @@
 # DEPLOYMENT
 
+> Recovery-sensitive production preparation and the deferred `D:\S2_NAS_DATA` cutover are documented
+> in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). Do not use the legacy example path below as
+> authorization to switch the active storage root.
+
 ## ความต้องการของเครื่อง server
 
 - Node.js 20 ขึ้นไป
