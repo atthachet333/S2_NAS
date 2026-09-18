@@ -50,6 +50,7 @@ export function BulkMetadataDialog({
   const [categoryId, setCategoryId] = useState('');
   const [ownerId, setOwnerId] = useState('');
   const [outcome, setOutcome] = useState<BulkOutcomeDto | null>(null);
+  const [retentionReason, setRetentionReason] = useState('');
 
   const categories = useQuery({ queryKey: ['document-categories'], queryFn: () => categoryApi.list() });
   const facets = useQuery({ queryKey: ['search-facets'], queryFn: workspaceApi.facets });
@@ -63,7 +64,7 @@ export function BulkMetadataDialog({
     mutationFn: async () => {
       if (mode === 'tag') return bulkApi.addTag(ids, tagName.trim());
       if (mode === 'category') return bulkApi.setCategory(ids, categoryId || null);
-      if (mode === 'retention') return bulkApi.setRetention(ids, policyId || null);
+      if (mode === 'retention') return bulkApi.setRetention(ids, policyId || null, retentionReason.trim() || null);
       if (mode === 'archive') return bulkApi.archive(ids);
       return bulkApi.setOwner(ids, ownerId);
     },
@@ -180,6 +181,7 @@ export function BulkMetadataDialog({
 
             <div className="mt-3">
               {mode === 'tag' ? (
+                <div className="flex flex-col gap-1">
                 <label className="flex flex-col gap-1">
                   <span className="text-[11.5px] font-medium text-navy-600">ชื่อแท็ก</span>
                   <input
@@ -233,6 +235,16 @@ export function BulkMetadataDialog({
                     วันหมดอายุถูกคำนวณจากวันที่นำเข้าระบบของแต่ละเอกสาร
                   </span>
                 </label>
+                <textarea
+                  value={retentionReason}
+                  onChange={(event) => setRetentionReason(event.target.value)}
+                  maxLength={500}
+                  rows={2}
+                  placeholder="เหตุผล (บังคับเมื่อมีรายการถูกลดหรือล้างนโยบาย)"
+                  aria-label="เหตุผลการเปลี่ยนนโยบายการเก็บรักษา"
+                  className="s2-input w-full resize-y py-2 text-[11.5px]"
+                />
+                </div>
               ) : mode === 'archive' ? (
                 <p className="rounded-lg bg-[var(--s2-surface-soft)] px-2 py-2 text-[11.5px] leading-relaxed text-navy-500">
                   เก็บ {entries.length} รายการเข้าคลัง เอกสารจะยังค้นเจอและเปิดได้ตามปกติ

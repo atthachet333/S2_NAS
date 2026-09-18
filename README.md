@@ -125,6 +125,9 @@ s2-nas/
 | [docs/FILE_STORAGE.md](docs/FILE_STORAGE.md) | โครงสร้างการเก็บไฟล์ |
 | [docs/OBJECT_STORAGE.md](docs/OBJECT_STORAGE.md) | ผู้ให้บริการพื้นที่จัดเก็บ ที่เก็บวัตถุ การย้าย และการตรวจสอบ |
 | [docs/PWA_MOBILE.md](docs/PWA_MOBILE.md) | การใช้งานบนมือถือ การติดตั้งเป็นแอป และนโยบายแคช |
+| [docs/F25_GOVERNANCE.md](docs/F25_GOVERNANCE.md) | การกำกับดูแล: legal hold, retention, สิทธิ์ที่มีผลจริง และการตรวจสอบการเข้าถึง |
+| [docs/F26_EXTERNAL_WORKFLOW.md](docs/F26_EXTERNAL_WORKFLOW.md) | งานร่วมกับภายนอกแบบระบุตัวตน: คำขอ การส่งงาน การตรวจ และการยกเลิก |
+| [docs/F26_FINAL_REPORT.md](docs/F26_FINAL_REPORT.md) | บันทึกปิดเฟส F26 พร้อมข้อจำกัดที่ยอมรับไว้ |
 | [docs/API.md](docs/API.md) | รายการ API |
 | [docs/SECURITY.md](docs/SECURITY.md) | แนวปฏิบัติด้านความปลอดภัย |
 | [docs/PERMISSIONS.md](docs/PERMISSIONS.md) | บทบาทและสิทธิ์ |

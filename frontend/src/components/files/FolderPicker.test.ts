@@ -23,6 +23,7 @@ function renderPicker(
   const props = {
     value: null,
     onChange: () => undefined,
+    classification: 'INTERNAL', classifiedAt: null, classificationRestrictions: null,
     driveRoot: 'MY_DRIVE' as DriveRoot,
     onDriveRootChange: () => undefined,
     selectableDriveRoots: ['MY_DRIVE', 'SYSTEM_DRIVE'] as DriveRoot[],

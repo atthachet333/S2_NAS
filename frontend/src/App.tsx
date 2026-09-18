@@ -53,6 +53,8 @@ const PortalShell = lazy(() => import('@/components/portal/PortalShell').then((m
 const PortalHomePage = lazy(() => import('@/pages/portal/PortalHomePage'));
 const PortalFolderPage = lazy(() => import('@/pages/portal/PortalFolderPage'));
 const PortalUploadsPage = lazy(() => import('@/pages/portal/PortalUploadsPage'));
+const PortalWorkflowsPage = lazy(() => import('@/pages/portal/PortalWorkflowsPage'));
+const PortalWorkflowDetailPage = lazy(() => import('@/pages/portal/PortalWorkflowDetailPage'));
 const GuestSharePage = lazy(() => import('@/pages/guest/GuestSharePage'));
 
 /** ตัวแทนระหว่างรอไฟล์ของหน้า - ใช้โครงร่างเดิมของระบบ ไม่ใช่ตัวหมุนกลางจอ */
@@ -77,6 +79,8 @@ export default function App() {
         <Route element={<PortalRoute><PortalShell /></PortalRoute>}>
           <Route path="/portal" element={<PortalHomePage />} />
           <Route path="/portal/uploads" element={<PortalUploadsPage />} />
+          <Route path="/portal/workflows" element={<PortalWorkflowsPage />} />
+          <Route path="/portal/workflows/:workflowId" element={<PortalWorkflowDetailPage />} />
           <Route path="/portal/folders/:folderId" element={<PortalFolderPage />} />
           <Route path="/portal/resources/:folderId" element={<PortalFolderPage />} />
         </Route>

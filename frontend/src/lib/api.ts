@@ -272,6 +272,10 @@ export interface ResourceDto {
   /** ถูกระงับการลบอยู่หรือไม่ - ไม่บอกเหตุผล เหตุผลมีเส้นทางของตัวเอง */
   onLegalHold?: boolean;
   visibility: 'ORGANIZATION' | 'RESTRICTED';
+  classification: ResourceClassification;
+  /** null = ยังเป็นค่าเริ่มต้นของระบบ ยังไม่มีใครตัดสินใจจัดชั้นเอกสารนี้ */
+  classifiedAt: string | null;
+  classificationRestrictions: ClassificationRestrictions;
   /** ไดร์ฟที่ทรัพยากรนี้สังกัด - ตัดสินนโยบายการเขียนได้จากแถวเดียว */
   driveScope: 'MY_DRIVE' | 'SYSTEM_DRIVE';
   currentVersion: number | null;
@@ -947,6 +951,174 @@ export const portalApi = {
     `/api/portal/resources/${id}/versions/${versionNumber}/download`,
 };
 
+/* ---------------- งานที่ได้รับมอบหมาย (F26-C/D) ---------------- */
+
+/**
+ * สถานะของงาน - **คำนวณฝั่งเซิร์ฟเวอร์เสมอ**
+ *
+ * EXPIRED ไม่เคยถูกเก็บในฐานข้อมูล และหน้าจอต้องไม่คำนวณเอง ถ้าหน้าจอเทียบเวลาเอง
+ * นาฬิกาของเครื่องผู้ใช้ที่เดินผิดจะทำให้เห็นสถานะคนละอย่างกับที่ระบบบังคับใช้จริง
+ */
+export type WorkflowStatus =
+  | 'OPEN' | 'SUBMITTED' | 'UNDER_REVIEW' | 'REVISION_REQUESTED'
+  | 'APPROVED' | 'REJECTED' | 'REVOKED' | 'EXPIRED';
+
+export const WORKFLOW_STATUS_LABEL: Record<WorkflowStatus, string> = {
+  OPEN: 'รอดำเนินการ',
+  SUBMITTED: 'ส่งงานแล้ว',
+  UNDER_REVIEW: 'กำลังตรวจ',
+  REVISION_REQUESTED: 'ขอให้แก้ไข',
+  APPROVED: 'อนุมัติแล้ว',
+  REJECTED: 'ไม่อนุมัติ',
+  REVOKED: 'ถูกยกเลิก',
+  EXPIRED: 'หมดเวลา',
+};
+
+export interface WorkflowSubmissionDto {
+  id: string;
+  sequence: number;
+  submittedAt: string;
+  file: { id: string; name: string; size: number | null; mimeType: string | null };
+}
+
+export interface AssignedWorkflowDto {
+  id: string;
+  title: string;
+  instructions: string | null;
+  status: WorkflowStatus;
+  target: { id: string; name: string };
+  permissions: { allowUpload: boolean; allowDownload: boolean };
+  dueAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  submissionCount: number;
+}
+
+export interface AssignedWorkflowDetailDto extends AssignedWorkflowDto {
+  submissions: WorkflowSubmissionDto[];
+  /** เซิร์ฟเวอร์เป็นผู้ตอบว่าส่งได้ไหม หน้าจอไม่ตีความสถานะเอง */
+  canSubmit: boolean;
+  /** เหตุผลของการตัดสินล่าสุดที่ถึงตัวผู้รับงาน - มีเฉพาะขอให้แก้ไข ไม่อนุมัติ และยกเลิก */
+  latestDecision: { status: WorkflowStatus; reason: string | null; at: string } | null;
+}
+
+/* ---------------- คำขอฝั่งภายใน (F26-B) ---------------- */
+
+export interface WorkflowDto {
+  id: string;
+  title: string;
+  instructions: string | null;
+  status: WorkflowStatus;
+  storedState: string;
+  target: { id: string; name: string; type: string };
+  assignee: { id: string; displayName: string; email: string; organizationName: string | null };
+  permissions: { allowUpload: boolean; allowDownload: boolean; portalRole: string };
+  expiresAt: string | null;
+  dueAt: string | null;
+  createdBy: { id: string; displayName: string } | null;
+  createdAt: string;
+  updatedAt: string;
+  submissions: WorkflowSubmissionDto[];
+}
+
+export const workflowApi = {
+  list: (params: { targetResourceId?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (params.targetResourceId) query.set('targetResourceId', params.targetResourceId);
+    const suffix = query.toString();
+    return apiFetch<Ok<WorkflowDto[]>>(`/external-workflows${suffix ? `?${suffix}` : ''}`);
+  },
+  get: (id: string) => apiFetch<Ok<WorkflowDto>>(`/external-workflows/${id}`),
+};
+
+/* ---------------- การตรวจงานฝั่งภายใน (F26-E/G) ---------------- */
+
+export interface WorkflowHistoryEntry {
+  action: string;
+  at: string;
+  actor: { id: string; displayName: string } | null;
+  fromState: string | null;
+  toState: string | null;
+  reason: string | null;
+  sequence: number | null;
+}
+
+export const WORKFLOW_HISTORY_LABEL: Record<string, string> = {
+  EXTERNAL_WORKFLOW_CREATED: 'สร้างคำขอ',
+  EXTERNAL_SUBMISSION_CREATED: 'ลูกค้าส่งงาน',
+  EXTERNAL_REVIEW_STARTED: 'เริ่มตรวจ',
+  EXTERNAL_REVIEW_APPROVED: 'อนุมัติ',
+  EXTERNAL_REVIEW_REJECTED: 'ไม่อนุมัติ',
+  EXTERNAL_REVISION_REQUESTED: 'ขอให้แก้ไข',
+  EXTERNAL_WORKFLOW_REVOKED: 'ยกเลิกคำขอ',
+};
+
+export interface WorkflowTransitionResult {
+  from: string;
+  to: string;
+  submissionId: string | null;
+}
+
+/**
+ * การกระทำของผู้ตรวจ
+ *
+ * ส่ง submissionId ที่กำลังดูอยู่ไปด้วยเสมอ เพื่อให้เซิร์ฟเวอร์ปฏิเสธได้ถ้ามีฉบับใหม่
+ * เข้ามาแล้ว - หน้าจอไม่ได้เป็นผู้ตัดสินว่าฉบับไหนคือฉบับล่าสุด แต่เป็นผู้บอกว่า
+ * "ฉันกำลังตัดสินฉบับนี้" แล้วให้เซิร์ฟเวอร์ตรวจว่ายังใช่อยู่ไหม
+ */
+export const workflowReviewApi = {
+  history: (id: string) => apiFetch<Ok<WorkflowHistoryEntry[]>>(`/external-workflows/${id}/history`),
+  start: (id: string) =>
+    apiFetch<Ok<WorkflowTransitionResult>>(`/external-workflows/${id}/review/start`, { method: 'POST', body: '{}' }),
+  approve: (id: string, input: { reason?: string | null; submissionId?: string | null }) =>
+    apiFetch<Ok<WorkflowTransitionResult>>(`/external-workflows/${id}/review/approve`, {
+      method: 'POST', body: JSON.stringify(input),
+    }),
+  reject: (id: string, input: { reason: string; submissionId?: string | null }) =>
+    apiFetch<Ok<WorkflowTransitionResult>>(`/external-workflows/${id}/review/reject`, {
+      method: 'POST', body: JSON.stringify(input),
+    }),
+  requestRevision: (id: string, input: { reason: string; submissionId?: string | null }) =>
+    apiFetch<Ok<WorkflowTransitionResult>>(`/external-workflows/${id}/review/request-revision`, {
+      method: 'POST', body: JSON.stringify(input),
+    }),
+  revoke: (id: string, input: { reason: string }) =>
+    apiFetch<Ok<WorkflowTransitionResult>>(`/external-workflows/${id}/revoke`, {
+      method: 'POST', body: JSON.stringify(input),
+    }),
+};
+
+export const portalWorkflowApi = {
+  list: () => apiFetch<Ok<AssignedWorkflowDto[]>>('/portal/workflows'),
+  get: (id: string) => apiFetch<Ok<AssignedWorkflowDetailDto>>(`/portal/workflows/${id}`),
+
+  /**
+   * ส่งไฟล์เข้างาน
+   *
+   * **ส่งเฉพาะไฟล์** ไม่แนบ field ปลายทางใด ๆ เพราะเซิร์ฟเวอร์เป็นผู้กำหนดปลายทาง
+   * และจะปฏิเสธทั้งคำขอถ้าพบ field เหล่านั้น - ตรงกันทั้งสองฝั่งโดยตั้งใจ
+   *
+   * ไม่ตั้ง Content-Type เอง ปล่อยให้เบราว์เซอร์ใส่ boundary ให้
+   */
+  submit: async (id: string, file: File): Promise<WorkflowSubmissionDto> => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    const response = await authorizedFetch(`/api/portal/workflows/${id}/submissions`, {
+      method: 'POST',
+      body: form,
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new ApiError(
+        payload?.error?.code ?? 'WORKFLOW_SUBMIT_FAILED',
+        payload?.error?.message ?? 'ส่งไฟล์ไม่สำเร็จ',
+        response.status,
+      );
+    }
+    return payload.data as WorkflowSubmissionDto;
+  },
+};
+
 /** ชุดค้นหาที่บันทึกไว้ - เป็นของส่วนตัวของแต่ละคน */
 export const savedSearchApi = {
   list: () => apiFetch<Ok<SavedSearchDto[]>>('/saved-searches'),
@@ -1020,10 +1192,10 @@ export const bulkApi = {
       body: JSON.stringify({ resourceIds, newOwnerId }),
     }),
   /** กำหนดนโยบายการเก็บรักษาให้หลายรายการ */
-  setRetention: (resourceIds: string[], policyId: string | null) =>
+  setRetention: (resourceIds: string[], policyId: string | null, reason?: string | null) =>
     apiFetch<Ok<BulkOutcomeDto>>('/resources/bulk/retention', {
       method: 'POST',
-      body: JSON.stringify({ resourceIds, policyId }),
+      body: JSON.stringify({ resourceIds, policyId, reason }),
     }),
   /** เก็บหลายรายการเข้าคลัง */
   archive: (resourceIds: string[]) =>
@@ -1062,6 +1234,34 @@ export interface LegalHoldDto {
   isActive: boolean;
 }
 
+export interface RetentionReapplyPreviewDto {
+  policy: { id: string; name: string; retentionDays: number | null; retainForever: boolean };
+  previewToken: string;
+  attempted: number;
+  changed: number;
+  unchanged: number;
+  blocked: number;
+  permissionDenied: number;
+  legalHoldConflicts: number;
+  potentialWeakening: number;
+  candidates: Array<{
+    resourceId: string;
+    resourceName: string | null;
+    status: 'CHANGED' | 'UNCHANGED' | 'BLOCKED' | 'PERMISSION_DENIED';
+    code: string | null;
+    weakening: boolean;
+  }>;
+}
+
+export interface RetentionReapplyResultDto {
+  attempted: number;
+  changed: number;
+  unchanged: number;
+  blocked: number;
+  failed: number;
+  errors: Array<{ resourceId: string; code: string; message: string }>;
+}
+
 /** เหตุผลที่ลบถาวรไม่ได้ - ข้อความปลอดภัย ไม่มีรายละเอียดของการระงับ */
 export interface DeleteBlockDto {
   kind: 'LEGAL_HOLD' | 'RETAIN_FOREVER' | 'RETENTION_ACTIVE';
@@ -1091,14 +1291,20 @@ export const retentionApi = {
     }),
   remove: (id: string) =>
     apiFetch<Ok<{ deleted: boolean }>>(`/retention-policies/${id}`, { method: 'DELETE' }),
-  /** คำนวณวันหมดอายุใหม่ให้เอกสารที่ใช้นโยบายนี้ - ต้องกดเอง ไม่ใช่ผลข้างเคียงของการแก้นิยาม */
-  reapply: (id: string) =>
-    apiFetch<Ok<{ updated: number }>>(`/retention-policies/${id}/reapply`, { method: 'POST' }),
+  /** ขั้นอ่านอย่างเดียว: แสดงผลกระทบและออก token ผูกกับ snapshot ปัจจุบัน */
+  previewReapply: (id: string) =>
+    apiFetch<Ok<RetentionReapplyPreviewDto>>(`/retention-policies/${id}/reapply-preview`),
+  /** ขั้นเขียน: เซิร์ฟเวอร์ตรวจ policy/สิทธิ์/hold/snapshot ซ้ำทุกรายการ */
+  reapply: (id: string, input: { previewToken: string; reason?: string | null }) =>
+    apiFetch<Ok<RetentionReapplyResultDto>>(`/retention-policies/${id}/reapply`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
   seedDefaults: () =>
     apiFetch<Ok<{ created: number }>>('/retention-policies/seed-defaults', { method: 'POST' }),
   /** กำหนดนโยบายให้เอกสารหนึ่งฉบับ - policyId = null คือล้างนโยบายออก */
-  assign: (resourceId: string, input: { policyId: string | null; startAt?: string | null }) =>
-    apiFetch<Ok<{ resourceId: string; retentionUntil: string | null; retentionForever: boolean }>>(
+  assign: (resourceId: string, input: { policyId: string | null; startAt?: string | null; reason?: string | null }) =>
+    apiFetch<Ok<{ resourceId: string; retentionUntil: string | null; retentionForever: boolean; change: string }>>(
       `/resources/${resourceId}/retention`,
       { method: 'PUT', body: JSON.stringify(input) },
     ),
@@ -1123,7 +1329,7 @@ export const legalHoldApi = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
-  release: (holdId: string, input: { releaseReason?: string | null } = {}) =>
+  release: (holdId: string, input: { releaseReason: string }) =>
     apiFetch<Ok<LegalHoldDto>>(`/legal-holds/${holdId}/release`, {
       method: 'POST',
       body: JSON.stringify(input),
@@ -1262,6 +1468,7 @@ export interface AdminShareSummary {
   expiringSoon: number;
   expired: number;
   revoked: number;
+  unusable: number;
   downloadable: number;
   passwordProtected: number;
 }
@@ -1284,6 +1491,101 @@ export const publicShareApi = {
     apiFetch<Ok<AdminSharePage>>(`/admin/public-shares?${params.toString()}`),
 
   adminSummary: () => apiFetch<Ok<AdminShareSummary>>('/admin/public-shares/summary'),
+};
+
+/**
+ * ระดับชั้นความลับ - เพดานการเปิดเผยออกนอกองค์กร (F25-D)
+ *
+ * ต่างจาก visibility ซึ่งตอบว่า "คนในองค์กรคนไหนเห็นได้บ้าง"
+ * ชั้นความลับตอบว่า "เปิดออกนอกองค์กรได้แค่ไหน" สองสนามนี้ตั้งพร้อมกันได้และไม่ขัดกัน
+ */
+export type ResourceClassification = 'PUBLIC' | 'INTERNAL' | 'CONFIDENTIAL' | 'RESTRICTED';
+
+/**
+ * ข้อจำกัดที่ชั้นความลับปิดอยู่จริง - คำนวณจากฝั่งเซิร์ฟเวอร์เสมอ
+ *
+ * หน้าจอไม่ตีความระดับเอง เพราะวันที่นโยบายฝั่งเซิร์ฟเวอร์เปลี่ยน หน้าจอที่ตีความเอง
+ * จะบอกผู้ใช้คนละเรื่องกับที่ระบบบังคับใช้จริง ซึ่งแย่กว่าการไม่บอกอะไรเลย
+ */
+export interface ClassificationRestrictions {
+  level: ResourceClassification;
+  publicLinkBlocked: boolean;
+  externalAccessBlocked: boolean;
+}
+
+export const CLASSIFICATION_LABEL: Record<ResourceClassification, string> = {
+  PUBLIC: 'สาธารณะ',
+  INTERNAL: 'ภายใน',
+  CONFIDENTIAL: 'ลับ',
+  RESTRICTED: 'จำกัดการเข้าถึง',
+};
+
+/** เรียงจากเปิดเผยได้มากที่สุดไปน้อยที่สุด ใช้ตัดสินว่าการเปลี่ยนเป็นการลดหรือเพิ่มชั้น */
+export const CLASSIFICATION_ORDER: ResourceClassification[] = [
+  'PUBLIC',
+  'INTERNAL',
+  'CONFIDENTIAL',
+  'RESTRICTED',
+];
+
+export interface ClassificationImpact {
+  level: ResourceClassification;
+  publicLinksBlocked: number;
+  ancestorLinksHidingResource: number;
+  externalGrantsBlocked: number;
+  visibilityConflict: boolean;
+}
+
+export interface AccessReviewEvidence {
+  source: 'OWNER' | 'DIRECT' | 'INHERITED' | 'ROLE' | 'WORKFLOW';
+  role: 'OWNER' | 'EDITOR' | 'VIEWER' | 'CONTRIBUTOR';
+  sourceResourceId: string;
+  sourceResourceName: string;
+  allowDownload: boolean;
+  expiresAt: string | null;
+  active: boolean;
+}
+
+export interface EffectiveAccessEntry {
+  subjectType: 'USER';
+  channel: 'INTERNAL' | 'PORTAL';
+  subject: { id: string; displayName: string; email: string; organizationName: string | null };
+  effectiveRole: 'OWNER' | 'EDITOR' | 'VIEWER' | 'CONTRIBUTOR';
+  allowDownload: boolean;
+  source: 'OWNER' | 'DIRECT' | 'INHERITED' | 'ROLE' | 'WORKFLOW';
+  usable: boolean;
+  status: 'ACTIVE' | 'PRINCIPAL_INACTIVE' | 'EXPIRED' | 'RESOURCE_UNAVAILABLE' | 'CLASSIFICATION_RESTRICTED';
+  evidence: AccessReviewEvidence[];
+}
+
+export interface AccessReviewDto {
+  resource: {
+    id: string; name: string; type: string; visibility: string; driveScope: string;
+    classification: ResourceClassification;
+    /** null = ยังเป็นค่าเริ่มต้นของระบบ ยังไม่มีใครตัดสินใจ */
+    classifiedAt: string | null;
+  };
+  /** ข้อจำกัดจากนโยบาย แยกจากหลักฐานการแชร์โดยตั้งใจ - ดู AccessReviewSheet */
+  classificationPolicy: ClassificationRestrictions;
+  entries: EffectiveAccessEntry[];
+  publicLinks: Array<PublicShareLinkDto & { source: 'DIRECT' | 'INHERITED'; sourceResourceId: string; sourceResourceName: string }>;
+  summary: { effectiveUsers: number; assignedButInactive: number; activePublicLinks: number; portalUsers: number };
+  generatedAt: string;
+}
+
+export const classificationApi = {
+  impact: (resourceId: string, level: ResourceClassification) =>
+    apiFetch<Ok<ClassificationImpact>>(`/resources/${resourceId}/classification/impact?level=${level}`),
+  set: (resourceId: string, input: { level: ResourceClassification; reason?: string | null }) =>
+    apiFetch<Ok<{ resource: ResourceDto; impact: ClassificationImpact }>>(
+      `/resources/${resourceId}/classification`,
+      { method: 'PATCH', body: JSON.stringify(input) },
+    ),
+};
+
+export const accessReviewApi = {
+  get: (resourceId: string) => apiFetch<Ok<AccessReviewDto>>(`/resources/${resourceId}/access-review`),
+  exportPath: (resourceId: string) => `/api/resources/${resourceId}/access-review/export`,
 };
 
 /* ---------------- ฝั่งแขก ---------------- */

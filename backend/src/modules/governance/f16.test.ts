@@ -225,6 +225,9 @@ describe('F16 การกำกับดูแลวงจรชีวิตเ
       await removeResourceDirectory(id).catch(() => undefined);
     }
 
+    await prisma.legalHoldHistory.deleteMany({
+      where: { createdById: { in: [adminId, staffId, outsiderId] } },
+    });
     await prisma.user.deleteMany({ where: { id: { in: [adminId, staffId, outsiderId] } } });
   });
 
@@ -747,7 +750,7 @@ describe('F16 การกำกับดูแลวงจรชีวิตเ
         () => releaseLegalHold(hold.id, staff, {}, audit),
         (error: unknown) => error instanceof AppError && error.code === 'LEGAL_HOLD_DENIED',
       );
-      await releaseLegalHold(hold.id, admin, {}, audit);
+      await releaseLegalHold(hold.id, admin, { releaseReason: 'สิ้นสุดการทดสอบสิทธิ์' }, audit);
     });
 
     test('ผู้ใช้ทั่วไปไม่เห็นเหตุผลของการระงับ แต่รู้ว่าถูกระงับอยู่', async () => {
@@ -938,7 +941,7 @@ describe('F16 การกำกับดูแลวงจรชีวิตเ
           'เหตุผลของการระงับต้องอยู่แค่ในตาราง legal_holds',
         );
       }
-      await releaseLegalHold(hold.id, admin, {}, audit);
+      await releaseLegalHold(hold.id, admin, { releaseReason: 'สิ้นสุดการทดสอบ activity' }, audit);
     });
 
     test('บันทึกเหตุการณ์ของวงจรชีวิตครบ', async () => {
@@ -952,7 +955,7 @@ describe('F16 การกำกับดูแลวงจรชีวิตเ
         select: { action: true },
       });
       const names = actions.map((row) => row.action);
-      assert.ok(names.includes('RETENTION_POLICY_ASSIGNED'));
+      assert.ok(names.includes('RETENTION_APPLIED'));
       assert.ok(names.includes('RESOURCE_ARCHIVED'));
       assert.ok(names.includes('RESOURCE_UNARCHIVED'));
     });

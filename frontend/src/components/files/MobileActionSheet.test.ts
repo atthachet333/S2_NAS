@@ -25,6 +25,7 @@ function entryOf(overrides: Partial<DriveEntry> = {}): DriveEntry {
     sizeBytes: 1024, ownerId: 'u1', ownerName: 'ผู้ดูแล', ownerEmail: 'owner@example.invalid',
     modifiedAt: new Date().toISOString(), createdAt: new Date().toISOString(),
     mimeType: 'application/pdf', uploadedBy: null, currentVersion: 1,
+    classification: 'INTERNAL', classifiedAt: null, classificationRestrictions: null,
     visibility: 'ORGANIZATION', driveRoot: 'MY_DRIVE', favorite: false, pinned: false,
     parentId: null, isLocked: false, tags: [], lockReason: null, lockedAt: null, lockedByName: null,
     capabilities: NO_CAPABILITIES,

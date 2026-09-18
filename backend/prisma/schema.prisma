@@ -56,6 +56,22 @@ enum ResourceVisibility {
   RESTRICTED
 }
 
+/// ระดับชั้นความลับ - กำหนด "เพดานการเปิดเผยออกนอกองค์กร" (F25-D)
+///
+/// **นี่ไม่ใช่ระบบสิทธิ์ชุดที่สอง และไม่ซ้ำกับ visibility**
+/// visibility     ตอบว่า "คนในองค์กรคนไหนเห็นได้บ้าง" - บังคับใช้อยู่แล้วใน capabilities()
+/// classification ตอบว่า "เปิดออกนอกองค์กรได้แค่ไหน" - ลิงก์สาธารณะและพื้นที่ลูกค้า
+///
+/// ชั้นความลับ **ลดสิทธิ์ได้อย่างเดียว ไม่เคยเพิ่มสิทธิ์ให้ใคร** ทรัพยากรที่ตั้งเป็น PUBLIC
+/// ไม่ได้แปลว่าใครก็เปิดดูได้ภายใน มันแปลว่า "อนุญาตให้สร้างลิงก์สาธารณะได้เท่านั้น"
+/// ส่วนจะมีใครเข้าถึงได้จริงยังขึ้นกับ visibility สิทธิ์โดยตรง และบทบาทตามเดิมทุกประการ
+enum ResourceClassification {
+  PUBLIC
+  INTERNAL
+  CONFIDENTIAL
+  RESTRICTED
+}
+
 /// ไดร์ฟระดับบนสุดที่ทรัพยากรสังกัด
 /// MY_DRIVE     = พื้นที่ทำงานที่ผู้ใช้รับผิดชอบตามนโยบายการเข้าถึง (ข้อมูลยังเป็นของบริษัท)
 /// SYSTEM_DRIVE = ไดร์ฟกลางขององค์กรหนึ่งเดียว เช่น คู่มือบริษัท แบบฟอร์มกลาง Templates
@@ -83,53 +99,58 @@ enum AssistantMessageRole {
 }
 
 model User {
-  id                     String                   @id @default(cuid())
-  email                  String                   @unique @db.VarChar(191)
-  displayName            String                   @db.VarChar(191)
-  passwordHash           String?                  @db.VarChar(191)
-  type                   UserType                 @default(INTERNAL)
-  status                 UserStatus               @default(INVITED)
-  mustChangePassword     Boolean                  @default(true)
-  tokenVersion           Int                      @default(0)
-  lastLoginAt            DateTime?
+  id                       String                   @id @default(cuid())
+  email                    String                   @unique @db.VarChar(191)
+  displayName              String                   @db.VarChar(191)
+  passwordHash             String?                  @db.VarChar(191)
+  type                     UserType                 @default(INTERNAL)
+  status                   UserStatus               @default(INVITED)
+  mustChangePassword       Boolean                  @default(true)
+  tokenVersion             Int                      @default(0)
+  lastLoginAt              DateTime?
   /// ชื่อบริษัท/หน่วยงานของผู้ใช้ภายนอก - ใช้แยกแยะลูกค้าในหน้าจัดการเท่านั้น
   /// ไม่ใช่ขอบเขตสิทธิ์ สิทธิ์มาจากการแชร์รายทรัพยากรเสมอ
-  organizationName       String?                  @db.VarChar(191)
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
-  roles                  UserRole[]
-  refreshTokens          RefreshToken[]
-  activityLogs           ActivityLog[]
-  ownedResources         Resource[]               @relation("ResourceOwner")
-  createdResources       Resource[]               @relation("ResourceCreator")
-  updatedResources       Resource[]               @relation("ResourceUpdater")
-  deletedResources       Resource[]               @relation("ResourceDeleter")
-  lockedResources        Resource[]               @relation("ResourceLocker")
-  favorites              UserFavorite[]           @relation("UserFavorites")
-  pins                   UserPinnedResource[]     @relation("UserPins")
-  createdTags            Tag[]                    @relation("TagCreator")
-  taggedResources        ResourceTag[]            @relation("ResourceTagCreator")
-  createdVersions        ResourceVersion[]        @relation("ResourceVersionCreator")
-  resourceAccess         ResourceAccess[]         @relation("ResourceAccessUser")
-  grantedAccess          ResourceAccess[]         @relation("ResourceAccessCreator")
-  integrationApp         IntegrationApp?          @relation("IntegrationActor")
-  triggeredBackups       BackupLog[]              @relation("BackupTrigger")
-  triggeredRehearsals    RestoreRehearsalLog[]    @relation("RehearsalTrigger")
-  identities             UserIdentity[]           @relation("UserIdentities")
-  savedSearches          SavedSearch[]            @relation("SavedSearchOwner")
-  documentCategories     DocumentCategory[]       @relation("DocumentCategoryCreator")
-  reviewedIndexes        ResourceSearchIndex[]    @relation("OcrReviewer")
-  retentionPolicies      RetentionPolicy[]        @relation("RetentionPolicyCreator")
-  archivedResources      Resource[]               @relation("ResourceArchiver")
-  legalHoldsCreated      LegalHold[]              @relation("LegalHoldCreator")
-  legalHoldsReleased     LegalHold[]              @relation("LegalHoldReleaser")
-  publicSharesCreated    PublicShareLink[]        @relation("PublicShareCreator")
-  publicSharesRevoked    PublicShareLink[]        @relation("PublicShareRevoker")
-  googleDriveConnections GoogleDriveConnection[]  @relation("GoogleDriveConnectionOwner")
-  textCorrections        ResourceTextCorrection[] @relation("TextCorrectionAuthor")
-  correctedIndexes       ResourceSearchIndex[]    @relation("TextCorrector")
-  assistantThreads       AssistantThread[]
-  smartFilingAnalyses    SmartFilingSuggestion[]  @relation("SmartFilingAnalyst")
+  organizationName         String?                  @db.VarChar(191)
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+  roles                    UserRole[]
+  refreshTokens            RefreshToken[]
+  activityLogs             ActivityLog[]
+  ownedResources           Resource[]               @relation("ResourceOwner")
+  createdResources         Resource[]               @relation("ResourceCreator")
+  updatedResources         Resource[]               @relation("ResourceUpdater")
+  deletedResources         Resource[]               @relation("ResourceDeleter")
+  lockedResources          Resource[]               @relation("ResourceLocker")
+  favorites                UserFavorite[]           @relation("UserFavorites")
+  pins                     UserPinnedResource[]     @relation("UserPins")
+  createdTags              Tag[]                    @relation("TagCreator")
+  taggedResources          ResourceTag[]            @relation("ResourceTagCreator")
+  createdVersions          ResourceVersion[]        @relation("ResourceVersionCreator")
+  resourceAccess           ResourceAccess[]         @relation("ResourceAccessUser")
+  grantedAccess            ResourceAccess[]         @relation("ResourceAccessCreator")
+  integrationApp           IntegrationApp?          @relation("IntegrationActor")
+  triggeredBackups         BackupLog[]              @relation("BackupTrigger")
+  triggeredRehearsals      RestoreRehearsalLog[]    @relation("RehearsalTrigger")
+  identities               UserIdentity[]           @relation("UserIdentities")
+  savedSearches            SavedSearch[]            @relation("SavedSearchOwner")
+  documentCategories       DocumentCategory[]       @relation("DocumentCategoryCreator")
+  reviewedIndexes          ResourceSearchIndex[]    @relation("OcrReviewer")
+  retentionPolicies        RetentionPolicy[]        @relation("RetentionPolicyCreator")
+  archivedResources        Resource[]               @relation("ResourceArchiver")
+  legalHoldsCreated        LegalHold[]              @relation("LegalHoldCreator")
+  legalHoldsReleased       LegalHold[]              @relation("LegalHoldReleaser")
+  legalHoldHistoryCreated  LegalHoldHistory[]       @relation("LegalHoldHistoryCreator")
+  legalHoldHistoryReleased LegalHoldHistory[]       @relation("LegalHoldHistoryReleaser")
+  publicSharesCreated      PublicShareLink[]        @relation("PublicShareCreator")
+  publicSharesRevoked      PublicShareLink[]        @relation("PublicShareRevoker")
+  googleDriveConnections   GoogleDriveConnection[]  @relation("GoogleDriveConnectionOwner")
+  textCorrections          ResourceTextCorrection[] @relation("TextCorrectionAuthor")
+  correctedIndexes         ResourceSearchIndex[]    @relation("TextCorrector")
+  assistantThreads         AssistantThread[]
+  smartFilingAnalyses      SmartFilingSuggestion[]  @relation("SmartFilingAnalyst")
+  workflowsCreated         ExternalWorkflowRequest[] @relation("ExternalWorkflowCreator")
+  workflowsAssigned        ExternalWorkflowRequest[] @relation("ExternalWorkflowAssignee")
+  workflowSubmissions      ExternalWorkflowSubmission[] @relation("ExternalWorkflowSubmitter")
 
   @@index([status])
   @@index([createdAt])
@@ -148,31 +169,31 @@ enum StorageProviderKind {
 }
 
 model Resource {
-  id                        String             @id @default(cuid())
+  id                        String              @id @default(cuid())
   type                      ResourceType
-  name                      String             @db.VarChar(191)
-  normalizedName            String             @db.VarChar(191)
-  siblingKey                String             @unique @db.VarChar(500)
+  name                      String              @db.VarChar(191)
+  normalizedName            String              @db.VarChar(191)
+  siblingKey                String              @unique @db.VarChar(500)
   parentId                  String?
   ownerId                   String
   createdById               String
   updatedById               String?
-  sourceType                ResourceSourceType @default(MANUAL)
-  mimeType                  String?            @db.VarChar(191)
-  extension                 String?            @db.VarChar(32)
+  sourceType                ResourceSourceType  @default(MANUAL)
+  mimeType                  String?             @db.VarChar(191)
+  extension                 String?             @db.VarChar(32)
   size                      BigInt?
-  storageKey                String?            @unique @db.VarChar(500)
+  storageKey                String?             @unique @db.VarChar(500)
   /// ต้องตรงกับ storageProvider ของเวอร์ชันปัจจุบันเสมอ - ดู assertCurrentVersionConsistency
   storageProvider           StorageProviderKind @default(LOCAL)
-  checksum                  String?            @db.VarChar(191)
-  externalUrl               String?            @db.Text
-  externalProvider          String?            @db.VarChar(100)
-  sourceSystem              String?            @db.VarChar(100)
-  sourceEntityType          String?            @db.VarChar(100)
-  sourceEntityId            String?            @db.VarChar(191)
-  sourceUrl                 String?            @db.Text
+  checksum                  String?             @db.VarChar(191)
+  externalUrl               String?             @db.Text
+  externalProvider          String?             @db.VarChar(100)
+  sourceSystem              String?             @db.VarChar(100)
+  sourceEntityType          String?             @db.VarChar(100)
+  sourceEntityId            String?             @db.VarChar(191)
+  sourceUrl                 String?             @db.Text
   createdByIntegrationAppId String?
-  remark                    String?            @db.VarChar(1000)
+  remark                    String?             @db.VarChar(1000)
   /// ประเภทเอกสารที่คนกำหนดไว้ - null คือยังไม่ได้จัดประเภท ไม่ใช่ "ไม่มีประเภท"
   documentCategoryId        String?
 
@@ -205,6 +226,12 @@ model Resource {
   lockReason               String?                   @db.VarChar(500)
   /// นโยบายการมองเห็น สืบทอดจากโฟลเดอร์แม่เมื่อสร้างทรัพยากรใหม่
   visibility               ResourceVisibility        @default(ORGANIZATION)
+  /// เพดานการเปิดเผยออกนอกองค์กร - ค่าเริ่มต้นอนุรักษ์นิยมคือ INTERNAL (ไม่เปิดลิงก์สาธารณะ)
+  classification           ResourceClassification    @default(INTERNAL)
+  /// เวลาที่ "มีคนตัดสินใจ" กำหนดชั้นความลับ - null แปลว่ายังเป็นค่าเริ่มต้นของระบบ ไม่ใช่การตัดสินใจของใคร
+  /// แยกสองอย่างนี้เพราะรายงานที่นับค่าเริ่มต้นเป็น "จัดชั้นแล้ว" คือรายงานที่โกหกผู้ตรวจสอบ
+  /// ส่วนใครเปลี่ยน จากอะไรเป็นอะไร และเพราะอะไร อยู่ในบันทึกการตรวจสอบซึ่งเป็นหลักฐานที่แก้ไม่ได้
+  classifiedAt             DateTime?
   /// ไดร์ฟที่สังกัด สืบทอดจากโฟลเดอร์แม่เมื่อสร้าง/ย้ายทรัพยากร
   driveScope               DriveScope                @default(MY_DRIVE)
   /// เลขเวอร์ชันปัจจุบันของไฟล์ (สะท้อนจาก ResourceVersion เพื่อให้ listing เร็ว)
@@ -242,6 +269,8 @@ model Resource {
   integrationScopeApps     IntegrationApp[]          @relation("IntegrationAllowedRoot")
   integrationIdempotency   IntegrationIdempotency[]
   smartFilingSuggestions   SmartFilingSuggestion[]   @relation("SmartFilingResource")
+  externalWorkflows        ExternalWorkflowRequest[] @relation("ExternalWorkflowTarget")
+  workflowSubmissions      ExternalWorkflowSubmission[] @relation("ExternalWorkflowSubmittedResource")
 
   @@index([parentId])
   @@index([ownerId])
@@ -252,6 +281,7 @@ model Resource {
   @@index([parentId, type, deletedAt])
   @@index([checksum])
   @@index([visibility])
+  @@index([classification])
   @@index([driveScope])
   @@index([driveScope, parentId, deletedAt])
   /// ใช้แยกเอกสารที่เก็บเข้าคลังออกจากมุมมองการทำงานประจำวัน
@@ -268,18 +298,18 @@ model Resource {
 /// ประวัติเวอร์ชันของไฟล์ - เป็นหลักฐานที่แก้ไขไม่ได้
 /// Resource เก็บ metadata ล่าสุดไว้เพื่อความเร็ว แต่ความจริงทางประวัติศาสตร์อยู่ที่นี่
 model ResourceVersion {
-  id                        String   @id @default(cuid())
+  id                        String              @id @default(cuid())
   resourceId                String
   versionNumber             Int
-  storageKey                String   @unique @db.VarChar(500)
+  storageKey                String              @unique @db.VarChar(500)
   /// ผู้ให้บริการที่เก็บวัตถุของเวอร์ชันนี้ - ไม่เปลี่ยนตามค่าตั้งของระบบ
   storageProvider           StorageProviderKind @default(LOCAL)
   size                      BigInt
-  checksum                  String   @db.VarChar(191)
-  mimeType                  String?  @db.VarChar(191)
-  remark                    String?  @db.VarChar(1000)
+  checksum                  String              @db.VarChar(191)
+  mimeType                  String?             @db.VarChar(191)
+  remark                    String?             @db.VarChar(1000)
   createdById               String
-  createdAt                 DateTime @default(now())
+  createdAt                 DateTime            @default(now())
   createdByIntegrationAppId String?
 
   resource                Resource               @relation(fields: [resourceId], references: [id], onDelete: Cascade)
@@ -1167,6 +1197,35 @@ model LegalHold {
   @@map("legal_holds")
 }
 
+/// หลักฐาน Legal Hold ที่ไม่ผูกวงจรชีวิตกับ Resource
+///
+/// แถวนี้เป็น snapshot หนึ่งแถวต่อ hold และไม่มี FK ไปยัง resources/legal_holds โดยตั้งใจ
+/// เพื่อให้เหตุผล ผู้ดำเนินการ และตัวตนของทรัพยากรยังอยู่หลังลบทรัพยากรถาวร
+model LegalHoldHistory {
+  id                 String       @id @default(cuid())
+  legalHoldId        String       @unique @db.VarChar(191)
+  originalResourceId String       @db.VarChar(191)
+  resourceName       String       @db.VarChar(191)
+  resourceType       ResourceType
+  driveScope         DriveScope
+  reason             String       @db.VarChar(500)
+  caseReference      String?      @db.VarChar(191)
+  createdById        String
+  createdAt          DateTime
+  releaseReason      String?      @db.VarChar(500)
+  releasedById       String?
+  releasedAt         DateTime?
+  isActive           Boolean      @default(true)
+  updatedAt          DateTime     @updatedAt
+
+  createdBy  User  @relation("LegalHoldHistoryCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  releasedBy User? @relation("LegalHoldHistoryReleaser", fields: [releasedById], references: [id], onDelete: SetNull)
+
+  @@index([originalResourceId, createdAt])
+  @@index([isActive, createdAt])
+  @@map("legal_hold_history")
+}
+
 /// ผู้ให้บริการยืนยันตัวตนภายนอก - F9 รองรับเฉพาะ Google
 enum IdentityProvider {
   GOOGLE
@@ -1423,4 +1482,100 @@ model SmartFilingSuggestion {
   @@index([resourceId, status])
   @@index([status, createdAt])
   @@map("smart_filing_suggestions")
+}
+
+
+/// สถานะของคำขอความร่วมมือจากภายนอก (F26-B)
+///
+/// **EXPIRED ไม่อยู่ในรายการนี้โดยตั้งใจ** การหมดอายุคำนวณจาก expiresAt เทียบกับเวลาปัจจุบัน
+/// ทุกครั้งที่อ่าน ถ้าเก็บเป็นสถานะ จะต้องมีงานเบื้องหลังคอยเขียนทับ และระหว่างที่งานนั้น
+/// ยังไม่ทำงาน คำขอที่หมดอายุแล้วจะยังดูเหมือนใช้ได้อยู่ - ซึ่งคือช่องโหว่ ไม่ใช่ความล่าช้า
+enum ExternalWorkflowState {
+  OPEN
+  SUBMITTED
+  UNDER_REVIEW
+  REVISION_REQUESTED
+  APPROVED
+  REJECTED
+  REVOKED
+}
+
+/// คำขอความร่วมมือจากภายนอกแบบระบุตัวตน (F26-B)
+///
+/// **ไม่ใช่ระบบสิทธิ์ชุดที่สอง** การเข้าถึงจริงยังมาจาก ResourceAccess เหมือนเดิมทุกประการ
+/// แถวนี้อธิบายว่า "ทำไมสิทธิ์นั้นจึงถูกมอบให้" และผูกอายุงานเข้ากับมัน ถ้าแถวนี้กลายเป็น
+/// แหล่งสิทธิ์เอง รายงานการตรวจสอบสิทธิ์ของ F25-C จะมองไม่เห็น ซึ่งเป็นสิ่งที่ห้ามเกิดขึ้น
+model ExternalWorkflowRequest {
+  id           String  @id @default(cuid())
+  title        String  @db.VarChar(191)
+  /// คำชี้แจงถึงผู้รับงาน - ข้อความที่มนุษย์เขียน ไม่ใช่เนื้อหาเอกสาร
+  instructions String? @db.VarChar(2000)
+
+  targetResourceId String
+  externalUserId   String
+
+  state ExternalWorkflowState @default(OPEN)
+
+  /// หมดอายุเมื่อใด - null = ไม่หมดอายุ ตามนโยบายเดิมของการมอบสิทธิ์
+  expiresAt DateTime?
+  /// กำหนดส่งงาน เป็นความคาดหวัง ไม่ใช่การบังคับใช้ - เลยกำหนดแล้วยังส่งได้ถ้ายังไม่หมดอายุ
+  dueAt     DateTime?
+
+  allowUpload   Boolean @default(false)
+  allowDownload Boolean @default(false)
+
+  /// ตัวกันคำขอซ้ำระดับฐานข้อมูล - ไม่ใช่สถานะ และไม่ใช่ข้อมูลที่แสดงต่อผู้ใช้
+  ///
+  /// มีค่าเป็น "targetResourceId:externalUserId" ขณะที่คำขอยังเปิดใช้งานอยู่ และเป็น null
+  /// เมื่อคำขอจบแล้ว ถูกเพิกถอน หรือหมดอายุ MySQL ยอมให้ค่า null ซ้ำกันได้ในดัชนี unique
+  /// จึงได้ผลเท่ากับ partial unique index ซึ่ง MySQL ไม่มีให้ใช้ตรง ๆ
+  ///
+  /// ที่ต้องพึ่งฐานข้อมูลเพราะการตรวจในโค้ดก่อนเขียนยังแพ้การกดพร้อมกันสองครั้งได้เสมอ
+  activeSlot String? @unique @db.VarChar(400)
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  targetResource Resource @relation("ExternalWorkflowTarget", fields: [targetResourceId], references: [id], onDelete: Cascade)
+  externalUser   User     @relation("ExternalWorkflowAssignee", fields: [externalUserId], references: [id], onDelete: Restrict)
+  createdBy      User     @relation("ExternalWorkflowCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  /// หน้าจอของผู้รับงาน - คำขอของฉัน เรียงใหม่สุดก่อน
+  @@index([externalUserId, state])
+  /// หน้าจอของเจ้าหน้าที่ - คำขอทั้งหมดของเอกสารชิ้นหนึ่ง
+  @@index([targetResourceId])
+  /// งานกวาดและรายงาน - คำขอที่ใกล้หมดอายุหรือหมดแล้ว
+  @@index([state, expiresAt])
+  submissions ExternalWorkflowSubmission[]
+
+  @@map("external_workflow_requests")
+}
+
+/// ไฟล์ที่ผู้รับงานส่งกลับมาผ่านคำขอหนึ่งใบ (F26-D)
+///
+/// **ความเชื่อมโยงถูกเก็บไว้อย่างชัดเจน ไม่ใช่เดาย้อนหลัง**
+/// ถ้าไม่มีตารางนี้ การจะรู้ว่าไฟล์ไหนถูกส่งมาตอบงานใบไหน ต้องเดาจากโฟลเดอร์ ชื่อไฟล์
+/// ผู้สร้าง หรือเวลา ซึ่งทั้งหมดเดาผิดได้ และเดาผิดในเรื่องที่เป็นหลักฐานของงาน
+model ExternalWorkflowSubmission {
+  id                String   @id @default(cuid())
+  workflowRequestId String
+  resourceId        String
+  submittedById     String
+  /// ลำดับการส่งภายในคำขอเดียวกัน เริ่มที่ 1 - เป็นทั้งลำดับและตัวกันการส่งซ้ำพร้อมกัน
+  sequence          Int
+  submittedAt       DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workflowRequest ExternalWorkflowRequest @relation(fields: [workflowRequestId], references: [id], onDelete: Cascade)
+  resource        Resource                @relation("ExternalWorkflowSubmittedResource", fields: [resourceId], references: [id], onDelete: Cascade)
+  submittedBy     User                    @relation("ExternalWorkflowSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+
+  /// สองคนกดส่งพร้อมกันบนคำขอเดียวกัน จะมีเพียงคนเดียวที่ได้ลำดับนั้น
+  @@unique([workflowRequestId, sequence])
+  /// หนึ่งไฟล์ผูกกับการส่งได้ครั้งเดียว กันการผูกซ้ำโดยไม่ตั้งใจ
+  @@unique([resourceId])
+  @@index([workflowRequestId, submittedAt])
+  @@map("external_workflow_submissions")
 }

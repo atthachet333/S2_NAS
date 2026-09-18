@@ -34,6 +34,7 @@ const STATUS_FILTERS = [
   { value: 'EXPIRING_SOON', label: 'หมดอายุภายใน 7 วัน' },
   { value: 'EXPIRED', label: 'หมดอายุแล้ว' },
   { value: 'REVOKED', label: 'ยกเลิกแล้ว' },
+  { value: 'UNUSABLE', label: 'ใช้งานไม่ได้' },
 ] as const;
 
 export default function AdminPublicSharesPage() {
@@ -112,6 +113,7 @@ export default function AdminPublicSharesPage() {
           <Stat label="หมดอายุใน 7 วัน" value={counts.expiringSoon} />
           <Stat label="หมดอายุแล้ว" value={counts.expired} />
           <Stat label="ยกเลิกแล้ว" value={counts.revoked} />
+          <Stat label="ใช้งานไม่ได้" value={counts.unusable} tone="warning" />
         </div>
       ) : null}
 

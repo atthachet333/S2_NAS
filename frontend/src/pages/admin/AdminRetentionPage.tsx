@@ -5,6 +5,8 @@ import { PageTitle } from '@/components/ui/PageTitle';
 import { ApiError, legalHoldApi, retentionApi } from '@/lib/api';
 import { thaiDate } from '@/lib/lifecycle';
 import { useToast } from '@/hooks/useToast';
+import { Sheet } from '@/components/ui/Sheet';
+import type { LegalHoldDto, RetentionPolicyDto, RetentionReapplyPreviewDto, RetentionReapplyResultDto } from '@/lib/api';
 
 /**
  * หน้าจัดการนโยบายการเก็บรักษาและการระงับการลบ
@@ -20,6 +22,9 @@ const ERROR_TEXT: Record<string, string> = {
   RETENTION_PERIOD_REQUIRED: 'กรุณาระบุจำนวนวัน หรือเลือกเก็บถาวร',
   RETENTION_NAME_REQUIRED: 'กรุณาระบุชื่อนโยบาย',
   LEGAL_HOLD_DENIED: 'คุณไม่มีสิทธิ์จัดการการระงับการลบ',
+  LEGAL_HOLD_RELEASE_REASON_REQUIRED: 'กรุณาระบุเหตุผลที่ยกเลิก Legal Hold',
+  RETENTION_OVERRIDE_REASON_REQUIRED: 'กรุณาระบุเหตุผลเมื่อการบังคับใช้ย้อนหลังทำให้การเก็บรักษาอ่อนลง',
+  RETENTION_REAPPLY_PREVIEW_STALE: 'ข้อมูลเปลี่ยนหลังดูตัวอย่าง กรุณาเปิดตัวอย่างใหม่',
 };
 
 const message = (error: unknown, fallback: string) =>
@@ -31,6 +36,12 @@ export default function AdminRetentionPage() {
   const [name, setName] = useState('');
   const [days, setDays] = useState('');
   const [forever, setForever] = useState(false);
+  const [reapplyPolicy, setReapplyPolicy] = useState<RetentionPolicyDto | null>(null);
+  const [reapplyPreview, setReapplyPreview] = useState<RetentionReapplyPreviewDto | null>(null);
+  const [reapplyResult, setReapplyResult] = useState<RetentionReapplyResultDto | null>(null);
+  const [reapplyReason, setReapplyReason] = useState('');
+  const [releaseHold, setReleaseHold] = useState<LegalHoldDto | null>(null);
+  const [releaseReason, setReleaseReason] = useState('');
 
   const policies = useQuery({
     queryKey: ['retention-policies', 'admin'],
@@ -79,13 +90,26 @@ export default function AdminRetentionPage() {
     onError: (error) => notify({ tone: 'error', title: message(error, 'ลบไม่สำเร็จ') }),
   });
 
-  const reapply = useMutation({
-    mutationFn: (id: string) => retentionApi.reapply(id),
+  const previewReapply = useMutation({
+    mutationFn: (policy: RetentionPolicyDto) => retentionApi.previewReapply(policy.id),
     onSuccess: (result) => {
+      setReapplyPreview(result.data);
+      setReapplyResult(null);
+    },
+    onError: (error) => notify({ tone: 'error', title: message(error, 'เปิดตัวอย่างไม่สำเร็จ') }),
+  });
+
+  const reapply = useMutation({
+    mutationFn: () => retentionApi.reapply(reapplyPolicy!.id, {
+      previewToken: reapplyPreview!.previewToken,
+      reason: reapplyReason.trim() || null,
+    }),
+    onSuccess: (result) => {
+      setReapplyResult(result.data);
       refresh();
       notify({
-        tone: 'success',
-        title: `คำนวณวันหมดอายุใหม่ ${result.data.updated} รายการ`,
+        tone: result.data.failed || result.data.blocked ? 'info' : 'success',
+        title: `เปลี่ยน ${result.data.changed} · คงเดิม ${result.data.unchanged} · บล็อก/ล้มเหลว ${result.data.blocked + result.data.failed}`,
       });
     },
     onError: (error) => notify({ tone: 'error', title: message(error, 'ดำเนินการไม่สำเร็จ') }),
@@ -107,8 +131,10 @@ export default function AdminRetentionPage() {
   });
 
   const release = useMutation({
-    mutationFn: (id: string) => legalHoldApi.release(id),
+    mutationFn: () => legalHoldApi.release(releaseHold!.id, { releaseReason: releaseReason.trim() }),
     onSuccess: () => {
+      setReleaseHold(null);
+      setReleaseReason('');
       refresh();
       notify({ tone: 'success', title: 'ยกเลิกการระงับแล้ว' });
     },
@@ -253,13 +279,11 @@ export default function AdminRetentionPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            if (
-                              window.confirm(
-                                `คำนวณวันหมดอายุใหม่ให้เอกสาร ${row.resourceCount} รายการที่ใช้นโยบายนี้?`,
-                              )
-                            ) {
-                              reapply.mutate(row.id);
-                            }
+                            setReapplyPolicy(row);
+                            setReapplyPreview(null);
+                            setReapplyResult(null);
+                            setReapplyReason('');
+                            previewReapply.mutate(row);
                           }}
                           className="s2-btn s2-btn-ghost h-7 gap-1 px-2 text-[11.5px]"
                         >
@@ -340,9 +364,8 @@ export default function AdminRetentionPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          if (window.confirm(`ยกเลิกการระงับของ “${hold.resourceName}” ?`)) {
-                            release.mutate(hold.id);
-                          }
+                          setReleaseHold(hold);
+                          setReleaseReason('');
                         }}
                         className="s2-btn s2-btn-ghost h-7 px-2 text-[11.5px]"
                       >
@@ -356,6 +379,89 @@ export default function AdminRetentionPage() {
           </table>
         </div>
       </section>
+
+      {reapplyPolicy ? (
+        <Sheet
+          open
+          title={`ตัวอย่างบังคับใช้ย้อนหลัง: ${reapplyPolicy.name}`}
+          onClose={() => setReapplyPolicy(null)}
+        >
+          {previewReapply.isPending ? (
+            <p className="py-8 text-center text-[12px] text-navy-400">กำลังคำนวณตัวอย่าง…</p>
+          ) : reapplyPreview ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-center text-[11px] sm:grid-cols-5">
+                {[
+                  ['ทั้งหมด', reapplyPreview.attempted],
+                  ['จะเปลี่ยน', reapplyPreview.changed],
+                  ['คงเดิม', reapplyPreview.unchanged],
+                  ['ถูก Hold', reapplyPreview.legalHoldConflicts],
+                  ['ไม่มีสิทธิ์', reapplyPreview.permissionDenied],
+                ].map(([label, count]) => (
+                  <div key={String(label)} className="rounded-lg border border-line bg-[var(--s2-surface-soft)] p-2">
+                    <p className="text-base font-semibold text-navy-700">{count}</p>
+                    <p className="text-navy-500">{label}</p>
+                  </div>
+                ))}
+              </div>
+              {reapplyPreview.potentialWeakening > 0 ? (
+                <label className="block space-y-1">
+                  <span className="text-[11.5px] font-medium text-amber-800">
+                    มี {reapplyPreview.potentialWeakening} รายการที่จะอ่อนลง — ต้องระบุเหตุผล
+                  </span>
+                  <textarea
+                    value={reapplyReason}
+                    onChange={(event) => setReapplyReason(event.target.value)}
+                    maxLength={500}
+                    rows={3}
+                    className="s2-input w-full resize-y py-2 text-[12px]"
+                    placeholder="เหตุผลการอนุมัติให้ลดการเก็บรักษา"
+                  />
+                </label>
+              ) : null}
+              {reapplyResult ? (
+                <div className="rounded-lg border border-line p-3 text-[11.5px] text-navy-600">
+                  ผลจริง: เปลี่ยน {reapplyResult.changed} · คงเดิม {reapplyResult.unchanged} · บล็อก {reapplyResult.blocked} · ล้มเหลว {reapplyResult.failed}
+                  {reapplyResult.errors.length ? (
+                    <ul className="mt-2 max-h-28 overflow-y-auto text-rose-700">
+                      {reapplyResult.errors.map((error) => <li key={`${error.resourceId}-${error.code}`}>{error.code}: {error.message}</li>)}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => reapply.mutate()}
+                  disabled={reapply.isPending || (reapplyPreview.potentialWeakening > 0 && !reapplyReason.trim())}
+                  className="s2-btn s2-btn-primary h-9 w-full text-[12px] disabled:opacity-60"
+                >
+                  ยืนยันบังคับใช้ย้อนหลัง
+                </button>
+              )}
+            </div>
+          ) : null}
+        </Sheet>
+      ) : null}
+
+      {releaseHold ? (
+        <Sheet open title="ยกเลิก Legal Hold" onClose={() => setReleaseHold(null)}>
+          <form onSubmit={(event) => { event.preventDefault(); if (releaseReason.trim()) release.mutate(); }} className="space-y-3">
+            <p className="text-[12px] text-navy-500">ประวัติของ “{releaseHold.resourceName}” จะยังถูกเก็บไว้หลังยกเลิก</p>
+            <textarea
+              value={releaseReason}
+              onChange={(event) => setReleaseReason(event.target.value)}
+              maxLength={500}
+              rows={4}
+              autoFocus
+              className="s2-input w-full resize-y py-2 text-[12px]"
+              placeholder="เหตุผลที่ยกเลิก Legal Hold"
+            />
+            <button type="submit" disabled={!releaseReason.trim() || release.isPending} className="s2-btn s2-btn-primary h-9 w-full text-[12px] disabled:opacity-60">
+              ยืนยันการยกเลิก
+            </button>
+          </form>
+        </Sheet>
+      ) : null}
     </div>
   );
 }

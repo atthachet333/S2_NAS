@@ -70,6 +70,12 @@ describe('F18 การตั้งค่าลิงก์แชร์ต้อ
 
     const folder = await createFolder(user, { name: `${prefix} งาน`, parentId: null }, audit);
     folderId = folder.id;
+    /*
+     * ชุดนี้ตรวจว่าการตั้งค่าลิงก์รอดจากการกู้คืน ไม่ได้ตรวจชั้นความลับ
+     * ตั้งแต่ F25-D ทรัพยากรที่สร้างใหม่ที่ระดับรากเป็นชั้น "ภายใน" ซึ่งสร้างลิงก์สาธารณะไม่ได้
+     * จึงต้องประกาศเจตนาให้ชัด ไฟล์ที่อัปโหลดเข้าไปสืบทอดชั้นนี้มาเองตอนสร้าง
+     */
+    await prisma.resource.update({ where: { id: folderId }, data: { classification: 'PUBLIC' } });
 
     const uploaded = await uploadFile(
       user,

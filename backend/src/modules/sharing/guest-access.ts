@@ -1,10 +1,11 @@
 import bcrypt from 'bcryptjs';
-import type { PublicShareLink, ResourceLifecycleState, ResourceType } from '@prisma/client';
+import type { PublicShareLink, ResourceClassification, ResourceLifecycleState, ResourceType } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
 import { AppError } from '../../core/errors.js';
 import type { AuditContext } from '../workspace/workspace.service.js';
 import { hashShareToken } from './share-token.js';
-import { resourceAvailableToGuests, shareStatus } from './public-share.service.js';
+import { resourceExposableToGuests, shareStatus } from './public-share.service.js';
+import { GUEST_VISIBLE_CLASSIFICATIONS } from '../governance/classification.policy.js';
 
 /**
  * การเข้าถึงของแขก (F18)
@@ -55,6 +56,8 @@ export interface ResolvedShare {
     parentId: string | null;
     deletedAt: Date | null;
     lifecycleState: ResourceLifecycleState;
+    /** ต้องอยู่ในรูปนี้ด้วย ไม่ใช่แค่ใน select - มิฉะนั้นจุดที่ประกาศชนิดเองจะหลุดการบังคับใช้ */
+    classification: ResourceClassification;
   };
 }
 
@@ -68,6 +71,8 @@ const guestResourceSelect = {
   parentId: true,
   deletedAt: true,
   lifecycleState: true,
+  /** จำเป็นต่อการบังคับใช้นโยบายชั้นความลับที่ด่านรับผู้เยี่ยมชม (F25-D) */
+  classification: true,
 } as const;
 
 /**
@@ -184,7 +189,7 @@ export async function resolveWithinShare(
      * ถ้าตรวจเฉพาะตัวเอกสาร การเก็บโฟลเดอร์แม่เข้าคลังจะไม่มีผลกับลูก
      * และเอกสารที่ตั้งใจเก็บพ้นสายตาก็ยังเปิดได้อยู่ผ่านลิงก์เดิม
      */
-    if (!resourceAvailableToGuests(node)) throw shareUnavailable();
+    if (!resourceExposableToGuests(node)) throw shareUnavailable();
 
     target ??= node;
     chain.push({ id: node.id, name: node.name });
@@ -203,7 +208,18 @@ export async function resolveWithinShare(
 /** ลูกโดยตรงของโฟลเดอร์ในขอบเขต - เรียงโฟลเดอร์ก่อนไฟล์เหมือนหน้าจอภายใน */
 export async function listShareChildren(folderId: string) {
   const children = await prisma.resource.findMany({
-    where: { parentId: folderId, deletedAt: null, lifecycleState: 'ACTIVE' },
+    where: {
+      parentId: folderId,
+      deletedAt: null,
+      lifecycleState: 'ACTIVE',
+      /*
+       * กรองด้วยชั้นความลับที่ฐานข้อมูล ไม่ใช่กรองหลังดึงมา (F25-D)
+       *
+       * ถ้าดึงมาทั้งหมดแล้วค่อยกรอง take: 500 จะถูกใช้ไปกับแถวที่จะถูกทิ้ง
+       * โฟลเดอร์ที่มีเอกสารภายในอยู่ต้น ๆ จะแสดงรายการว่างทั้งที่มีของที่แขกดูได้อยู่ข้างล่าง
+       */
+      classification: { in: GUEST_VISIBLE_CLASSIFICATIONS },
+    },
     select: guestResourceSelect,
     orderBy: [{ type: 'asc' }, { name: 'asc' }],
     take: 500,

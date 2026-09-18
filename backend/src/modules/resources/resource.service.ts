@@ -1,4 +1,5 @@
 import type { DriveScope, Prisma, Resource, ResourceAccessLevel, ResourceType } from '@prisma/client';
+import { classificationRestrictions } from '../governance/classification.policy.js';
 import { prisma } from '../../core/prisma.js';
 import { AppError, badRequest, forbidden, notFound } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
@@ -192,6 +193,17 @@ export function toResourceDto(resource: ResourceWithRelations, user: AuthUser) {
      */
     onLegalHold: resource.legalHolds.length > 0,
     visibility: resource.visibility, currentVersion: resource.currentVersion,
+    /**
+     * ชั้นความลับ พร้อมสิ่งที่มัน "ปิดอยู่จริง" (F25-D)
+     *
+     * ส่งข้อจำกัดที่คำนวณแล้วไปด้วย แทนที่จะให้หน้าจอตีความระดับเอาเอง
+     * ถ้าหน้าจอตีความเอง วันที่นโยบายฝั่งเซิร์ฟเวอร์เปลี่ยน หน้าจอจะบอกผู้ใช้คนละเรื่องกับที่ระบบบังคับใช้จริง
+     *
+     * classifiedAt เป็น null = ยังเป็นค่าเริ่มต้นของระบบ ยังไม่มีใครตัดสินใจ
+     */
+    classification: resource.classification,
+    classifiedAt: resource.classifiedAt,
+    classificationRestrictions: classificationRestrictions(resource.classification),
     driveScope: resource.driveScope,
     tags: resource.tags.map((link) => ({ id: link.tag.id, name: link.tag.name })),
     lockedAt: resource.lockedAt, lockReason: resource.lockReason,
@@ -231,24 +243,44 @@ function translateDuplicate(error: unknown): never {
  *
  * ทรัพยากรลูกสืบทอดทั้งการมองเห็นและไดร์ฟจากโฟลเดอร์แม่เสมอ ไม่เปิดให้ผู้เรียกกำหนดเอง
  * ที่ระดับรากเท่านั้นที่ต้องระบุไดร์ฟ และการสร้างที่รากของไดร์ฟของระบบต้องผ่านด่านสิทธิ์เพิ่ม
+ *
+ * **ชั้นความลับสืบทอดตอนสร้าง แต่ไม่สืบทอดตอนอ่าน (F25-D)**
+ *
+ * ค่าถูกคัดลอกลงแถวลูกครั้งเดียวตอนเกิด แล้วหลังจากนั้นลูกตอบเรื่องการเปิดเผยของตัวเอง
+ * ต่างจากการไล่ถามโฟลเดอร์แม่ทุกครั้งที่อ่าน ซึ่งแปลว่าการเปลี่ยนชั้นของโฟลเดอร์หนึ่งใบ
+ * จะเปลี่ยนการเปิดเผยของเอกสารนับพันฉบับพร้อมกันโดยไม่มีใครเห็นและไม่มีร่องรอยรายฉบับ
+ *
+ * ที่คัดลอกมาแทนที่จะตั้งค่าเริ่มต้นเสมอ เพราะไฟล์ที่อัปโหลดเข้าโฟลเดอร์ที่ตั้งใจเปิดสาธารณะ
+ * ควรเปิดได้ตามเจตนาที่เจ้าของโฟลเดอร์แสดงไว้แล้ว - เป็นหลักเดียวกับที่ visibility ใช้อยู่เดิม
+ *
+ * classifiedAt ยังเป็น null อยู่ เพราะการสืบทอดคือการตัดสินใจของระบบ ไม่ใช่ของคน
  */
 async function createDestination(
   user: AuthUser,
   parentId?: string | null,
   requestedDrive: DriveScope = 'MY_DRIVE',
-): Promise<{ visibility: ResourceWithRelations['visibility']; driveScope: DriveScope }> {
+): Promise<{
+  visibility: ResourceWithRelations['visibility'];
+  driveScope: DriveScope;
+  classification: ResourceWithRelations['classification'];
+}> {
   if (parentId) {
     const parent = await findResource(parentId);
     if (parent.type !== 'FOLDER') throw notFound('FOLDER_NOT_FOUND', 'ไม่พบโฟลเดอร์ปลายทาง');
     if (parent.driveScope === 'SYSTEM_DRIVE') assertCanCreateInSystemDrive(user);
     await assertEdit(parent, user);
-    return { visibility: parent.visibility, driveScope: parent.driveScope };
+    return {
+      visibility: parent.visibility,
+      driveScope: parent.driveScope,
+      classification: parent.classification,
+    };
   }
   if (!user.permissions.includes('resources:write')) {
     throw new AppError('RESOURCE_ACCESS_DENIED', 'ไม่มีสิทธิ์เพิ่มทรัพยากรในตำแหน่งนี้', 403);
   }
   if (requestedDrive === 'SYSTEM_DRIVE') assertCanCreateInSystemDrive(user);
-  return { visibility: 'ORGANIZATION', driveScope: requestedDrive };
+  // ที่ระดับรากไม่มีแม่ให้สืบทอด จึงใช้ค่าอนุรักษ์นิยมของระบบ: เปิดออกนอกองค์กรไม่ได้
+  return { visibility: 'ORGANIZATION', driveScope: requestedDrive, classification: 'INTERNAL' };
 }
 
 export async function listResources(user: AuthUser, input: { parentId?: string | null; type?: ResourceType; ownerId?: string; sort: 'name' | 'updatedAt' | 'createdAt' | 'size'; direction: 'asc' | 'desc'; limit: number; cursor?: string; driveScope?: DriveScope; includeArchived?: boolean }) {
@@ -314,7 +346,7 @@ export async function createFolder(user: AuthUser, input: { name: string; parent
   if (!owner) throw notFound('OWNER_NOT_FOUND', 'ไม่พบเจ้าของที่เปิดใช้งาน');
   try {
     const created = await prisma.$transaction(async (tx) => {
-      const resource = await tx.resource.create({ data: { type: 'FOLDER', ...named, siblingKey: siblingKey(input.parentId ?? null, named.normalizedName, destination.driveScope), parentId: input.parentId ?? null, ownerId, createdById: user.id, sourceType: 'MANUAL', visibility: destination.visibility, driveScope: destination.driveScope, remark: input.remark ?? null } });
+      const resource = await tx.resource.create({ data: { type: 'FOLDER', ...named, siblingKey: siblingKey(input.parentId ?? null, named.normalizedName, destination.driveScope), parentId: input.parentId ?? null, ownerId, createdById: user.id, sourceType: 'MANUAL', visibility: destination.visibility, classification: destination.classification, driveScope: destination.driveScope, remark: input.remark ?? null } });
       await tx.activityLog.create({ data: { userId: user.id, action: 'RESOURCE_FOLDER_CREATED', resourceId: resource.id, ipAddress: audit.ipAddress, userAgent: audit.userAgent?.slice(0, 500), metadata: { parentId: resource.parentId, ownerId } } });
       return resource.id;
     });
@@ -346,6 +378,7 @@ export async function createExternalResource(
           externalUrl,
           externalProvider,
           visibility: destination.visibility,
+          classification: destination.classification,
           driveScope: destination.driveScope,
           remark: input.remark?.trim() || null,
         },

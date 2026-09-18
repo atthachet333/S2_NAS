@@ -46,6 +46,12 @@ export interface LegalHoldDto {
   isActive: boolean;
 }
 
+export interface LegalHoldHistoryDto extends LegalHoldDto {
+  resourceType: string;
+  driveScope: string;
+  resourceDeleted: boolean;
+}
+
 const holdSelect = {
   id: true,
   resourceId: true,
@@ -106,6 +112,9 @@ export async function placeLegalHold(
   if (!reason) {
     throw new AppError('LEGAL_HOLD_REASON_REQUIRED', 'กรุณาระบุเหตุผลของการระงับการลบ', 400);
   }
+  if (reason.length > 500) {
+    throw new AppError('LEGAL_HOLD_REASON_TOO_LONG', 'เหตุผลยาวเกิน 500 ตัวอักษร', 400);
+  }
 
   const resource = await prisma.resource.findUnique({
     where: { id: resourceId },
@@ -124,30 +133,50 @@ export async function placeLegalHold(
     throw new AppError('LEGAL_HOLD_ALREADY_ACTIVE', 'เอกสารนี้ถูกระงับการลบอยู่แล้ว', 409);
   }
 
-  const row = await prisma.legalHold.create({
-    data: {
-      resourceId,
-      reason,
-      caseReference: input.caseReference?.trim() || null,
-      createdById: user.id,
-    },
-    select: holdSelect,
-  });
+  const row = await prisma.$transaction(async (tx) => {
+    const created = await tx.legalHold.create({
+      data: {
+        resourceId,
+        reason,
+        caseReference: input.caseReference?.trim() || null,
+        createdById: user.id,
+      },
+      select: holdSelect,
+    });
 
-  await prisma.activityLog.create({
-    data: {
-      userId: user.id,
-      action: 'LEGAL_HOLD_CREATED',
-      resourceId,
-      ipAddress: audit.ipAddress,
-      userAgent: audit.userAgent?.slice(0, 500),
-      /**
-       * ไม่บันทึกเหตุผลลง activity log - เหตุผลมักเกี่ยวกับคดีหรือการตรวจสอบภายใน
-       * ส่วน activity log ถูกอ่านโดยคนกลุ่มที่กว้างกว่าคนที่ควรรู้เรื่องนั้น
-       * ตัวเหตุผลอยู่ในตาราง legal_holds ซึ่งมีด่านสิทธิ์ของตัวเอง
-       */
-      metadata: { legalHoldId: row.id },
-    },
+    // หลักฐานนี้ไม่มี FK ไปยัง Resource/LegalHold เพื่อให้รอดจากการ purge ในอนาคต
+    await tx.legalHoldHistory.create({
+      data: {
+        legalHoldId: created.id,
+        originalResourceId: resource.id,
+        resourceName: resource.name,
+        resourceType: resource.type,
+        driveScope: resource.driveScope,
+        reason,
+        caseReference: input.caseReference?.trim() || null,
+        createdById: user.id,
+        createdAt: created.createdAt,
+        isActive: true,
+      },
+    });
+
+    await tx.activityLog.create({
+      data: {
+        userId: user.id,
+        action: 'LEGAL_HOLD_CREATED',
+        resourceId,
+        ipAddress: audit.ipAddress,
+        userAgent: audit.userAgent?.slice(0, 500),
+        metadata: {
+          legalHoldId: created.id,
+          originalResourceId: resource.id,
+          resourceName: resource.name,
+          before: 'NO_ACTIVE_HOLD',
+          after: 'ACTIVE',
+        },
+      },
+    });
+    return created;
   });
 
   logger.info(`[LEGAL HOLD] ระงับการลบ "${resource.name}"`);
@@ -163,44 +192,116 @@ export async function placeLegalHold(
 export async function releaseLegalHold(
   holdId: string,
   user: AuthUser,
-  input: { releaseReason?: string | null },
+  input: { releaseReason: string },
   audit: { ipAddress?: string; userAgent?: string },
 ): Promise<LegalHoldDto> {
   assertHoldManager(user);
 
+  const releaseReason = input.releaseReason?.trim() ?? '';
+  if (!releaseReason) {
+    throw new AppError('LEGAL_HOLD_RELEASE_REASON_REQUIRED', 'กรุณาระบุเหตุผลที่ปลดการระงับการลบ', 400);
+  }
+  if (releaseReason.length > 500) {
+    throw new AppError('LEGAL_HOLD_RELEASE_REASON_TOO_LONG', 'เหตุผลที่ปลดยาวเกิน 500 ตัวอักษร', 400);
+  }
+
   const hold = await prisma.legalHold.findUnique({
     where: { id: holdId },
-    select: { id: true, isActive: true, resourceId: true },
+    select: { id: true, isActive: true, resourceId: true, resource: { select: { name: true } } },
   });
   if (!hold) throw notFound('LEGAL_HOLD_NOT_FOUND', 'ไม่พบรายการระงับการลบ');
   if (!hold.isActive) {
     throw new AppError('LEGAL_HOLD_NOT_ACTIVE', 'รายการนี้ถูกปลดไปแล้ว', 409);
   }
 
-  const row = await prisma.legalHold.update({
-    where: { id: holdId },
-    data: {
-      isActive: false,
-      releasedById: user.id,
-      releasedAt: new Date(),
-      releaseReason: input.releaseReason?.trim() || null,
-    },
-    select: holdSelect,
-  });
+  const releasedAt = new Date();
+  const row = await prisma.$transaction(async (tx) => {
+    const updated = await tx.legalHold.update({
+      where: { id: holdId },
+      data: {
+        isActive: false,
+        releasedById: user.id,
+        releasedAt,
+        releaseReason,
+      },
+      select: holdSelect,
+    });
 
-  await prisma.activityLog.create({
-    data: {
-      userId: user.id,
-      action: 'LEGAL_HOLD_RELEASED',
-      resourceId: hold.resourceId,
-      ipAddress: audit.ipAddress,
-      userAgent: audit.userAgent?.slice(0, 500),
-      metadata: { legalHoldId: holdId },
-    },
+    const history = await tx.legalHoldHistory.updateMany({
+      where: { legalHoldId: holdId, isActive: true },
+      data: { isActive: false, releasedById: user.id, releasedAt, releaseReason },
+    });
+    if (history.count !== 1) {
+      throw new AppError('LEGAL_HOLD_HISTORY_MISSING', 'ไม่พบหลักฐานประวัติ Legal Hold ที่สอดคล้องกัน', 409);
+    }
+
+    await tx.activityLog.create({
+      data: {
+        userId: user.id,
+        action: 'LEGAL_HOLD_RELEASED',
+        resourceId: hold.resourceId,
+        ipAddress: audit.ipAddress,
+        userAgent: audit.userAgent?.slice(0, 500),
+        // Release reason เป็นหลักฐานของ privileged action จึงเปิดผ่าน Audit Explorer ที่มีสิทธิ์เท่านั้น
+        metadata: {
+          legalHoldId: holdId,
+          originalResourceId: hold.resourceId,
+          resourceName: hold.resource.name,
+          releaseReason,
+          before: 'ACTIVE',
+          after: 'RELEASED',
+        },
+      },
+    });
+    return updated;
   });
 
   logger.info('[LEGAL HOLD] ปลดการระงับการลบแล้ว');
   return toDto(row as HoldRow);
+}
+
+/**
+ * หลักฐาน Legal Hold ที่รอดจากการลบ Resource ถาวร
+ * เห็นได้เฉพาะผู้จัดการการเก็บรักษา เพราะมีเหตุผล/เลขคดีที่อ่อนไหว
+ */
+export async function listLegalHoldHistory(
+  user: AuthUser,
+  options: { resourceId?: string; includeActive?: boolean } = {},
+): Promise<LegalHoldHistoryDto[]> {
+  assertHoldManager(user);
+  const rows = await prisma.legalHoldHistory.findMany({
+    where: {
+      ...(options.resourceId ? { originalResourceId: options.resourceId } : {}),
+      ...(options.includeActive === false ? { isActive: false } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 500,
+    include: {
+      createdBy: { select: { id: true, displayName: true } },
+      releasedBy: { select: { id: true, displayName: true } },
+    },
+  });
+  const liveIds = [...new Set(rows.map((row) => row.originalResourceId))];
+  const live = liveIds.length
+    ? await prisma.resource.findMany({ where: { id: { in: liveIds } }, select: { id: true } })
+    : [];
+  const liveSet = new Set(live.map((row) => row.id));
+  return rows.map((row) => ({
+    id: row.legalHoldId,
+    resourceId: row.originalResourceId,
+    resourceName: row.resourceName,
+    resourceType: row.resourceType,
+    driveScope: row.driveScope,
+    resourceDeleted: !liveSet.has(row.originalResourceId),
+    reason: row.reason,
+    caseReference: row.caseReference,
+    createdBy: row.createdBy,
+    createdAt: row.createdAt,
+    releasedBy: row.releasedBy,
+    releasedAt: row.releasedAt,
+    releaseReason: row.releaseReason,
+    isActive: row.isActive,
+  }));
 }
 
 /**

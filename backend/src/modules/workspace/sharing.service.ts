@@ -54,7 +54,13 @@ async function loadResource(id: string) {
   return resource;
 }
 
-async function assertMayManageAccess(id: string, user: AuthUser) {
+/**
+ * ด่านเดียวที่ตัดสินว่าใครจัดการสิทธิ์ของทรัพยากรได้ (F26-B เปิดให้ใช้ร่วม)
+ *
+ * เปิด export เพื่อให้คำขอความร่วมมือจากภายนอกใช้ด่านนี้ตรง ๆ แทนที่จะเขียนเงื่อนไข
+ * ของตัวเองขึ้นมาใหม่ - สองด่านที่ตอบคำถามเดียวกันคือสองด่านที่จะตอบต่างกันในวันหนึ่ง
+ */
+export async function assertMayManageAccess(id: string, user: AuthUser) {
   const resource = await loadResource(id);
   const caps = capabilities(resource, user);
   if (!caps.canView) throw notFound('RESOURCE_NOT_FOUND', 'ไม่พบทรัพยากร');

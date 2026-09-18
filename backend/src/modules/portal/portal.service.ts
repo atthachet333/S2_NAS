@@ -7,6 +7,7 @@ import { logger } from '../../core/logger.js';
 import { uploadFile, type AuditContext } from '../files/file.service.js';
 import type { AuthUser } from '../auth/auth.service.js';
 import {
+  PORTAL_EXPOSABLE_WHERE,
   listPortalRoots,
   portalNotFound,
   portalResourceSelect,
@@ -142,15 +143,15 @@ export async function portalHome(user: AuthUser, now: Date = new Date()): Promis
     ? await prisma.resource.findMany({
         where: {
           parentId: { in: folderIds },
-          deletedAt: null,
           type: 'FILE',
-        /**
-         * เอกสารที่เก็บเข้าคลังไม่แสดงในพื้นที่ลูกค้า
-         *
-         * การเก็บเข้าคลังเป็นการตัดสินใจภายในว่างานชิ้นนั้นจบแล้ว
-         * ลูกค้าไม่จำเป็นต้องเห็นสถานะการทำงานภายในขององค์กร
-         */
-        lifecycleState: 'ACTIVE',
+          /**
+           * เงื่อนไขการกำกับดูแลชุดเดียวกับที่ด่านตรวจใช้ (F26-A1)
+           *
+           * เดิมกรองเฉพาะถังขยะกับคลัง จึงแสดงเอกสารชั้นลับที่เพิ่งถูกใส่เข้าโฟลเดอร์
+           * ที่แชร์ไว้ ทั้งที่เปิดไม่ได้ ตอนนี้ใช้ค่าคงที่ตัวเดียวกับ resolvePortalAccess
+           * เพื่อไม่ให้สองที่นี้เลื่อนออกจากกันอีก
+           */
+          ...PORTAL_EXPOSABLE_WHERE,
         },
         select: portalResourceSelect,
         orderBy: { createdAt: 'desc' },
@@ -188,9 +189,14 @@ export async function openPortalFolder(
   const children = await prisma.resource.findMany({
     where: {
       parentId: folderId,
-      deletedAt: null,
-      // เอกสารที่เก็บเข้าคลังไม่แสดงในพื้นที่ลูกค้า
-      lifecycleState: 'ACTIVE',
+      /**
+       * สิทธิ์บนโฟลเดอร์แม่ไม่ลบล้างชั้นความลับของลูก (F26-A1)
+       *
+       * ชั้นความลับไม่สืบทอดลงล่างตอนอ่าน เอกสารแต่ละฉบับตอบเรื่องการเปิดเผยของตัวเอง
+       * กติกานี้จึงเป็นด้านกลับที่ขาดไม่ได้: โฟลเดอร์ที่เปิดให้ลูกค้าไม่ได้เปิดเอกสาร
+       * ชั้นลับทุกฉบับที่วางอยู่ข้างในตามไปด้วย
+       */
+      ...PORTAL_EXPOSABLE_WHERE,
     },
     select: portalResourceSelect,
     orderBy: [{ type: 'asc' }, { name: 'asc' }],
@@ -456,6 +462,19 @@ export async function listPortalVersions(
     isLocked: access.resource.isLocked,
   });
 
+  /*
+     * ประวัติเวอร์ชันทั่วไปปิดสำหรับผู้ใช้ภายนอก (F26-F §14)
+     *
+     * externalCapabilities ประกาศ canSeeVersionHistory: false มาตั้งแต่ต้นในฐานะ
+     * "การตัดสินใจ ไม่ใช่การลืม" แต่เส้นทางนี้ไม่เคยอ่านค่านั้น จึงเปิดประวัติเวอร์ชัน
+     * ของเอกสารภายในให้ลูกค้าเห็นมาตลอด ซึ่งเผยจังหวะการทำงานภายในขององค์กร
+     * (แก้กี่รอบ เมื่อไร โดยใคร) ที่ไม่เกี่ยวกับงานของลูกค้าเลย
+     *
+     * ประวัติการส่งงานของลูกค้าเองไม่ได้หายไป - มันอยู่ที่หน้ารายละเอียดงาน
+     * ซึ่งแสดงเฉพาะฉบับที่ลูกค้าคนนั้นส่งเอง ไม่ใช่ประวัติเวอร์ชันของเอกสารทั้งฉบับ
+     */
+  if (!caps.canSeeVersionHistory) throw portalNotFound();
+
   const versions = await prisma.resourceVersion.findMany({
     where: { resourceId },
     select: {
@@ -507,6 +526,8 @@ export async function resolvePortalVersionContent(
     resourceType: resource.type,
     isLocked: resource.isLocked,
   });
+  // เวอร์ชันเก่าเป็นส่วนหนึ่งของประวัติเวอร์ชัน จึงปิดด้วยกติกาเดียวกัน (F26-F §14)
+  if (!caps.canSeeVersionHistory) throw portalNotFound();
   if (options.requireDownload && !caps.canDownload) {
     throw new AppError('DOWNLOAD_DENIED', 'เอกสารนี้เปิดดูได้ แต่ไม่อนุญาตให้ดาวน์โหลด', 403);
   }

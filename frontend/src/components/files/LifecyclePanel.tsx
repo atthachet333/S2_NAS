@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, ArchiveRestore, Loader2, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { ApiError, archiveApi, legalHoldApi, retentionApi } from '@/lib/api';
@@ -7,6 +7,10 @@ import type { DriveEntry } from '@/lib/drive';
 import { LIFECYCLE_LABELS, retentionBadge, thaiDate } from '@/lib/lifecycle';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
+import { Sheet } from '@/components/ui/Sheet';
+import { AccessReviewButton } from './AccessReviewSheet';
+import { ClassificationControl } from './ClassificationControl';
+import { WorkflowReviewList } from './WorkflowReviewList';
 
 /**
  * แผงวงจรชีวิตเอกสารในแผงรายละเอียด
@@ -21,6 +25,9 @@ const ERROR_TEXT: Record<string, string> = {
   LEGAL_HOLD_DENIED: 'คุณไม่มีสิทธิ์จัดการการระงับการลบ',
   LEGAL_HOLD_ALREADY_ACTIVE: 'เอกสารนี้ถูกระงับการลบอยู่แล้ว',
   LEGAL_HOLD_REASON_REQUIRED: 'กรุณาระบุเหตุผลของการระงับ',
+  LEGAL_HOLD_RELEASE_REASON_REQUIRED: 'กรุณาระบุเหตุผลที่ยกเลิก Legal Hold',
+  RETENTION_OVERRIDE_REASON_REQUIRED: 'กรุณาระบุเหตุผลเมื่อจะลดหรือล้างการเก็บรักษา',
+  POLICY_WEAKENING_REQUIRES_PRIVILEGE: 'มีเฉพาะผู้ดูแลการเก็บรักษาที่ลดหรือล้างนโยบายได้',
   RESOURCE_ALREADY_ARCHIVED: 'เอกสารนี้อยู่ในคลังอยู่แล้ว',
   RESOURCE_NOT_ARCHIVED: 'เอกสารนี้ไม่ได้อยู่ในคลัง',
   RESOURCE_ACCESS_DENIED: 'คุณไม่มีสิทธิ์ดำเนินการนี้',
@@ -44,6 +51,10 @@ export function LifecyclePanel({ entry }: { entry: DriveEntry }) {
   const [holdOpen, setHoldOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [caseRef, setCaseRef] = useState('');
+  const [retentionReason, setRetentionReason] = useState('');
+  const [selectedPolicyId, setSelectedPolicyId] = useState(entry.retentionPolicy?.id ?? '');
+  const [releaseOpen, setReleaseOpen] = useState(false);
+  const [releaseReason, setReleaseReason] = useState('');
 
   /** ผู้ที่จัดการการกำกับดูแลได้ - ผู้แก้ไขเอกสารทั่วไปทำไม่ได้ */
   const canGovern =
@@ -66,6 +77,11 @@ export function LifecyclePanel({ entry }: { entry: DriveEntry }) {
 
   const activeHold = holds.data?.data.find((hold) => hold.isActive) ?? null;
 
+  useEffect(() => {
+    setSelectedPolicyId(entry.retentionPolicy?.id ?? '');
+    setRetentionReason('');
+  }, [entry.id, entry.retentionPolicy?.id]);
+
   const refresh = () => {
     for (const queryKey of lifecycleInvalidationKeys(entry.id)) {
       void queryClient.invalidateQueries({ queryKey });
@@ -73,8 +89,10 @@ export function LifecyclePanel({ entry }: { entry: DriveEntry }) {
   };
 
   const assign = useMutation({
-    mutationFn: (policyId: string | null) => retentionApi.assign(entry.id, { policyId }),
+    mutationFn: (policyId: string | null) =>
+      retentionApi.assign(entry.id, { policyId, reason: retentionReason.trim() || null }),
     onSuccess: () => {
+      setRetentionReason('');
       refresh();
       notify({ tone: 'success', title: 'บันทึกนโยบายการเก็บรักษาแล้ว' });
     },
@@ -108,8 +126,10 @@ export function LifecyclePanel({ entry }: { entry: DriveEntry }) {
   });
 
   const releaseHold = useMutation({
-    mutationFn: () => legalHoldApi.release(activeHold!.id),
+    mutationFn: () => legalHoldApi.release(activeHold!.id, { releaseReason: releaseReason.trim() }),
     onSuccess: () => {
+      setReleaseOpen(false);
+      setReleaseReason('');
       refresh();
       notify({ tone: 'success', title: 'ยกเลิกการระงับแล้ว' });
     },
@@ -166,26 +186,53 @@ export function LifecyclePanel({ entry }: { entry: DriveEntry }) {
 
       {/* ---- กำหนดนโยบาย ---- */}
       {entry.capabilities?.canEdit ? (
-        <label className="mt-2.5 block">
-          <span className="text-[10.5px] text-navy-400">นโยบายการเก็บรักษา</span>
-          <select
-            value={entry.retentionPolicy?.id ?? ''}
-            onChange={(event) => assign.mutate(event.target.value || null)}
-            disabled={assign.isPending}
-            className="s2-input mt-0.5 h-8 w-full text-[12px]"
+        <div className="mt-2.5 space-y-1.5">
+          <label className="block">
+            <span className="text-[10.5px] text-navy-400">นโยบายการเก็บรักษา</span>
+            <select
+              value={selectedPolicyId}
+              onChange={(event) => setSelectedPolicyId(event.target.value)}
+              disabled={assign.isPending}
+              className="s2-input mt-0.5 h-8 w-full text-[12px]"
+            >
+              <option value="">— ไม่กำหนด —</option>
+              {(policies.data?.data ?? []).map((policy) => (
+                <option key={policy.id} value={policy.id}>
+                  {policy.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {canGovern ? (
+            <input
+              value={retentionReason}
+              onChange={(event) => setRetentionReason(event.target.value)}
+              maxLength={500}
+              placeholder="เหตุผล (บังคับเมื่อลดหรือล้างนโยบาย)"
+              aria-label="เหตุผลการเปลี่ยนนโยบายการเก็บรักษา"
+              className="s2-input h-8 w-full text-[11.5px]"
+            />
+          ) : null}
+          <button
+            type="button"
+            onClick={() => assign.mutate(selectedPolicyId || null)}
+            disabled={assign.isPending || selectedPolicyId === (entry.retentionPolicy?.id ?? '')}
+            className="s2-btn s2-btn-outline h-8 w-full text-[11.5px] disabled:opacity-60"
           >
-            <option value="">— ไม่กำหนด —</option>
-            {(policies.data?.data ?? []).map((policy) => (
-              <option key={policy.id} value={policy.id}>
-                {policy.name}
-              </option>
-            ))}
-          </select>
-        </label>
+            บันทึกนโยบาย
+          </button>
+        </div>
       ) : null}
+
+      <ClassificationControl entry={entry} />
+
+      <WorkflowReviewList resourceId={entry.id} />
 
       {/* ---- การกระทำ ---- */}
       <div className="mt-2 flex flex-col gap-1.5">
+        {(user?.roles.includes('SUPER_ADMIN') || user?.roles.includes('ADMIN')) ? (
+          <AccessReviewButton resourceId={entry.id} resourceName={entry.name} />
+        ) : null}
         {entry.capabilities?.canEdit ? (
           <button
             type="button"
@@ -208,7 +255,7 @@ export function LifecyclePanel({ entry }: { entry: DriveEntry }) {
           activeHold ? (
             <button
               type="button"
-              onClick={() => releaseHold.mutate()}
+              onClick={() => setReleaseOpen(true)}
               disabled={releaseHold.isPending}
               className="s2-btn s2-btn-outline h-8 w-full gap-1.5 text-[12px] disabled:opacity-60"
             >
@@ -269,6 +316,39 @@ export function LifecyclePanel({ entry }: { entry: DriveEntry }) {
             ยืนยันการระงับ
           </button>
         </form>
+      ) : null}
+
+      {releaseOpen && activeHold ? (
+        <Sheet open title="ยกเลิก Legal Hold" onClose={() => setReleaseOpen(false)}>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (releaseReason.trim()) releaseHold.mutate();
+            }}
+            className="space-y-3"
+          >
+            <p className="text-[12px] leading-relaxed text-navy-500">
+              การยกเลิกจะไม่ลบประวัติของ “{entry.name}” และต้องบันทึกเหตุผลไว้เป็นหลักฐาน
+            </p>
+            <textarea
+              value={releaseReason}
+              onChange={(event) => setReleaseReason(event.target.value)}
+              maxLength={500}
+              rows={4}
+              autoFocus
+              placeholder="เหตุผลที่ยกเลิก Legal Hold"
+              aria-label="เหตุผลที่ยกเลิก Legal Hold"
+              className="s2-input min-h-24 w-full resize-y py-2 text-[12px]"
+            />
+            <button
+              type="submit"
+              disabled={!releaseReason.trim() || releaseHold.isPending}
+              className="s2-btn s2-btn-primary h-9 w-full text-[12px] disabled:opacity-60"
+            >
+              ยืนยันการยกเลิก
+            </button>
+          </form>
+        </Sheet>
       ) : null}
     </div>
   );

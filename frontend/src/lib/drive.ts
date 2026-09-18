@@ -1,4 +1,4 @@
-import { resourceApi, type ResourceCapabilities, type ResourceDto, type TagDto } from './api';
+import { resourceApi, type ClassificationRestrictions, type ResourceCapabilities, type ResourceClassification, type ResourceDto, type TagDto } from './api';
 import type { DriveRoot } from './drive-labels';
 
 export type DriveEntryKind = 'folder' | 'file';
@@ -12,6 +12,15 @@ export interface DriveEntry {
   uploadedBy: { id: string; displayName: string; email: string } | null;
   currentVersion: number | null;
   visibility: 'ORGANIZATION' | 'RESTRICTED';
+  /**
+   * เพดานการเปิดเผยออกนอกองค์กร - คนละเรื่องกับ visibility ข้างบน
+   *
+   * classifiedAt = null แปลว่ายังเป็นค่าเริ่มต้นของระบบ ยังไม่มีใครตัดสินใจ
+   * หน้าจอต้องแยกสองกรณีนี้ให้ผู้ใช้เห็น ไม่ใช่แสดงว่า "จัดชั้นแล้ว" เหมือนกันหมด
+   */
+  classification: ResourceClassification;
+  classifiedAt: string | null;
+  classificationRestrictions: ClassificationRestrictions | null;
   /** ไดร์ฟที่รายการนี้สังกัด ใช้ประกอบ "ปลายทาง" เชิงตรรกะที่ผู้ใช้อ่านเข้าใจ */
   driveRoot: DriveRoot;
   favorite: boolean; pinned: boolean; parentId: string | null; remark?: string; isLocked: boolean;
@@ -58,6 +67,9 @@ export function toDriveEntry(resource: ResourceDto): DriveEntry {
     lockedByName: resource.lockedBy?.displayName ?? null,
     mimeType: resource.mimeType, uploadedBy: resource.uploadedBy ?? null,
     currentVersion: resource.currentVersion ?? null, visibility: resource.visibility ?? 'ORGANIZATION',
+    classification: resource.classification ?? 'INTERNAL',
+    classifiedAt: resource.classifiedAt ?? null,
+    classificationRestrictions: resource.classificationRestrictions ?? null,
     remark: resource.remark ?? undefined, isLocked: resource.isLocked,
     externalUrl: resource.externalUrl, externalProvider: resource.externalProvider,
     sourceSystem: resource.sourceSystem, sourceEntityType: resource.sourceEntityType,

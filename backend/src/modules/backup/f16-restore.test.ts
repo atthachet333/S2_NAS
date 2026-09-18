@@ -141,6 +141,7 @@ describe('F16 การกำกับดูแลต้องรอดจาก
     await prisma.resource.deleteMany({ where: { id: { in: all.filter((id) => id !== folderId) } } });
     await prisma.resource.deleteMany({ where: { id: folderId } });
     await prisma.retentionPolicy.deleteMany({ where: { createdById: userId } });
+    await prisma.legalHoldHistory.deleteMany({ where: { createdById: userId } });
     await prisma.user.deleteMany({ where: { id: userId } });
 
     resetOperationLock();

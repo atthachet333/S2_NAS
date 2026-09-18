@@ -101,10 +101,15 @@ try {
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean);
+  const changedTables = normalizedDiff.filter((line) => line.startsWith('[*] Changed the `'));
+  const structuralChanges = normalizedDiff.filter((line) =>
+    line.startsWith('[+]') || line.startsWith('[-]') || line.startsWith('[*] Altered column'),
+  );
   const onlyManagedVectorIndex = diff.status === 2 &&
-    normalizedDiff.some((line) => line.includes('Changed the `semantic_chunks` table')) &&
+    changedTables.length === 1 &&
+    changedTables[0].includes('Changed the `semantic_chunks` table') &&
     normalizedDiff.some((line) => line.includes('Removed index on columns (embedding)')) &&
-    normalizedDiff.filter((line) => line.startsWith('[+]') || line.startsWith('[-]')).length === 1;
+    structuralChanges.length === 1;
   if (onlyManagedVectorIndex) {
     process.exitCode = 0;
     console.log('Drift check: only the migration-managed MariaDB VECTOR INDEX is outside Prisma datamodel support.');

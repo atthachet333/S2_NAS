@@ -372,13 +372,14 @@ export async function bulkAssignRetention(
   policyId: string | null,
   user: AuthUser,
   audit: { ipAddress?: string; userAgent?: string },
+  reason?: string | null,
 ): Promise<BulkOutcome> {
   assertBatch(resourceIds);
   const acc = newAccumulator();
 
   for (const resourceId of resourceIds) {
     try {
-      await assignPolicy(resourceId, user, { policyId }, audit);
+      await assignPolicy(resourceId, user, { policyId, reason }, audit);
       acc.succeeded += 1;
     } catch (error) {
       record(acc, resourceId, error);

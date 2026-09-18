@@ -17,6 +17,7 @@ const entry = (overrides: Partial<DriveEntry> = {}): DriveEntry => ({
   modifiedAt: '', createdAt: '', mimeType: 'application/pdf',
   uploadedBy: { id: 'u2', displayName: 'สมหญิง ผู้อัปโหลด', email: 'up@example.invalid' },
   currentVersion: 1, visibility: 'ORGANIZATION', driveRoot: 'MY_DRIVE',
+  classification: 'INTERNAL', classifiedAt: null, classificationRestrictions: null,
   favorite: false, pinned: false, parentId: null, isLocked: false,
   tags: [], lockReason: null, lockedAt: null, lockedByName: null,
   source: 'MANUAL', capabilities, ...overrides,

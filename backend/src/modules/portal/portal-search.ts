@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
 import { activeGrantMap, portalResourceSelect, type PortalResource } from './portal-access.js';
+import { PORTAL_VISIBLE_CLASSIFICATIONS } from '../governance/classification.policy.js';
 import { isPortalVisibleType, type PortalRole } from './portal-policy.js';
 import { contentMatchResourceIds } from '../search/content-match.js';
 
@@ -96,6 +97,10 @@ export async function searchGrantedSubtrees(
    * เงื่อนไข deletedAt IS NULL อยู่ทั้งในจุดเริ่มและในขั้นการไล่ลง
    * โฟลเดอร์ที่ถูกลบจึงตัดทั้งกิ่งทันที ไม่ใช่แค่ตัวมันเองหายไป
    *
+   * ชั้นความลับถูกกรองในคำสั่งเดียวกันทั้งสองขั้นด้วย (F26-A1) การกรองผลลัพธ์ทีหลัง
+   * ไม่พอสำหรับการค้นหา เพราะแม้แต่การรู้ว่า "มีเอกสารชื่อนี้อยู่" ก็เป็นการเปิดเผยแล้ว
+   * และการปฏิเสธตอนกดเปิดก็สายเกินไป ชื่อไฟล์ปรากฏบนหน้าจอไปแล้ว
+   *
    * รากหลายอันรวมกันได้เองโดยธรรมชาติ และ DISTINCT ตัดรายการซ้ำ
    * ที่เกิดจากรากซ้อนกัน (แชร์ทั้งโฟลเดอร์แม่และโฟลเดอร์ลูกให้คนเดียวกัน)
    */
@@ -110,6 +115,7 @@ export async function searchGrantedSubtrees(
       WHERE r.id IN (${Prisma.join(rootIds)})
         AND r.deletedAt IS NULL
         AND r.lifecycleState = 'ACTIVE'
+        AND r.classification IN (${Prisma.join(PORTAL_VISIBLE_CLASSIFICATIONS)})
 
       UNION ALL
 
@@ -121,6 +127,7 @@ export async function searchGrantedSubtrees(
       FROM resources c
       INNER JOIN portal_tree t ON c.parentId = t.id
       WHERE c.deletedAt IS NULL AND c.lifecycleState = 'ACTIVE'
+        AND c.classification IN (${Prisma.join(PORTAL_VISIBLE_CLASSIFICATIONS)})
         AND t.depth < ${MAX_SEARCH_DEPTH}
     )
     SELECT DISTINCT id, pathIds

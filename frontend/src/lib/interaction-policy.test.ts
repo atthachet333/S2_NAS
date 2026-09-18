@@ -21,6 +21,7 @@ const entry = (kind: 'file' | 'folder', overrides: Partial<DriveEntry> = {}): Dr
   id: kind, kind, resourceType: kind === 'file' ? 'FILE' : 'FOLDER', name: kind === 'file' ? 'test.pdf' : 'TEST',
   ownerId: 'owner', ownerName: 'Owner', ownerEmail: 'owner@example.invalid', modifiedAt: '', createdAt: '',
   mimeType: kind === 'file' ? 'application/pdf' : null, uploadedBy: null, currentVersion: kind === 'file' ? 2 : null,
+  classification: 'INTERNAL', classifiedAt: null, classificationRestrictions: null,
   visibility: 'ORGANIZATION', driveRoot: 'MY_DRIVE', favorite: false, pinned: false, parentId: null, isLocked: false,
   tags: [], lockReason: null, lockedAt: null, lockedByName: null, capabilities, ...overrides,
 });

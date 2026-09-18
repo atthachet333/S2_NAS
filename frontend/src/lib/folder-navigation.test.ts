@@ -54,6 +54,7 @@ const entry = (overrides: Partial<DriveEntry>): DriveEntry => ({
   sizeBytes: 2048, ownerId: 'u1', ownerName: 'ผู้ดูแล', ownerEmail: 'owner@example.invalid',
   modifiedAt: new Date().toISOString(), createdAt: new Date().toISOString(), mimeType: 'application/pdf',
   uploadedBy: null, currentVersion: 1, visibility: 'ORGANIZATION', driveRoot: 'MY_DRIVE',
+  classification: 'INTERNAL', classifiedAt: null, classificationRestrictions: null,
   favorite: false, pinned: false, parentId: null, isLocked: false, tags: [],
   lockReason: null, lockedAt: null, lockedByName: null,
   capabilities: {} as DriveEntry['capabilities'],

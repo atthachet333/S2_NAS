@@ -17,6 +17,7 @@ export const PERMISSIONS = [
   ['system:settings:manage', 'จัดการค่าตั้งค่าการทำงานของระบบ'],
   ['system:backup:manage', 'สำรองและกู้คืนข้อมูลของระบบ'],
   ['system:retention:manage', 'จัดการนโยบายการเก็บรักษาและการระงับการลบ'],
+  ['system:classification:declassify', 'ลดชั้นความลับของเอกสาร'],
   ['system:audit:view', 'ดูบันทึกกิจกรรมเพื่อการตรวจสอบ'],
   ['system:audit:export', 'ส่งออกบันทึกกิจกรรมเพื่อการตรวจสอบ'],
 ] as const;
@@ -24,8 +25,14 @@ export const PERMISSIONS = [
 /**
  * ค่าตั้งค่าการทำงานของระบบเป็นสิทธิ์ที่มีผลกระทบสูง (เช่น อายุถังขยะ = การลบถาวร)
  * จึงไม่รวมอยู่ในชุดของ ADMIN โดยอัตโนมัติ ต้องมอบให้เป็นรายกรณี
+ *
+ * การลดชั้นความลับอยู่ในชุดนี้ด้วย (F25-D) - ถ้าผู้ดูแลทุกคนลดชั้นได้โดยอัตโนมัติ
+ * คำว่า "ต้องใช้สิทธิ์พิเศษ" จะไม่มีความหมายอะไรเลยในทางปฏิบัติ
  */
-const ADMIN_EXCLUDED: string[] = ['roles:manage', 'system:settings:manage', 'system:backup:manage'];
+const ADMIN_EXCLUDED: string[] = [
+  'roles:manage', 'system:settings:manage', 'system:backup:manage',
+  'system:classification:declassify',
+];
 
 export const ROLE_PERMISSIONS: Record<string, string[]> = {
   SUPER_ADMIN: PERMISSIONS.map(([code]) => code),

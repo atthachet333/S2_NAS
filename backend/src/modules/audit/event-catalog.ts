@@ -125,6 +125,7 @@ export const EVENT_CATALOG: Record<string, EventDefinition> = {
 
   /* ---------------- การแชร์และสิทธิ์ ---------------- */
   RESOURCE_OWNER_CHANGED: { category: 'SHARING', label: 'เปลี่ยนผู้ดูแล', tone: 'WARNING' },
+  ACCESS_EXPORT_CREATED: { category: 'SHARING', label: 'ส่งออกรายงานการเข้าถึง' },
   BULK_OWNER_CHANGED: { category: 'SHARING', label: 'เปลี่ยนผู้ดูแลหลายรายการ', tone: 'WARNING' },
   OWNERSHIP_BULK_TRANSFERRED: { category: 'SHARING', label: 'โอนความรับผิดชอบทั้งชุด', tone: 'WARNING' },
   EXTERNAL_ACCESS_GRANTED: { category: 'SHARING', label: 'ให้สิทธิ์ลูกค้าเข้าถึงเอกสาร', tone: 'WARNING' },
@@ -207,6 +208,46 @@ export const EVENT_CATALOG: Record<string, EventDefinition> = {
 
 
   /* ---------------- ลูกค้า ---------------- */
+  /**
+   * คำขอความร่วมมือจากภายนอก (F26-B)
+   *
+   * อยู่หมวด SHARING ไม่ใช่ CLIENT เพราะเป็นการกระทำของเจ้าหน้าที่ภายในที่ตัดสินใจ
+   * เปิดเอกสารออกไปให้คนนอก - ผู้ตรวจสอบตามเรื่องนี้จากฝั่งการแชร์ ไม่ใช่จากฝั่งลูกค้า
+   */
+  EXTERNAL_WORKFLOW_CREATED: { category: 'SHARING', label: 'สร้างคำขอความร่วมมือภายนอก', tone: 'WARNING' },
+  /**
+   * การส่งงานของผู้รับงานภายนอก (F26-D) - หมวด CLIENT เพราะเป็นการกระทำของลูกค้า
+   *
+   * ไม่มี EXTERNAL_WORKFLOW_OPENED โดยตั้งใจ: การเปิดดูรายการงานเกิดทุกครั้งที่หน้าจอ
+   * ถูกโหลด การบันทึกทุกครั้งจะกลบเหตุการณ์ที่มีความหมายจริงจนหาไม่เจอ ซึ่งเป็นเหตุผล
+   * เดียวกับที่ PERMANENT_DELETE_BLOCKED_* บันทึกเฉพาะตอนคนกด ไม่ใช่ตอนงานกวาดข้าม
+   * การเปิดดูเอกสารจริงยังถูกบันทึกเป็น EXTERNAL_RESOURCE_VIEWED ตามเดิม
+   */
+  EXTERNAL_SUBMISSION_CREATED: { category: 'CLIENT', label: 'ลูกค้าส่งงานตามคำขอ', tone: 'SUCCESS' },
+  /**
+   * การตัดสินของผู้ตรวจ (F26-E/G) - หมวด SHARING เพราะเป็นการกระทำของเจ้าหน้าที่ภายใน
+   * ที่กำกับว่างานซึ่งเปิดออกนอกองค์กรจบลงอย่างไร
+   *
+   * แยกคนละรหัสต่อการตัดสินหนึ่งแบบ ไม่ใช่รหัสเดียวที่ใส่ผลลัพธ์ไว้ใน metadata
+   * ผู้ตรวจสอบที่ถามว่า "ไตรมาสนี้ไม่อนุมัติไปกี่งาน" ต้องกรองได้ทันที
+   */
+  EXTERNAL_REVIEW_STARTED: { category: 'SHARING', label: 'เริ่มตรวจงานของลูกค้า' },
+  EXTERNAL_REVIEW_APPROVED: { category: 'SHARING', label: 'อนุมัติงานของลูกค้า', tone: 'SUCCESS' },
+  EXTERNAL_REVIEW_REJECTED: { category: 'SHARING', label: 'ไม่อนุมัติงานของลูกค้า', tone: 'WARNING' },
+  EXTERNAL_REVISION_REQUESTED: { category: 'SHARING', label: 'ขอให้ลูกค้าแก้ไขงาน', tone: 'WARNING' },
+  EXTERNAL_WORKFLOW_REVOKED: { category: 'SHARING', label: 'ยกเลิกคำขอความร่วมมือ', tone: 'WARNING' },
+  /**
+   * ร่องรอยของการเก็บกวาดที่ล้มเหลว (F26-G §26)
+   *
+   * บันทึกเมื่อการลบไบต์ชดเชยล้มเหลวเอง เพื่อให้ไฟล์กำพร้าที่เกิดขึ้นยังมีคนตามเก็บได้
+   * ไม่ใช่หายไปพร้อมกับ log ที่หมุนรอบ - เป็นความล้มเหลวจึงติดธง failure ไว้
+   */
+  STORAGE_CLEANUP_FAILED: {
+    category: 'SYSTEM',
+    label: 'เก็บกวาดไฟล์หลังการยกเลิกไม่สำเร็จ',
+    tone: 'DANGER',
+    failure: true,
+  },
   EXTERNAL_FILE_UPLOADED: { category: 'CLIENT', label: 'ลูกค้าอัปโหลดไฟล์' },
   EXTERNAL_RESOURCE_VIEWED: { category: 'CLIENT', label: 'ลูกค้าเปิดดูเอกสาร' },
   EXTERNAL_RESOURCE_DOWNLOADED: { category: 'CLIENT', label: 'ลูกค้าดาวน์โหลดเอกสาร' },
@@ -225,6 +266,35 @@ export const EVENT_CATALOG: Record<string, EventDefinition> = {
   RETENTION_POLICY_ASSIGNED: { category: 'GOVERNANCE', label: 'กำหนดนโยบายการเก็บรักษา' },
   RETENTION_POLICY_CHANGED: { category: 'GOVERNANCE', label: 'เปลี่ยนนโยบายการเก็บรักษา', tone: 'WARNING' },
   RETENTION_POLICY_UPDATED: { category: 'GOVERNANCE', label: 'แก้ไขนิยามนโยบายการเก็บรักษา', tone: 'WARNING' },
+  RETENTION_APPLIED: { category: 'GOVERNANCE', label: 'กำหนดนโยบายการเก็บรักษา' },
+  RETENTION_STRENGTHENED: { category: 'GOVERNANCE', label: 'เพิ่มความเข้มงวดการเก็บรักษา' },
+  RETENTION_OVERRIDE_WEAKENED: {
+    category: 'GOVERNANCE',
+    label: 'ลดความเข้มงวดการเก็บรักษาโดยผู้มีสิทธิ์',
+    tone: 'WARNING',
+  },
+  RETENTION_CLEARED: { category: 'GOVERNANCE', label: 'ล้างนโยบายการเก็บรักษา', tone: 'WARNING' },
+  RETENTION_REAPPLY_STARTED: { category: 'GOVERNANCE', label: 'เริ่มบังคับใช้นโยบายย้อนหลัง' },
+  RETENTION_REAPPLY_COMPLETED: { category: 'GOVERNANCE', label: 'บังคับใช้นโยบายย้อนหลังสำเร็จ' },
+  RETENTION_REAPPLY_PARTIAL: {
+    category: 'GOVERNANCE',
+    label: 'บังคับใช้นโยบายย้อนหลังสำเร็จบางส่วน',
+    tone: 'WARNING',
+  },
+  /**
+   * การจัดชั้นความลับ - แยกสามเหตุการณ์เพราะผู้ตรวจสอบถามคนละคำถาม
+   *
+   * การยกชั้นคือการปิดช่องทาง เป็นเรื่องปกติที่ดี ส่วนการลดชั้นคือการยอมให้เปิดเผยได้กว้างขึ้น
+   * ซึ่งเป็นสิ่งที่ผู้ตรวจสอบต้องตามไล่ดูทุกครั้ง ถ้ารวมเป็นเหตุการณ์เดียว การถามว่า
+   * "ไตรมาสนี้มีการลดชั้นกี่ครั้ง" จะต้องอ่าน metadata ทีละแถว
+   */
+  CLASSIFICATION_ASSIGNED: { category: 'GOVERNANCE', label: 'กำหนดชั้นความลับ' },
+  CLASSIFICATION_UPGRADED: { category: 'GOVERNANCE', label: 'ยกระดับชั้นความลับ' },
+  CLASSIFICATION_DOWNGRADED: {
+    category: 'GOVERNANCE',
+    label: 'ลดระดับชั้นความลับ',
+    tone: 'WARNING',
+  },
   RESOURCE_ARCHIVED: { category: 'GOVERNANCE', label: 'เก็บเอกสารเข้าคลัง' },
   RESOURCE_UNARCHIVED: { category: 'GOVERNANCE', label: 'นำเอกสารออกจากคลัง' },
   LEGAL_HOLD_CREATED: { category: 'GOVERNANCE', label: 'วาง Legal Hold', tone: 'WARNING' },
@@ -330,6 +400,11 @@ const DESTRUCTIVE = [
   'LEGAL_HOLD_RELEASED',
   'RETENTION_POLICY_ASSIGNED',
   'RETENTION_POLICY_CHANGED',
+  'RETENTION_APPLIED',
+  'RETENTION_STRENGTHENED',
+  'RETENTION_OVERRIDE_WEAKENED',
+  'RETENTION_CLEARED',
+  'RETENTION_REAPPLY_PARTIAL',
   'PERMANENT_DELETE_BLOCKED_RETENTION',
   'PERMANENT_DELETE_BLOCKED_HOLD',
 ];

@@ -61,6 +61,21 @@ const makeUser = (
 const rejects = (code: string) => (error: unknown) =>
   error instanceof AppError && error.code === code;
 
+/**
+ * F18 ตรวจกลไกของลิงก์ - อายุ การเพิกถอน รหัสผ่าน โควตา ขอบเขตโฟลเดอร์ ไม่ได้ตรวจชั้นความลับ
+ *
+ * ตั้งแต่ F25-D ค่าเริ่มต้นของทรัพยากรที่สร้างใหม่ที่ระดับรากคือชั้น "ภายใน" ซึ่งสร้างลิงก์
+ * สาธารณะไม่ได้โดยตั้งใจ ชุดทดสอบนี้จึงต้องประกาศเจตนาให้ชัดว่า "เอกสารเหล่านี้เปิดสาธารณะได้"
+ * แทนที่จะพึ่งค่าเริ่มต้นที่เคยยอมให้ทุกอย่างแชร์ได้
+ *
+ * ลูกที่สร้างใต้โฟลเดอร์เหล่านี้สืบทอดชั้นมาเองตอนสร้าง จึงตั้งเฉพาะที่ราก
+ */
+async function createSharableFolder(...args: Parameters<typeof createFolder>) {
+  const folder = await createFolder(...args);
+  await prisma.resource.update({ where: { id: folder.id }, data: { classification: 'PUBLIC' } });
+  return folder;
+}
+
 describe('F18 ลิงก์แชร์ภายนอก', () => {
   let owner: AuthUser;
   let viewer: AuthUser;
@@ -102,15 +117,15 @@ describe('F18 ลิงก์แชร์ภายนอก', () => {
     viewer = makeUser(viewerId, rows[1].email, rows[1].displayName, ['MEMBER']);
     client = makeUser(clientId, rows[2].email, rows[2].displayName, ['MEMBER'], [], 'EXTERNAL');
 
-    const root = await createFolder(owner, { name: `${prefix} ราก`, parentId: null }, audit);
+    const root = await createSharableFolder(owner, { name: `${prefix} ราก`, parentId: null }, audit);
     rootId = root.id;
     created.push(rootId);
 
-    const sub = await createFolder(owner, { name: `${prefix} ย่อย`, parentId: rootId }, audit);
+    const sub = await createSharableFolder(owner, { name: `${prefix} ย่อย`, parentId: rootId }, audit);
     subFolderId = sub.id;
     created.push(subFolderId);
 
-    const outside = await createFolder(owner, { name: `${prefix} นอก`, parentId: null }, audit);
+    const outside = await createSharableFolder(owner, { name: `${prefix} นอก`, parentId: null }, audit);
     outsideId = outside.id;
     created.push(outsideId);
 
@@ -434,8 +449,13 @@ describe('F18 ลิงก์แชร์ภายนอก', () => {
         expiresAt: new Date('2026-06-01T10:00:00.000Z'),
         maxViews: null,
         viewCount: 0,
+        allowPreview: true,
+        allowDownload: false,
+        maxDownloads: null,
+        downloadCount: 0,
       } as never;
-      const resource = { deletedAt: null, lifecycleState: 'ACTIVE' as const };
+      // ชั้นสาธารณะ เพื่อให้เทสต์นี้ตรวจเรื่องเส้นแบ่งเวลาเท่านั้น ไม่ให้นโยบายชั้นความลับมาตอบแทน
+      const resource = { deletedAt: null, lifecycleState: 'ACTIVE' as const, classification: 'PUBLIC' as const };
 
       /** ที่วินาทีนั้นพอดีต้องหมดแล้ว - ไม่ใช่ "ยังทันอีกเสี้ยววินาที" */
       assert.equal(shareStatus(row, resource, now), 'EXPIRED');
@@ -637,7 +657,7 @@ describe('F18 ลิงก์แชร์ภายนอก', () => {
 
   describe('สถานะของทรัพยากร', () => {
     test('เอกสารในถังขยะทำให้ลิงก์ใช้ไม่ได้ และกู้คืนแล้วกลับมาใช้ได้', async () => {
-      const folder = await createFolder(owner, { name: `${prefix} วงจร`, parentId: null }, audit);
+      const folder = await createSharableFolder(owner, { name: `${prefix} วงจร`, parentId: null }, audit);
       created.push(folder.id);
       const uploaded = await uploadFile(
         owner,
@@ -694,7 +714,7 @@ describe('F18 ลิงก์แชร์ภายนอก', () => {
     });
 
     test('สร้างลิงก์ใหม่บนเอกสารในถังขยะไม่ได้', async () => {
-      const folder = await createFolder(owner, { name: `${prefix} ทิ้ง`, parentId: null }, audit);
+      const folder = await createSharableFolder(owner, { name: `${prefix} ทิ้ง`, parentId: null }, audit);
       created.push(folder.id);
       await trashResource(folder.id, owner, audit);
 
@@ -723,7 +743,7 @@ describe('F18 ลิงก์แชร์ภายนอก', () => {
     });
 
     test('การลบถาวรทำให้ลิงก์หายไปด้วย ไม่เหลือสิทธิ์ที่ไร้เจ้าของ', async () => {
-      const folder = await createFolder(owner, { name: `${prefix} ลบถาวร`, parentId: null }, audit);
+      const folder = await createSharableFolder(owner, { name: `${prefix} ลบถาวร`, parentId: null }, audit);
       const { link } = await createPublicShare(folder.id, owner, {}, audit);
 
       /** FK เป็น Cascade - แถวลิงก์หายไปพร้อมทรัพยากร ไม่มีสิทธิ์ที่ชี้ไปที่ว่างเปล่า */
@@ -739,7 +759,7 @@ describe('F18 ลิงก์แชร์ภายนอก', () => {
   /* ================================================================ */
 
   test('จำนวนลิงก์ที่ยังใช้งานได้ต่อทรัพยากรมีเพดาน', async () => {
-    const folder = await createFolder(owner, { name: `${prefix} เพดาน`, parentId: null }, audit);
+    const folder = await createSharableFolder(owner, { name: `${prefix} เพดาน`, parentId: null }, audit);
     created.push(folder.id);
 
     for (let index = 0; index < MAX_ACTIVE_LINKS_PER_RESOURCE; index += 1) {
@@ -869,7 +889,7 @@ describe('F18 ลิงก์แชร์ภายนอก', () => {
 
   test('ข้อมูลที่ส่งให้หน้าจอไม่มี tokenHash และ passwordHash', async () => {
     /** ทรัพยากรของตัวเอง เพื่อไม่ให้ชนเพดานลิงก์ที่การทดสอบอื่นสะสมไว้ */
-    const folder = await createFolder(owner, { name: `${prefix} ลับ`, parentId: null }, audit);
+    const folder = await createSharableFolder(owner, { name: `${prefix} ลับ`, parentId: null }, audit);
     created.push(folder.id);
 
     const { url } = await createPublicShare(folder.id, owner, { password: 'ตรวจ-รั่ว-777' }, audit);

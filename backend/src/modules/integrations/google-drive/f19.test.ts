@@ -195,6 +195,7 @@ describe('F19 การเชื่อมต่อ Google Drive', () => {
     }
 
     await prisma.userRole.deleteMany({ where: { userId: { in: users } } });
+    await prisma.legalHoldHistory.deleteMany({ where: { createdById: { in: users } } });
     await prisma.user.deleteMany({ where: { id: { in: users } } });
 
     /**
@@ -976,7 +977,7 @@ describe('F19 การเชื่อมต่อ Google Drive', () => {
       // ไม่ควรแตะ Google เลยเมื่อรู้ว่าหยุดอยู่แล้ว
       assert.equal(provider.calls.download, downloadsBefore, 'ไม่ควรมีคำขออ่านต้นทางในนามเอกสารที่ถูกระงับ');
 
-      await releaseLegalHold(hold.id, owner, { reason: 'จบการทดสอบ' }, audit);
+      await releaseLegalHold(hold.id, owner, { releaseReason: 'จบการทดสอบ' }, audit);
 
       // ปลดแล้วซิงก์ได้อีก
       const after = await checkOne(sync, provider, audit);

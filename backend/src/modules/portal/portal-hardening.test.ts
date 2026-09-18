@@ -467,61 +467,48 @@ describe('F11 การทำให้พื้นที่ลูกค้าแ
   /* ประวัติเวอร์ชัน                                                    */
   /* ---------------------------------------------------------------- */
 
-  describe('ประวัติเวอร์ชันสำหรับลูกค้า', () => {
-    test('เห็นครบทุกเวอร์ชัน เรียงจากใหม่ไปเก่า และระบุเวอร์ชันปัจจุบันได้', async () => {
+  /**
+   * **นโยบายเปลี่ยนใน F26-F §14** - ประวัติเวอร์ชันทั่วไปปิดสำหรับผู้ใช้ภายนอกแล้ว
+   *
+   * externalCapabilities ประกาศ canSeeVersionHistory: false มาตั้งแต่ต้นในฐานะการตัดสินใจ
+   * แต่เส้นทางเหล่านี้ไม่เคยอ่านค่านั้น จึงเปิดประวัติเวอร์ชันของเอกสารภายในให้ลูกค้าเห็น
+   * มาตลอด ซึ่งเผยจังหวะการทำงานภายใน (แก้กี่รอบ เมื่อไร) ที่ไม่เกี่ยวกับงานของลูกค้า
+   *
+   * ของเดิมในบล็อกนี้ยืนยันพฤติกรรมตรงกันข้าม จึงถูกแทนที่ ไม่ใช่ลบทิ้งเงียบ ๆ
+   * ประวัติการส่งงานของลูกค้าเองยังมีอยู่ ผ่านหน้ารายละเอียดงาน (ดู f26efg.test.ts)
+   */
+  describe('ประวัติเวอร์ชันทั่วไปปิดสำหรับลูกค้า', () => {
+    test('ขอรายการเวอร์ชันไม่ได้ - ตอบเหมือนเอกสารที่ไม่มีสิทธิ์', async () => {
       const response = await app.inject({
         method: 'GET',
         url: `/api/portal/resources/${versionedFileId}/versions`,
         headers: asUser(tokenA),
       });
-      assert.equal(response.statusCode, 200);
-      const versions = response.json().data as Array<{ versionNumber: number; isCurrent: boolean; uploadedBy: string }>;
-
-      assert.equal(versions.length, 3, 'ไฟล์นี้มีสามเวอร์ชัน');
-      assert.deepEqual(versions.map((row) => row.versionNumber), [3, 2, 1]);
-      assert.deepEqual(versions.map((row) => row.isCurrent), [true, false, false]);
-      assert.ok(versions.every((row) => typeof row.uploadedBy === 'string' && row.uploadedBy.length > 0));
+      assert.equal(response.statusCode, 404);
+      // ข้อความต้องเหมือนกรณีไม่พบ ไม่ใช่ "คุณไม่มีสิทธิ์ดูประวัติ" ซึ่งยืนยันว่ามีประวัติอยู่
+      assert.equal(response.json().error?.code, 'PORTAL_RESOURCE_NOT_FOUND');
     });
 
-    test('ไม่ส่งข้อมูลภายในของเวอร์ชันออกไป', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: `/api/portal/resources/${versionedFileId}/versions`,
-        headers: asUser(tokenA),
-      });
-      const body = JSON.stringify(response.json());
-      for (const forbidden of ['storageKey', 'checksum', 'createdById', 'integrationApp', 'resourceId']) {
-        assert.ok(!body.includes(forbidden), `${forbidden} ต้องไม่หลุดออกไปที่ฝั่งลูกค้า`);
+    test('เปิดดูและดาวน์โหลดเวอร์ชันเก่าไม่ได้ทั้งคู่', async () => {
+      for (const suffix of ['1/content', '2/download', '3/content']) {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/api/portal/resources/${versionedFileId}/versions/${suffix}`,
+          headers: asUser(tokenA),
+        });
+        assert.equal(response.statusCode, 404, `${suffix} ต้องถูกปฏิเสธ`);
       }
-      // อีเมลของบุคลากรภายในต้องไม่ติดออกไปกับชื่อผู้อัปโหลด
-      assert.ok(!body.includes('@example.invalid'));
     });
 
-    test('เปิดดูเวอร์ชันเก่าได้ และได้เนื้อหาของเวอร์ชันนั้นจริง', async () => {
-      const first = await app.inject({
+    test('เวอร์ชันปัจจุบันยังเปิดและดาวน์โหลดได้ตามปกติ', async () => {
+      // ปิดเฉพาะ "ประวัติ" ไม่ใช่ปิดตัวเอกสาร - ลูกค้ายังทำงานกับไฟล์ที่แชร์ให้ได้เหมือนเดิม
+      const content = await app.inject({
         method: 'GET',
-        url: `/api/portal/resources/${versionedFileId}/versions/1/content`,
+        url: `/api/portal/resources/${versionedFileId}/content`,
         headers: asUser(tokenA),
       });
-      assert.equal(first.statusCode, 200);
-      assert.match(first.body, /ฉบับที่ 1/, 'ต้องได้เนื้อหาของเวอร์ชันที่ขอ ไม่ใช่เวอร์ชันล่าสุด');
-
-      const current = await app.inject({
-        method: 'GET',
-        url: `/api/portal/resources/${versionedFileId}/versions/3/content`,
-        headers: asUser(tokenA),
-      });
-      assert.match(current.body, /ฉบับที่ 3/);
-    });
-
-    test('ดาวน์โหลดเวอร์ชันเก่าได้เมื่ออนุญาตให้ดาวน์โหลด', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: `/api/portal/resources/${versionedFileId}/versions/2/download`,
-        headers: asUser(tokenA),
-      });
-      assert.equal(response.statusCode, 200);
-      assert.match(response.headers['content-disposition'] as string, /attachment/);
+      assert.equal(content.statusCode, 200);
+      assert.match(content.body, /ฉบับที่ 3/, 'ต้องได้เนื้อหาของเวอร์ชันล่าสุด');
     });
 
     test('เวอร์ชันที่ไม่มีอยู่ตอบเหมือนเอกสารที่ไม่มีสิทธิ์', async () => {
@@ -543,7 +530,7 @@ describe('F11 การทำให้พื้นที่ลูกค้าแ
       assert.equal(response.statusCode, 404);
     });
 
-    test('ห้ามดาวน์โหลดแล้ว ห้ามทั้งเวอร์ชันปัจจุบันและเวอร์ชันเก่าเท่ากัน', async () => {
+    test('ห้ามดาวน์โหลดแล้ว เวอร์ชันปัจจุบันถูกปฏิเสธ และเวอร์ชันเก่าไม่มีให้เข้าถึงอยู่แล้ว', async () => {
       await prisma.resourceAccess.updateMany({
         where: { resourceId: rootA, userId: clientAId },
         data: { allowDownload: false },
@@ -554,29 +541,28 @@ describe('F11 การทำให้พื้นที่ลูกค้าแ
           url: `/api/portal/resources/${versionedFileId}/download`,
           headers: asUser(tokenA),
         });
+        assert.equal(current.statusCode, 403, 'ห้ามดาวน์โหลดคือ 403 - ไฟล์มีอยู่แต่ทำไม่ได้');
+
+        /*
+         * เวอร์ชันเก่าตอบ 404 ไม่ใช่ 403 ตั้งแต่ F26-F §14
+         *
+         * เพราะประวัติเวอร์ชันถูกปิดสำหรับผู้ใช้ภายนอกทั้งหมด ไม่ใช่แค่ห้ามดาวน์โหลด
+         * คำตอบจึงต้องเป็น "ไม่มีสิ่งนี้ให้คุณ" ซึ่งเข้มกว่าเดิม และไม่ยืนยันว่ามีประวัติอยู่
+         */
         const historical = await app.inject({
           method: 'GET',
           url: `/api/portal/resources/${versionedFileId}/versions/1/download`,
           headers: asUser(tokenA),
         });
-        assert.equal(current.statusCode, 403);
-        assert.equal(historical.statusCode, 403, 'ประวัติเวอร์ชันต้องไม่กลายเป็นทางลัดหลบข้อห้ามดาวน์โหลด');
+        assert.equal(historical.statusCode, 404, 'ประวัติเวอร์ชันต้องปิดสนิท ไม่ใช่แค่ห้ามดาวน์โหลด');
 
-        // แต่เปิดดูยังทำได้ - "ดูได้ แต่บันทึกลงเครื่องไม่ได้" เป็นสถานะที่ตั้งใจให้มี
+        // เปิดดูเวอร์ชันปัจจุบันยังทำได้ - "ดูได้ แต่บันทึกลงเครื่องไม่ได้" ยังเป็นสถานะที่ตั้งใจให้มี
         const preview = await app.inject({
           method: 'GET',
-          url: `/api/portal/resources/${versionedFileId}/versions/1/content`,
+          url: `/api/portal/resources/${versionedFileId}/content`,
           headers: asUser(tokenA),
         });
         assert.equal(preview.statusCode, 200);
-
-        const list = await app.inject({
-          method: 'GET',
-          url: `/api/portal/resources/${versionedFileId}/versions`,
-          headers: asUser(tokenA),
-        });
-        const versions = list.json().data as Array<{ canDownload: boolean }>;
-        assert.ok(versions.every((row) => row.canDownload === false), 'รายการต้องสะท้อนสิ่งที่เซิร์ฟเวอร์บังคับใช้');
       } finally {
         await prisma.resourceAccess.updateMany({
           where: { resourceId: rootA, userId: clientAId },
@@ -588,7 +574,7 @@ describe('F11 การทำให้พื้นที่ลูกค้าแ
     test('การเปลี่ยนสิทธิ์ดาวน์โหลดมีผลทันทีกับ token ใบเดิม', async () => {
       const before = await app.inject({
         method: 'GET',
-        url: `/api/portal/resources/${versionedFileId}/versions/1/download`,
+        url: `/api/portal/resources/${versionedFileId}/download`,
         headers: asUser(tokenA),
       });
       assert.equal(before.statusCode, 200);
@@ -599,7 +585,7 @@ describe('F11 การทำให้พื้นที่ลูกค้าแ
       });
       const after = await app.inject({
         method: 'GET',
-        url: `/api/portal/resources/${versionedFileId}/versions/1/download`,
+        url: `/api/portal/resources/${versionedFileId}/download`,
         headers: asUser(tokenA),
       });
       assert.equal(after.statusCode, 403, 'ไม่ต้องรอให้ออกจากระบบ');

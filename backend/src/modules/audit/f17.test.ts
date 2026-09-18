@@ -129,6 +129,7 @@ describe('F17 เครื่องมือตรวจสอบ', () => {
     await prisma.resource.updateMany({ where: { id: { in: all } }, data: { retentionPolicyId: null } });
     await prisma.resource.deleteMany({ where: { parentId: { not: null }, id: { in: all } } });
     await prisma.resource.deleteMany({ where: { id: { in: all } } });
+    await prisma.legalHoldHistory.deleteMany({ where: { createdById: { in: users } } });
     await prisma.user.deleteMany({ where: { id: { in: users } } });
   });
 

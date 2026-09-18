@@ -390,12 +390,31 @@ const DETAIL_ALLOWLIST: Record<string, string[]> = {
   /* ---- OCR: จำนวนเท่านั้น ไม่มีตัวข้อความ ---- */
   OCR_CORRECTION_CREATED: ['correctionRevision', 'characterCount', 'truncated'],
   OCR_CORRECTION_UPDATED: ['correctionRevision', 'characterCount', 'truncated'],
-  /* ---- การกำกับดูแล: ไม่มีเหตุผลของ Legal Hold ---- */
+  /* ---- การกำกับดูแล: เหตุผล override แสดงเฉพาะเหตุการณ์ที่ผู้มีสิทธิ์สั่งโดยตรง ---- */
   RETENTION_POLICY_ASSIGNED: ['policyId', 'retentionUntil', 'retainForever', 'source', 'bulk'],
   RETENTION_POLICY_CHANGED: ['policyId', 'retentionUntil', 'retainForever'],
   RETENTION_POLICY_UPDATED: ['policyId', 'reapplied'],
-  LEGAL_HOLD_CREATED: ['legalHoldId'],
-  LEGAL_HOLD_RELEASED: ['legalHoldId'],
+  RETENTION_APPLIED: [
+    'policyId', 'beforePolicyId', 'beforeRetentionUntil', 'beforeRetentionForever',
+    'afterPolicyId', 'afterRetentionUntil', 'afterRetentionForever', 'source',
+  ],
+  RETENTION_STRENGTHENED: [
+    'policyId', 'beforePolicyId', 'beforeRetentionUntil', 'beforeRetentionForever',
+    'afterPolicyId', 'afterRetentionUntil', 'afterRetentionForever', 'source',
+  ],
+  RETENTION_OVERRIDE_WEAKENED: [
+    'policyId', 'beforePolicyId', 'beforeRetentionUntil', 'beforeRetentionForever',
+    'afterPolicyId', 'afterRetentionUntil', 'afterRetentionForever', 'reason', 'source',
+  ],
+  RETENTION_CLEARED: [
+    'policyId', 'beforePolicyId', 'beforeRetentionUntil', 'beforeRetentionForever',
+    'afterPolicyId', 'afterRetentionUntil', 'afterRetentionForever', 'reason', 'source',
+  ],
+  RETENTION_REAPPLY_STARTED: ['policyId', 'attempted', 'changed', 'unchanged', 'blocked', 'failed'],
+  RETENTION_REAPPLY_COMPLETED: ['policyId', 'attempted', 'changed', 'unchanged', 'blocked', 'failed'],
+  RETENTION_REAPPLY_PARTIAL: ['policyId', 'attempted', 'changed', 'unchanged', 'blocked', 'failed'],
+  LEGAL_HOLD_CREATED: ['legalHoldId', 'originalResourceId', 'resourceName', 'before', 'after'],
+  LEGAL_HOLD_RELEASED: ['legalHoldId', 'originalResourceId', 'resourceName', 'releaseReason', 'before', 'after'],
   PERMANENT_DELETE_BLOCKED_RETENTION: ['blockedBy', 'retentionUntil'],
   PERMANENT_DELETE_BLOCKED_HOLD: ['blockedBy'],
   /* ---- ลิงก์แชร์ภายนอก (F18): ตัวตนของลิงก์และเงื่อนไข ไม่มีโทเคนและไม่มีรหัสผ่าน ---- */

@@ -5,7 +5,7 @@ import { prisma } from '../../core/prisma.js';
 import { AppError } from '../../core/errors.js';
 import { requireInternal } from '../auth/auth.guard.js';
 import { isAdminUser } from '../resources/system-drive.js';
-import { toShareDto, type ShareStatus } from './public-share.service.js';
+import { shareStatus, toShareDto, type ShareStatus } from './public-share.service.js';
 
 /**
  * มุมมองผู้ดูแลระบบสำหรับลิงก์แชร์ภายนอกทั้งระบบ (F18)
@@ -35,7 +35,7 @@ export async function adminShareRoutes(app: FastifyInstance): Promise<void> {
 
     const query = z
       .object({
-        status: z.enum(['ACTIVE', 'EXPIRED', 'REVOKED', 'EXPIRING_SOON']).optional(),
+        status: z.enum(['ACTIVE', 'EXPIRED', 'REVOKED', 'UNUSABLE', 'EXPIRING_SOON']).optional(),
         createdById: z.string().max(191).optional(),
         resourceId: z.string().max(191).optional(),
         allowDownload: z.coerce.boolean().optional(),
@@ -50,28 +50,6 @@ export async function adminShareRoutes(app: FastifyInstance): Promise<void> {
     const now = new Date();
     const and: Prisma.PublicShareLinkWhereInput[] = [];
 
-    /**
-     * สถานะไม่ได้เก็บไว้ในฐานข้อมูล จึงต้องแปลงเป็นเงื่อนไขเวลาแทน
-     *
-     * คอลัมน์สถานะที่เก็บไว้จะเพี้ยนทันทีที่เวลาผ่านไปโดยไม่มีใครแตะแถวนั้น
-     * และ "หมดอายุ" ก็เป็นเหตุการณ์ที่ไม่มีใครมากดปุ่มให้อยู่แล้ว
-     */
-    if (query.status === 'ACTIVE') {
-      and.push({ revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] });
-    } else if (query.status === 'EXPIRED') {
-      and.push({ revokedAt: null, expiresAt: { lte: now } });
-    } else if (query.status === 'REVOKED') {
-      and.push({ revokedAt: { not: null } });
-    } else if (query.status === 'EXPIRING_SOON') {
-      and.push({
-        revokedAt: null,
-        expiresAt: {
-          gt: now,
-          lte: new Date(now.getTime() + EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000),
-        },
-      });
-    }
-
     if (query.createdById) and.push({ createdById: query.createdById });
     if (query.resourceId) and.push({ resourceId: query.resourceId });
     if (query.allowDownload !== undefined) and.push({ allowDownload: query.allowDownload });
@@ -85,17 +63,25 @@ export async function adminShareRoutes(app: FastifyInstance): Promise<void> {
       where: and.length > 0 ? { AND: and } : undefined,
       include: {
         resource: {
-          select: { id: true, name: true, type: true, deletedAt: true, lifecycleState: true },
+          select: { id: true, name: true, type: true, deletedAt: true, lifecycleState: true, classification: true },
         },
         createdBy: { select: { id: true, displayName: true, email: true } },
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: query.limit + 1,
-      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     });
-
-    const hasMore = rows.length > query.limit;
-    const page = hasMore ? rows.slice(0, query.limit) : rows;
+    const soon = new Date(now.getTime() + EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000);
+    const filtered = rows.filter((row) => {
+      if (!query.status) return true;
+      const status = shareStatus(row, row.resource, now);
+      if (query.status === 'UNUSABLE') return status === 'LIMIT_REACHED' || status === 'RESOURCE_UNAVAILABLE';
+      if (query.status === 'EXPIRING_SOON') {
+        return status === 'ACTIVE' && row.expiresAt !== null && row.expiresAt <= soon;
+      }
+      return status === query.status;
+    });
+    const start = query.cursor ? Math.max(0, filtered.findIndex((row) => row.id === query.cursor) + 1) : 0;
+    const page = filtered.slice(start, start + query.limit);
+    const hasMore = start + query.limit < filtered.length;
 
     return {
       success: true,
@@ -121,35 +107,22 @@ export async function adminShareRoutes(app: FastifyInstance): Promise<void> {
     const now = new Date();
     const soon = new Date(now.getTime() + EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000);
 
-    const [active, expiringSoon, expired, revoked, downloadable, passwordProtected] =
-      await Promise.all([
-        prisma.publicShareLink.count({
-          where: { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-        }),
-        prisma.publicShareLink.count({
-          where: { revokedAt: null, expiresAt: { gt: now, lte: soon } },
-        }),
-        prisma.publicShareLink.count({ where: { revokedAt: null, expiresAt: { lte: now } } }),
-        prisma.publicShareLink.count({ where: { revokedAt: { not: null } } }),
-        prisma.publicShareLink.count({
-          where: {
-            revokedAt: null,
-            allowDownload: true,
-            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-          },
-        }),
-        prisma.publicShareLink.count({
-          where: {
-            revokedAt: null,
-            passwordHash: { not: null },
-            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-          },
-        }),
-      ]);
+    const rows = await prisma.publicShareLink.findMany({
+      include: { resource: { select: { deletedAt: true, lifecycleState: true, classification: true } } },
+    });
+    const statuses = rows.map((row) => ({ row, status: shareStatus(row, row.resource, now) }));
+    const activeRows = statuses.filter(({ status }) => status === 'ACTIVE');
+    const active = activeRows.length;
+    const expiringSoon = activeRows.filter(({ row }) => row.expiresAt && row.expiresAt <= soon).length;
+    const expired = statuses.filter(({ status }) => status === 'EXPIRED').length;
+    const revoked = statuses.filter(({ status }) => status === 'REVOKED').length;
+    const unusable = statuses.filter(({ status }) => status === 'LIMIT_REACHED' || status === 'RESOURCE_UNAVAILABLE').length;
+    const downloadable = activeRows.filter(({ row }) => row.allowDownload && (row.maxDownloads === null || row.downloadCount < row.maxDownloads)).length;
+    const passwordProtected = activeRows.filter(({ row }) => row.passwordHash !== null).length;
 
     return {
       success: true,
-      data: { active, expiringSoon, expired, revoked, downloadable, passwordProtected },
+      data: { active, expiringSoon, expired, revoked, unusable, downloadable, passwordProtected },
     };
   });
 }

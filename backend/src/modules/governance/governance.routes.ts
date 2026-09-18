@@ -11,19 +11,22 @@ import {
   assignPolicy,
   createPolicy,
   deletePolicy,
+  executeReapplyPolicy,
   listPolicies,
-  reapplyPolicy,
+  previewReapplyPolicy,
   seedDefaultPolicies,
   updatePolicy,
 } from './retention.service.js';
 import { archiveResource, unarchiveResource } from './archive.service.js';
 import {
   legalHoldsForResource,
+  listLegalHoldHistory,
   listLegalHolds,
   placeLegalHold,
   releaseLegalHold,
 } from './legal-hold.service.js';
 import { bulkArchive, bulkAssignRetention } from '../resources/bulk.service.js';
+import { classificationImpact, setClassification } from './classification.service.js';
 
 const idParams = z.object({ id: z.string().min(1) });
 const audit = (request: FastifyRequest) => ({
@@ -87,10 +90,26 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
    * เป็นการกระทำที่ต้องกดเอง ไม่ใช่ผลข้างเคียงของการแก้นิยามนโยบาย
    * เพราะมันเปลี่ยนวันหมดอายุของเอกสารจำนวนมากพร้อมกัน
    */
-  app.post('/retention-policies/:id/reapply', { preHandler: requireInternal }, async (request) => ({
+  app.get('/retention-policies/:id/reapply-preview', { preHandler: requireInternal }, async (request) => ({
     success: true,
-    data: await reapplyPolicy(idParams.parse(request.params).id, request.authUser!),
+    data: await previewReapplyPolicy(idParams.parse(request.params).id, request.authUser!),
   }));
+
+  app.post('/retention-policies/:id/reapply', { preHandler: requireInternal }, async (request) => {
+    const input = z
+      .object({ previewToken: z.string().min(20).max(2_000_000), reason: z.string().max(500).nullable().optional() })
+      .strict()
+      .parse(request.body);
+    return {
+      success: true,
+      data: await executeReapplyPolicy(
+        idParams.parse(request.params).id,
+        request.authUser!,
+        input,
+        audit(request),
+      ),
+    };
+  });
 
   app.post('/retention-policies/seed-defaults', { preHandler: requireInternal }, async (request) => ({
     success: true,
@@ -106,6 +125,7 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
         policyId: z.string().min(1).max(191).nullable(),
         /** วันเริ่มนับ - ไม่ระบุ = ใช้วันที่นำเข้าระบบ ไม่มีการเดาจากเนื้อในเอกสาร */
         startAt: z.coerce.date().nullable().optional(),
+        reason: z.string().max(500).nullable().optional(),
       })
       .strict()
       .parse(request.body);
@@ -131,6 +151,38 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
     ),
   }));
 
+  /* ---------------- ชั้นความลับ (F25-D) ---------------- */
+
+  const classificationLevel = z.enum(['PUBLIC', 'INTERNAL', 'CONFIDENTIAL', 'RESTRICTED']);
+
+  /**
+   * ดูผลกระทบก่อนเปลี่ยน - อ่านอย่างเดียว ไม่เปลี่ยนอะไรทั้งสิ้น
+   *
+   * แยกเป็นเส้นทางของตัวเองเพื่อให้หน้าจอเตือนได้ "ก่อน" ผู้ใช้กดยืนยัน
+   * ถ้าให้หน้าจอคำนวณเอง คำเตือนกับสิ่งที่เซิร์ฟเวอร์ทำจริงจะค่อย ๆ ห่างกันตามเวลา
+   */
+  app.get('/resources/:id/classification/impact', { preHandler: requireInternal }, async (request) => ({
+    success: true,
+    data: await classificationImpact(
+      idParams.parse(request.params).id,
+      request.authUser!,
+      z.object({ level: classificationLevel }).parse(request.query).level,
+    ),
+  }));
+
+  app.patch('/resources/:id/classification', { preHandler: requireInternal }, async (request) => {
+    const { id } = idParams.parse(request.params);
+    const input = z
+      .object({
+        level: classificationLevel,
+        // ตรวจความยาวขั้นต่ำที่ service ไม่ใช่ที่นี่ เพราะบังคับเฉพาะตอนลดชั้น
+        reason: z.string().max(500).nullable().optional(),
+      })
+      .strict()
+      .parse(request.body);
+    return { success: true, data: await setClassification(id, request.authUser!, input, audit(request)) };
+  });
+
   /* ---------------- การระงับการลบ ---------------- */
 
   app.get('/legal-holds', { preHandler: requireInternal }, async (request) => {
@@ -139,6 +191,13 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
       success: true,
       data: await listLegalHolds(request.authUser!, { includeReleased: query.includeReleased }),
     };
+  });
+
+  app.get('/legal-hold-history', { preHandler: requireInternal }, async (request) => {
+    const query = z
+      .object({ resourceId: z.string().max(191).optional(), includeActive: z.coerce.boolean().optional() })
+      .parse(request.query);
+    return { success: true, data: await listLegalHoldHistory(request.authUser!, query) };
   });
 
   app.post('/resources/:id/legal-hold', { preHandler: requireInternal }, async (request, reply) => {
@@ -164,9 +223,9 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
   app.post('/legal-holds/:id/release', { preHandler: requireInternal }, async (request) => {
     const { id } = idParams.parse(request.params);
     const input = z
-      .object({ releaseReason: z.string().max(500).nullable().optional() })
+      .object({ releaseReason: z.string().trim().min(1).max(500) })
       .strict()
-      .parse(request.body ?? {});
+      .parse(request.body);
     return {
       success: true,
       data: await releaseLegalHold(id, request.authUser!, input, audit(request)),
@@ -177,7 +236,11 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/resources/bulk/retention', { preHandler: requireInternal }, async (request) => {
     const input = z
-      .object({ resourceIds, policyId: z.string().min(1).max(191).nullable() })
+      .object({
+        resourceIds,
+        policyId: z.string().min(1).max(191).nullable(),
+        reason: z.string().max(500).nullable().optional(),
+      })
       .strict()
       .parse(request.body);
     return {
@@ -187,6 +250,7 @@ export async function governanceRoutes(app: FastifyInstance): Promise<void> {
         input.policyId,
         request.authUser!,
         audit(request),
+        input.reason,
       ),
     };
   });

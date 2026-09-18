@@ -8,6 +8,7 @@ import { capabilities } from '../resources/resource.service.js';
 import { resourceInclude, type AuditContext } from '../workspace/workspace.service.js';
 import type { AuthUser } from '../auth/auth.service.js';
 import { generateShareToken, hashShareToken, shareUrl } from './share-token.js';
+import { CLASSIFICATION_LABEL, allowsAnonymousLink } from '../governance/classification.policy.js';
 
 /**
  * ลิงก์แชร์ภายนอก (F18)
@@ -43,7 +44,9 @@ export type ShareStatus =
   | 'EXPIRED'
   | 'REVOKED'
   | 'LIMIT_REACHED'
-  | 'RESOURCE_UNAVAILABLE';
+  | 'RESOURCE_UNAVAILABLE'
+  /** ถูกปิดด้วยนโยบายชั้นความลับ - แถวยังอยู่ ไม่ได้ถูกลบ (F25-D) */
+  | 'CLASSIFICATION_RESTRICTED';
 
 /* ------------------------------------------------------------------ */
 /* สิทธิ์ในการสร้าง                                                     */
@@ -72,7 +75,14 @@ export function canCreatePublicShare(
 /* สถานะ                                                              */
 /* ------------------------------------------------------------------ */
 
-type ResourceState = Pick<Resource, 'deletedAt' | 'lifecycleState'>;
+/**
+ * สถานะของทรัพยากรที่จำเป็นต่อการตัดสินสถานะลิงก์
+ *
+ * classification เป็นฟิลด์บังคับโดยตั้งใจ ไม่ใช่ทางเลือก ถ้าปล่อยให้เป็นทางเลือก
+ * จุดเรียกที่ลืม select มันจะข้ามการบังคับใช้นโยบายไปเงียบ ๆ ซึ่งเป็นการเปิดช่องแบบ fail-open
+ * การบังคับให้มีทำให้คอมไพเลอร์จับจุดที่ลืมได้ตั้งแต่ตอน build
+ */
+type ResourceState = Pick<Resource, 'deletedAt' | 'lifecycleState' | 'classification'>;
 
 /**
  * ทรัพยากรอยู่ในสภาพที่ให้คนนอกเห็นได้หรือไม่
@@ -84,8 +94,34 @@ type ResourceState = Pick<Resource, 'deletedAt' | 'lifecycleState'>;
  * ไม่บันทึกการยกเลิกลิงก์ - ลิงก์ยังมีชีวิตอยู่ เพียงแต่ประตูปิดชั่วคราว
  * ถ้าเอกสารกลับมาใช้งานได้ ลิงก์ที่ยังไม่หมดอายุและไม่ถูกยกเลิกก็ใช้ได้อีก
  */
-export function resourceAvailableToGuests(resource: ResourceState): boolean {
+/**
+ * ความพร้อมของทรัพยากรสำหรับแขก - เรื่องของการมีอยู่ ไม่ใช่เรื่องของนโยบาย
+ *
+ * รับเฉพาะสิ่งที่ใช้จริง ไม่ผูกกับ ResourceState ที่กว้างกว่า เพื่อให้จุดเรียกที่ไล่สายบรรพบุรุษ
+ * ไม่ต้องดึงชั้นความลับของทุกชั้นมาโดยไม่จำเป็น การบังคับใช้ชั้นความลับอยู่ที่ shareStatus
+ * ซึ่งตัดสินจากทรัพยากรที่ลิงก์ชี้ถึงโดยตรง
+ */
+export function resourceAvailableToGuests(
+  resource: Pick<Resource, 'deletedAt' | 'lifecycleState'>,
+): boolean {
   return resource.deletedAt === null && resource.lifecycleState === 'ACTIVE';
+}
+
+/**
+ * ทรัพยากรนี้ปรากฏต่อผู้เยี่ยมชมที่ไม่ระบุตัวตนได้หรือไม่ (F25-D)
+ *
+ * ต่างจาก resourceAvailableToGuests ตรงที่รวมนโยบายชั้นความลับเข้ามาด้วย ใช้กับ **ทุกชั้น
+ * ที่อยู่ใต้รากของลิงก์** ไม่ใช่เฉพาะตัวรากที่ shareStatus ตรวจไปแล้ว
+ *
+ * **ช่องโหว่ที่ฟังก์ชันนี้ปิด:** ลิงก์สาธารณะที่ชี้ไปที่โฟลเดอร์ยอมให้แขกไต่ลงไปดูลูกหลานได้
+ * ถ้าตรวจชั้นความลับเฉพาะที่ราก โฟลเดอร์ที่ตั้งเป็นสาธารณะจะกลายเป็นประตูที่เปิดเอกสารชั้น
+ * ภายใน และ ลับ ทุกฉบับข้างในออกสู่สาธารณะ ทั้งที่ไม่มีใครตั้งใจเปิดเอกสารเหล่านั้นเลย
+ *
+ * ชั้นความลับในระบบนี้ไม่สืบทอดลงล่างโดยเจตนา ทุกฉบับตอบเรื่องการเปิดเผยของตัวเอง
+ * กฎนี้จึงเป็นด้านกลับที่ขาดไม่ได้: โฟลเดอร์ที่เปิดกว้างไม่ทำให้ลูกที่ปิดอยู่เปิดตามไปด้วย
+ */
+export function resourceExposableToGuests(resource: ResourceState): boolean {
+  return resourceAvailableToGuests(resource) && allowsAnonymousLink(resource.classification);
 }
 
 export function shareStatus(
@@ -96,6 +132,18 @@ export function shareStatus(
   if (link.revokedAt) return 'REVOKED';
   if (link.expiresAt && link.expiresAt.getTime() <= now.getTime()) return 'EXPIRED';
   if (link.maxViews !== null && link.viewCount >= link.maxViews) return 'LIMIT_REACHED';
+  if (!link.allowPreview && link.allowDownload && link.maxDownloads !== null && link.downloadCount >= link.maxDownloads) return 'LIMIT_REACHED';
+  if (!link.allowPreview && !link.allowDownload) return 'LIMIT_REACHED';
+  /**
+   * นโยบายชั้นความลับปิดลิงก์ทันทีโดยไม่ต้องลบแถว (F25-D)
+   *
+   * วางไว้หลังสถานะที่มนุษย์เป็นคนกด (เพิกถอน/หมดอายุ/ใช้ครบโควตา) เพราะถ้าลิงก์ถูกเพิกถอน
+   * ไปแล้ว เหตุผลที่แท้จริงคือการเพิกถอน ไม่ใช่ชั้นความลับ การรายงานสาเหตุที่ใกล้ความจริงที่สุด
+   * สำคัญกว่าการรายงานสาเหตุที่เข้มงวดที่สุด
+   */
+  if (resource && !allowsAnonymousLink(resource.classification)) {
+    return 'CLASSIFICATION_RESTRICTED';
+  }
   if (!resource || !resourceAvailableToGuests(resource)) return 'RESOURCE_UNAVAILABLE';
   return 'ACTIVE';
 }
@@ -186,6 +234,23 @@ export async function createPublicShare(
       409,
     );
   }
+  /**
+   * ชั้นความลับปิดกั้นตั้งแต่ตอนสร้าง ไม่ใช่ปล่อยให้สร้างแล้วค่อยตายทีหลัง (F25-D)
+   *
+   * shareStatus จะตอบ CLASSIFICATION_RESTRICTED อยู่แล้วถ้าปล่อยให้สร้างผ่าน แต่ผลลัพธ์คือ
+   * ผู้ใช้ได้ลิงก์มาในมือ ส่งให้ลูกค้า แล้วลูกค้ากดไม่ได้ ระบบที่ยอมให้สร้างสิ่งที่ตัวเองจะปฏิเสธ
+   * ในวินาทีถัดไป คือระบบที่โยนความผิดพลาดของตัวเองไปให้ผู้ใช้เจอกับลูกค้า
+   *
+   * ข้อความบอกทางออกที่ทำได้จริง แทนที่จะบอกแค่ว่าไม่ได้
+   */
+  if (!allowsAnonymousLink(resource.classification)) {
+    throw new AppError(
+      'SHARE_CLASSIFICATION_RESTRICTED',
+      `เอกสารชั้น "${CLASSIFICATION_LABEL[resource.classification]}" สร้างลิงก์สาธารณะไม่ได้ ต้องปรับชั้นความลับเป็น "${CLASSIFICATION_LABEL.PUBLIC}" ก่อน`,
+      409,
+    );
+  }
+
   if (resource.type !== 'FILE' && resource.type !== 'FOLDER') {
     throw new AppError(
       'SHARE_UNSUPPORTED_TYPE',
@@ -209,13 +274,8 @@ export async function createPublicShare(
     );
   }
 
-  const active = await prisma.publicShareLink.count({
-    where: {
-      resourceId,
-      revokedAt: null,
-      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-    },
-  });
+  const existingLinks = await prisma.publicShareLink.findMany({ where: { resourceId } });
+  const active = existingLinks.filter((link) => shareStatus(link, resource, now) === 'ACTIVE').length;
   if (active >= MAX_ACTIVE_LINKS_PER_RESOURCE) {
     throw new AppError(
       'SHARE_TOO_MANY_LINKS',

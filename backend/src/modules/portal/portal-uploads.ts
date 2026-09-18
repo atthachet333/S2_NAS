@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../core/prisma.js';
-import { activeGrantMap, portalResourceSelect } from './portal-access.js';
+import { activeGrantMap, portalResourceSelect, resourceExposableToPortal } from './portal-access.js';
 import { externalCapabilities, portalRoleFor, type PortalRole } from './portal-policy.js';
 import type { AuthUser } from '../auth/auth.service.js';
 
@@ -156,12 +156,12 @@ export async function listUploadHistory(
       effective = grant;
     }
 
-    const trashed = row.deletedAt !== null;
+    const exposable = resourceExposableToPortal(row);
     let state: UploadHistoryState;
-    if (trashed) {
+    if (row.deletedAt !== null) {
       // ถูกลบแล้ว - ประวัติยังบอกว่าเคยส่งไป แต่ไฟล์เข้าถึงไม่ได้ และไม่มีทางไปถังขยะ
       state = 'UNAVAILABLE';
-    } else if (!effective) {
+    } else if (!effective || !exposable) {
       /**
        * ไฟล์ยังอยู่ แต่อยู่นอกขอบเขตที่ลูกค้าเข้าถึงได้แล้ว
        * ไม่บอกตำแหน่งใหม่ ไม่บอกว่าถูกย้ายไปไหน บอกเพียงว่าเรื่องถึงมือเจ้าหน้าที่แล้ว
@@ -171,7 +171,14 @@ export async function listUploadHistory(
       state = 'AVAILABLE';
     }
 
-    const caps = effective
+    /*
+     * ความสามารถต้องตรงกับสถานะที่เพิ่งคำนวณไป (F26-A1)
+     *
+     * ถ้าดูจากสิทธิ์อย่างเดียว ไฟล์ที่ถูกปิดด้วยชั้นความลับหรือถูกเก็บเข้าคลังจะยังมี
+     * ปุ่มดาวน์โหลดให้กด แล้วได้คำปฏิเสธกลับมา ซึ่งบอกลูกค้าเป็นนัยว่าไฟล์ยังอยู่
+     * และมีบางอย่างเปลี่ยนไป - เป็นข้อมูลที่ไม่ควรหลุดออกไปพอ ๆ กับตัวไฟล์เอง
+     */
+    const caps = effective && exposable
       ? externalCapabilities({
           role: effective.role,
           allowDownload: effective.allowDownload,
