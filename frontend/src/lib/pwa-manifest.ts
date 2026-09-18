@@ -51,7 +51,18 @@ export const S2_NAS_MANIFEST: PwaManifest = {
   orientation: 'any',
   theme_color: '#ffffff',
   background_color: '#edf1f7',
+  /**
+   * ทุกไอคอนที่ประกาศตรงนี้ถูกเก็บล่วงหน้าโดยอัตโนมัติ รายการจึงสั้นโดยตั้งใจ
+   *
+   * 144 คือขนาดที่เครื่อง Android ความละเอียดสูงใช้บนหน้าจอหลักจริง ๆ ส่วน 192
+   * และ 512 เป็นขั้นต่ำของ Chromium ขนาดกลางอื่น ๆ (256/384) มีไฟล์อยู่ใน public
+   * แต่ไม่ประกาศไว้ เพราะระบบย่อจาก 512 ลงมาได้ดีพอ และการประกาศเพิ่มจะบวก
+   * ~63 KB เข้าไปในก้อนที่ทุกเครื่องต้องโหลดตอนออฟไลน์โดยไม่ได้อะไรกลับมา
+   *
+   * ทุกไฟล์ในรายการนี้ต้องมีอยู่จริง - verify-pwa-build ตรวจข้อนี้ตอน build
+   */
   icons: [
+    { src: '/icon-144x144.png', sizes: '144x144', type: 'image/png', purpose: 'any' },
     { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
     { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
     { src: '/pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },

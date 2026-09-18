@@ -16,6 +16,7 @@ const SHELL_EXTENSIONS = ['.js', '.css', '.woff2', '.svg', '.ico', '.webmanifest
 
 /** ไอคอนและโลโก้ของแบรนด์ที่อนุญาตให้เก็บได้ - เป็นภาพนิ่งของระบบ ไม่ใช่เอกสารของใคร */
 const ALLOWED_IMAGES = [
+  '/icon-144x144.png',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
   '/pwa-maskable-512x512.png',
@@ -23,6 +24,7 @@ const ALLOWED_IMAGES = [
   '/favicon.png',
   '/favicon-32x32.png',
   '/favicon-16x16.png',
+  '/favicon-48x48.png',
   '/s2-nas-logo.png',
 ];
 

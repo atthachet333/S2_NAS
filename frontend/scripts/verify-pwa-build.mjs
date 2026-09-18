@@ -61,8 +61,9 @@ check(unique.size === precached.length,
  */
 const ALLOWED_FILES = new Set([
   'index.html', 'favicon.ico', 'favicon.svg', 'favicon.png',
-  'favicon-32x32.png', 'favicon-16x16.png', 'apple-touch-icon.png',
-  's2-nas-logo.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png',
+  'favicon-32x32.png', 'favicon-16x16.png', 'favicon-48x48.png', 'apple-touch-icon.png',
+  's2-nas-logo.png', 'icon-144x144.png',
+  'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png',
   'manifest.webmanifest', 'registerSW.js',
 ]);
 const ALLOWED_ASSET = /^assets\/[^/]+\.(?:js|css|woff2)$/;
